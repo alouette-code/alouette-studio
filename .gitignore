@@ -12,4 +12,7 @@ core_engine/app_data/ai_config.yml
 
 core_engine/src/agent_harness/report_C/
 
-.env    
+.env
+
+
+/app_data

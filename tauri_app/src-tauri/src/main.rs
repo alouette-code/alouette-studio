@@ -1,7 +1,6 @@
 // Prevents additional console window on Windows in release (Trigger recompile: 2026-05-24 11:02)
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod alouette_open;
 mod commands;
 mod events;
 mod state;
@@ -142,9 +141,6 @@ fn main() {
             // 4. Spawn Terminal Event Router Task
             events::spawn_terminal_router(pm_clone.clone(), window_clone.clone());
 
-            // 5. Spawn Alouette Open log monitor task
-            alouette_open::spawn_alouette_open_monitor(app.handle().clone());
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -170,21 +166,6 @@ fn main() {
             commands::network::force_kill_process,
             commands::network::open_ping_window,
             commands::network::open_admin_window,
-            commands::browser::open_browser_window,
-            commands::network::send_http_request,
-            commands::network::dns_lookup,
-            commands::network::ping_host,
-            commands::network::ssl_certificate_info,
-            commands::network::validate_json_schema,
-            commands::network::json_format_tool,
-            commands::network::base64_tool,
-            commands::network::generate_curl_command,
-            commands::network::http_status_info,
-            commands::network::hash_tool,
-            commands::network::jwt_decode,
-            commands::network::timestamp_convert,
-            commands::network::response_diff,
-            commands::network::prettify_xml,
             commands::settings::get_settings,
             commands::settings::save_settings,
             commands::settings::reset_settings,
@@ -203,15 +184,6 @@ fn main() {
             commands::language::save_language_runtime,
             commands::language::delete_language_runtime,
             commands::language::install_proto_tool,
-            commands::agent::agent_send_message,
-            commands::agent::agent_approve_tool,
-            commands::agent::agent_reset_session,
-            commands::agent::get_custom_ai_config,
-            commands::agent::save_custom_ai_config,
-            commands::agent::agent_cancel,
-            commands::agent::agent_status,
-            toggle_alouette_open,
-            is_alouette_open_active,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -255,14 +227,4 @@ fn main() {
                 });
             }
         });
-}
-
-#[tauri::command]
-fn toggle_alouette_open(enabled: bool) {
-    alouette_open::set_alouette_open_enabled(enabled);
-}
-
-#[tauri::command]
-fn is_alouette_open_active() -> bool {
-    alouette_open::is_alouette_open_enabled()
 }

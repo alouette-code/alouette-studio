@@ -14,7 +14,6 @@ import {
   Info,
   HelpCircle,
   GitBranch,
-  Sparkles,
   Wifi,
   Server,
   Cpu,
@@ -22,7 +21,7 @@ import {
   SlidersHorizontal,
   Hammer,
   Database,
-  Cloud
+  Cloud,
 } from "lucide-react";
 
 // Components
@@ -32,42 +31,48 @@ import ConfigSetup from "./components/ConfigSetup";
 import TabList from "./components/TabList";
 import TerminalPanel from "./components/TerminalPanel";
 import ProcessManager from "./components/ProcessManager";
-import BuildPanel from "./components/BuildPanel";
 import AdminPanel from "./components/AdminPanel";
 import FileExplorer from "./components/FileExplorer";
 import SqliteEditor from "./components/SqliteEditor";
-import MiniPostman from "./components/MiniPostman";
-import AiAgent from "./components/AiAgent";
+
 import ProjectResources from "./components/ProjectResources";
 import CloudflareTunnel from "./components/CloudflareTunnel";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-function ZenIcon({ size = 14 }: { size?: number }) {
+function LayoutLeftIcon({
+  active,
+  size = 15,
+}: {
+  active: boolean;
+  size?: number;
+}) {
   return (
     <svg
       width={size}
       height={size}
-      viewBox="0 0 24 24"
+      viewBox="0 0 16 16"
       fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Vòng tròn hở nghệ thuật Zen Ensō */}
-      <path d="M12 3a9 9 0 1 0 9 9c0-1.5-.4-3-1.1-4.2" />
-      {/* Chữ Z cách điệu mềm mại thanh thoát ở tâm */}
-      <path d="M8.5 8.5h7L10 15.5h7" />
-    </svg>
-  );
-}
-
-function LayoutLeftIcon({ active, size = 15 }: { active: boolean; size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
-      <line x1="5.5" y1="1.5" x2="5.5" y2="14.5" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
+      <rect
+        x="1.5"
+        y="1.5"
+        width="13"
+        height="13"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.4"
+      />
+      <line
+        x1="5.5"
+        y1="1.5"
+        x2="5.5"
+        y2="14.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.4"
+      />
       {active && (
         <rect x="2.1" y="2.1" width="2.8" height="11.8" fill="currentColor" />
       )}
@@ -75,11 +80,40 @@ function LayoutLeftIcon({ active, size = 15 }: { active: boolean; size?: number 
   );
 }
 
-function LayoutBottomIcon({ active, size = 15 }: { active: boolean; size?: number }) {
+function LayoutBottomIcon({
+  active,
+  size = 15,
+}: {
+  active: boolean;
+  size?: number;
+}) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
-      <line x1="1.5" y1="10.5" x2="14.5" y2="10.5" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect
+        x="1.5"
+        y="1.5"
+        width="13"
+        height="13"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.4"
+      />
+      <line
+        x1="1.5"
+        y1="10.5"
+        x2="14.5"
+        y2="10.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.4"
+      />
       {active && (
         <rect x="2.1" y="11.1" width="11.8" height="2.8" fill="currentColor" />
       )}
@@ -87,18 +121,46 @@ function LayoutBottomIcon({ active, size = 15 }: { active: boolean; size?: numbe
   );
 }
 
-function LayoutRightIcon({ active, size = 15 }: { active: boolean; size?: number }) {
+function LayoutRightIcon({
+  active,
+  size = 15,
+}: {
+  active: boolean;
+  size?: number;
+}) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <rect x="1.5" y="1.5" width="13" height="13" rx="2" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
-      <line x1="10.5" y1="1.5" x2="10.5" y2="14.5" stroke="currentColor" strokeWidth="1.2" opacity="0.4" />
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <rect
+        x="1.5"
+        y="1.5"
+        width="13"
+        height="13"
+        rx="2"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.4"
+      />
+      <line
+        x1="10.5"
+        y1="1.5"
+        x2="10.5"
+        y2="14.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        opacity="0.4"
+      />
       {active && (
         <rect x="11.1" y="2.1" width="2.8" height="11.8" fill="currentColor" />
       )}
     </svg>
   );
 }
-
 
 // Types
 import { ResourceHistory, TerminalSessionItem, ProcessState } from "./types";
@@ -161,12 +223,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [settingMenuOpen, setSettingMenuOpen] = useState(false);
-  const [uptimeSeconds, setUptimeSeconds] = useState(0);
-
-  // Bottom nav tab (for right-bottom panel between manager / build)
-  const [rightBottomTab, setRightBottomTab] = useState<"manager" | "build">(
-    "manager",
-  );
+  const [rightBottomTab, setRightBottomTab] = useState<"manager">("manager");
 
   // Canvas Refs for CPU/RAM Charts
   const cpuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -189,8 +246,6 @@ export default function App() {
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
-  const [isAiViewActive, setIsAiViewActive] = useState(false);
-
 
   // Refs for dragging math
   const tabListRef = useRef<HTMLDivElement>(null);
@@ -337,10 +392,12 @@ export default function App() {
   }
 
   const [panes, setPanes] = useState<EditorPane[]>([
-    { openFiles: [], openFilePath: null }
+    { openFiles: [], openFilePath: null },
   ]);
   const [activePaneIndex, setActivePaneIndex] = useState<number>(0);
-  const [draggedOverPaneIndex, setDraggedOverPaneIndex] = useState<number | null>(null);
+  const [draggedOverPaneIndex, setDraggedOverPaneIndex] = useState<
+    number | null
+  >(null);
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     x: number;
@@ -350,7 +407,7 @@ export default function App() {
     visible: false,
     x: 0,
     y: 0,
-    targetPaneIndex: null
+    targetPaneIndex: null,
   });
 
   // Sync back to projectHook when active pane or its selected file changes
@@ -387,7 +444,10 @@ export default function App() {
       const newOpenFiles = pane.openFiles.filter((f) => f !== normalizedPath);
       pane.openFiles = newOpenFiles;
       if (pane.openFilePath === normalizedPath) {
-        pane.openFilePath = newOpenFiles.length > 0 ? newOpenFiles[newOpenFiles.length - 1] : null;
+        pane.openFilePath =
+          newOpenFiles.length > 0
+            ? newOpenFiles[newOpenFiles.length - 1]
+            : null;
       }
       copy[paneIdx] = pane;
       return copy;
@@ -405,13 +465,16 @@ export default function App() {
   };
 
   // Tab container context menu handler
-  const handleTabContainerContextMenu = (e: React.MouseEvent, paneIdx: number) => {
+  const handleTabContainerContextMenu = (
+    e: React.MouseEvent,
+    paneIdx: number,
+  ) => {
     e.preventDefault();
     setContextMenu({
       visible: true,
       x: e.clientX,
       y: e.clientY,
-      targetPaneIndex: paneIdx
+      targetPaneIndex: paneIdx,
     });
   };
 
@@ -433,8 +496,10 @@ export default function App() {
     setPanes((prev) => {
       const currentActive = prev[activePaneIndex];
       const newPane: EditorPane = {
-        openFiles: currentActive.openFilePath ? [currentActive.openFilePath] : [],
-        openFilePath: currentActive.openFilePath
+        openFiles: currentActive.openFilePath
+          ? [currentActive.openFilePath]
+          : [],
+        openFilePath: currentActive.openFilePath,
       };
       return [...prev, newPane];
     });
@@ -449,7 +514,11 @@ export default function App() {
   };
 
   // Tab HTML5 Drag & Drop handlers
-  const handleDragStart = (e: React.DragEvent, sourcePaneIdx: number, path: string) => {
+  const handleDragStart = (
+    e: React.DragEvent,
+    sourcePaneIdx: number,
+    path: string,
+  ) => {
     e.dataTransfer.setData("text/plain", path);
     e.dataTransfer.setData("sourcePaneIndex", String(sourcePaneIdx));
   };
@@ -471,7 +540,10 @@ export default function App() {
       // Remove from source
       sourcePane.openFiles = sourcePane.openFiles.filter((f) => f !== path);
       if (sourcePane.openFilePath === path) {
-        sourcePane.openFilePath = sourcePane.openFiles.length > 0 ? sourcePane.openFiles[sourcePane.openFiles.length - 1] : null;
+        sourcePane.openFilePath =
+          sourcePane.openFiles.length > 0
+            ? sourcePane.openFiles[sourcePane.openFiles.length - 1]
+            : null;
       }
 
       // Add to target
@@ -488,16 +560,6 @@ export default function App() {
     setActivePaneIndex(targetPaneIdx);
     setOpenFilePath(path);
   };
-
-
-
-  // ── System Uptime Counter ──
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setUptimeSeconds((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // ── Window click listener to close dropdowns ──
   useEffect(() => {
@@ -640,10 +702,6 @@ export default function App() {
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
   };
-
-  if (windowLabel === "ping_window") {
-    return <MiniPostman />;
-  }
 
   if (windowLabel === "admin_window") {
     return <AdminPanel />;
@@ -822,7 +880,9 @@ export default function App() {
                 className="zone zone-2"
                 style={{
                   flex: isBottomPanelOpen ? `0 0 ${monitorHeight}px` : 1,
-                  borderBottom: isBottomPanelOpen ? "1px solid var(--border-primary)" : "none",
+                  borderBottom: isBottomPanelOpen
+                    ? "1px solid var(--border-primary)"
+                    : "none",
                   position: "relative",
                 }}
               >
@@ -831,11 +891,11 @@ export default function App() {
                     const isActivePane = paneIdx === activePaneIndex;
                     const paneOpenFilePath = pane.openFilePath;
                     const paneOpenFiles = pane.openFiles;
-                    const paneIsSqliteFile = paneOpenFilePath ? (
-                      paneOpenFilePath.toLowerCase().endsWith(".db") ||
-                      paneOpenFilePath.toLowerCase().endsWith(".sqlite") ||
-                      paneOpenFilePath.toLowerCase().endsWith(".sqlite3")
-                    ) : false;
+                    const paneIsSqliteFile = paneOpenFilePath
+                      ? paneOpenFilePath.toLowerCase().endsWith(".db") ||
+                        paneOpenFilePath.toLowerCase().endsWith(".sqlite") ||
+                        paneOpenFilePath.toLowerCase().endsWith(".sqlite3")
+                      : false;
 
                     return (
                       <div
@@ -865,7 +925,9 @@ export default function App() {
                         {paneOpenFiles.length > 0 && (
                           <div
                             className="tabs-header-container"
-                            onContextMenu={(e) => handleTabContainerContextMenu(e, paneIdx)}
+                            onContextMenu={(e) =>
+                              handleTabContainerContextMenu(e, paneIdx)
+                            }
                           >
                             <div className="editor-tabs-bar">
                               {paneOpenFiles.map((path) => (
@@ -873,13 +935,18 @@ export default function App() {
                                   key={`tab-${paneIdx}-${encodeURIComponent(path)}`}
                                   className={`editor-tab ${paneOpenFilePath === path ? "active" : ""}`}
                                   draggable
-                                  onDragStart={(e) => handleDragStart(e, paneIdx, path)}
+                                  onDragStart={(e) =>
+                                    handleDragStart(e, paneIdx, path)
+                                  }
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     setActivePaneIndex(paneIdx);
                                     setPanes((prev) => {
                                       const copy = [...prev];
-                                      copy[paneIdx] = { ...copy[paneIdx], openFilePath: path };
+                                      copy[paneIdx] = {
+                                        ...copy[paneIdx],
+                                        openFilePath: path,
+                                      };
                                       return copy;
                                     });
                                     setOpenFilePath(path);
@@ -889,12 +956,20 @@ export default function App() {
                                   {path === "__resources__" ? (
                                     <Database size={12} className="tab-icon" />
                                   ) : path === "__cloudflare_tunnel__" ? (
-                                    <Cloud size={12} className="tab-icon" style={{ color: "#F38020" }} />
+                                    <Cloud
+                                      size={12}
+                                      className="tab-icon"
+                                      style={{ color: "#F38020" }}
+                                    />
                                   ) : (
                                     <FileCode size={12} className="tab-icon" />
                                   )}
                                   <span className="tab-name">
-                                    {path === "__resources__" ? "Tài nguyên" : path === "__cloudflare_tunnel__" ? "Cloudflare Tunnel" : path.split(/[\\/]/).pop()}
+                                    {path === "__resources__"
+                                      ? "Tài nguyên"
+                                      : path === "__cloudflare_tunnel__"
+                                        ? "Cloudflare Tunnel"
+                                        : path.split(/[\\/]/).pop()}
                                   </span>
                                   <button
                                     className="tab-close-btn"
@@ -940,15 +1015,28 @@ export default function App() {
                           </div>
                         )}
 
-                        <div className="editor-pane-body" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+                        <div
+                          className="editor-pane-body"
+                          style={{
+                            flex: 1,
+                            display: "flex",
+                            flexDirection: "column",
+                            minHeight: 0,
+                          }}
+                        >
                           {!paneOpenFilePath ? (
                             <div
                               className="code-editor-empty"
-                              onContextMenu={(e) => handleTabContainerContextMenu(e, paneIdx)}
+                              onContextMenu={(e) =>
+                                handleTabContainerContextMenu(e, paneIdx)
+                              }
                             >
                               <FileCode size={32} className="empty-icon" />
                               <h3>No File Selected</h3>
-                              <p>Click on any file in the Project Explorer or right-click to Split screen.</p>
+                              <p>
+                                Click on any file in the Project Explorer or
+                                right-click to Split screen.
+                              </p>
                               {panes.length > 1 && (
                                 <button
                                   className="btn btn-secondary"
@@ -959,7 +1047,7 @@ export default function App() {
                                     fontWeight: 600,
                                     borderColor: "var(--border-primary)",
                                     color: "var(--text-primary)",
-                                    backgroundColor: "transparent"
+                                    backgroundColor: "transparent",
                                   }}
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -989,10 +1077,19 @@ export default function App() {
                               theme={theme}
                               filePath={paneOpenFilePath}
                               content={
-                                paneOpenFilePath ? (filesContent[paneOpenFilePath] ?? null) : null
+                                paneOpenFilePath
+                                  ? (filesContent[paneOpenFilePath] ?? null)
+                                  : null
                               }
-                              isLoading={isFileLoading && openFilePath === paneOpenFilePath}
-                              error={openFilePath === paneOpenFilePath ? fileError : null}
+                              isLoading={
+                                isFileLoading &&
+                                openFilePath === paneOpenFilePath
+                              }
+                              error={
+                                openFilePath === paneOpenFilePath
+                                  ? fileError
+                                  : null
+                              }
                               onChange={(newVal) => {
                                 if (paneOpenFilePath) {
                                   setFilesContent((prev) => ({
@@ -1070,101 +1167,84 @@ export default function App() {
             onMouseDown={handleRightResizeStart}
           />
 
-          {isAiViewActive ? (
-            <AiAgent 
-              onBack={() => setIsAiViewActive(false)} 
-              activeProjectCwd={activeProject?.cwd}
-              activeProjectId={activeProject?.id}
-            />
-          ) : (
-            <>
-              {/* Zone 3: Configuration & Watchdog Setup */}
-              {activeProjectId && activeProjectId !== "__create_project__" && (
+          <>
+            {/* Zone 3: Configuration & Watchdog Setup */}
+            {activeProjectId && activeProjectId !== "__create_project__" && (
+              <div
+                ref={configRef}
+                className="zone zone-3"
+                style={{
+                  flex: `0 0 ${configHeight}px`,
+                  borderBottom: "1px solid var(--border-primary)",
+                  position: "relative",
+                }}
+              >
+                <ConfigSetup
+                  newProjName={newProjName}
+                  setNewProjName={setNewProjName}
+                  newProjRestart={newProjRestart}
+                  setNewProjRestart={setNewProjRestart}
+                  newProjCmd={newProjCmd}
+                  setNewProjCmd={setNewProjCmd}
+                  newProjArgs={newProjArgs}
+                  setNewProjArgs={setNewProjArgs}
+                  newProjCwd={newProjCwd}
+                  setNewProjCwd={setNewProjCwd}
+                  newProjPort={newProjPort}
+                  setNewProjPort={setNewProjPort}
+                  newProjCpu={newProjCpu}
+                  setNewProjCpu={setNewProjCpu}
+                  newProjRam={newProjRam}
+                  setNewProjRam={setNewProjRam}
+                  newProjSource={newProjSource}
+                  setNewProjSource={setNewProjSource}
+                  newProjTerminalMode={newProjTerminalMode}
+                  setNewProjTerminalMode={setNewProjTerminalMode}
+                  newProjToolchain={newProjToolchain}
+                  setNewProjToolchain={setNewProjToolchain}
+                  newProjToolchainVersion={newProjToolchainVersion}
+                  setNewProjToolchainVersion={setNewProjToolchainVersion}
+                  newProjMaxLogLines={newProjMaxLogLines}
+                  setNewProjMaxLogLines={setNewProjMaxLogLines}
+                  handleResetSetupForm={handleResetSetupForm}
+                  handleAddProject={handleAddProject}
+                />
                 <div
-                  ref={configRef}
-                  className="zone zone-3"
-                  style={{
-                    flex: `0 0 ${configHeight}px`,
-                    borderBottom: "1px solid var(--border-primary)",
-                    position: "relative",
-                  }}
-                >
-                  <ConfigSetup
-                    newProjName={newProjName}
-                    setNewProjName={setNewProjName}
-                    newProjRestart={newProjRestart}
-                    setNewProjRestart={setNewProjRestart}
-                    newProjCmd={newProjCmd}
-                    setNewProjCmd={setNewProjCmd}
-                    newProjArgs={newProjArgs}
-                    setNewProjArgs={setNewProjArgs}
-                    newProjCwd={newProjCwd}
-                    setNewProjCwd={setNewProjCwd}
-                    newProjPort={newProjPort}
-                    setNewProjPort={setNewProjPort}
-                    newProjCpu={newProjCpu}
-                    setNewProjCpu={setNewProjCpu}
-                    newProjRam={newProjRam}
-                    setNewProjRam={setNewProjRam}
-                    newProjSource={newProjSource}
-                    setNewProjSource={setNewProjSource}
-                    newProjTerminalMode={newProjTerminalMode}
-                    setNewProjTerminalMode={setNewProjTerminalMode}
-                    newProjToolchain={newProjToolchain}
-                    setNewProjToolchain={setNewProjToolchain}
-                    newProjToolchainVersion={newProjToolchainVersion}
-                    setNewProjToolchainVersion={setNewProjToolchainVersion}
-                    newProjMaxLogLines={newProjMaxLogLines}
-                    setNewProjMaxLogLines={setNewProjMaxLogLines}
-                    handleResetSetupForm={handleResetSetupForm}
-                    handleAddProject={handleAddProject}
-                  />
-                  <div
-                    className={`resizer-h ${isDraggingConfig ? "dragging" : ""}`}
-                    style={{ position: "absolute", bottom: "-2px", left: 0 }}
-                    onMouseDown={handleConfigResizeStart}
-                  />
-                </div>
-              )}
-
-              {/* Zone 5: Running Processes / Diagnostics — with tab switcher */}
-              <div className="zone zone-5" style={{ flex: 1 }}>
-                <div className="zone5-tab-bar">
-                  <button
-                    className={`zone5-tab-btn ${rightBottomTab === "manager" ? "active" : ""}`}
-                    onClick={() => setRightBottomTab("manager")}
-                  >
-                    <span>Manager</span>
-                  </button>
-                  <button
-                    className={`zone5-tab-btn ${rightBottomTab === "build" ? "active" : ""}`}
-                    onClick={() => setRightBottomTab("build")}
-                  >
-                    <span>Build Setup</span>
-                  </button>
-                </div>
-                <div className="zone5-content">
-                  {rightBottomTab === "manager" && (
-                    <ProcessManager
-                      projects={projects}
-                      activeProjectId={activeProjectId}
-                      setActiveProjectId={setActiveProjectId}
-                      projectStates={projectStates}
-                      resourceHistory={resourceHistory}
-                      handleStartProject={handleStartProject}
-                      handleStopProject={handleStopProject}
-                      forceKillProcess={forceKillProcess}
-                      triggerConfirm={triggerConfirm}
-                      triggerToast={triggerToast}
-                    />
-                  )}
-                  {rightBottomTab === "build" && (
-                    <BuildPanel uptimeSeconds={uptimeSeconds} />
-                  )}
-                </div>
+                  className={`resizer-h ${isDraggingConfig ? "dragging" : ""}`}
+                  style={{ position: "absolute", bottom: "-2px", left: 0 }}
+                  onMouseDown={handleConfigResizeStart}
+                />
               </div>
-            </>
-          )}
+            )}
+
+            {/* Zone 5: Running Processes / Diagnostics — with tab switcher */}
+            <div className="zone zone-5" style={{ flex: 1 }}>
+              <div className="zone5-tab-bar">
+                <button
+                  className={`zone5-tab-btn ${rightBottomTab === "manager" ? "active" : ""}`}
+                  onClick={() => setRightBottomTab("manager")}
+                >
+                  <span>Manager</span>
+                </button>
+              </div>
+              <div className="zone5-content">
+                {rightBottomTab === "manager" && (
+                  <ProcessManager
+                    projects={projects}
+                    activeProjectId={activeProjectId}
+                    setActiveProjectId={setActiveProjectId}
+                    projectStates={projectStates}
+                    resourceHistory={resourceHistory}
+                    handleStartProject={handleStartProject}
+                    handleStopProject={handleStopProject}
+                    forceKillProcess={forceKillProcess}
+                    triggerConfirm={triggerConfirm}
+                    triggerToast={triggerToast}
+                  />
+                )}
+              </div>
+            </div>
+          </>
         </div>
       </div>
 
@@ -1202,14 +1282,6 @@ export default function App() {
             title="Manager"
           >
             <SlidersHorizontal size={16} />
-          </button>
-
-          <button
-            className={`nav-tab-btn ${rightBottomTab === "build" ? "active" : ""}`}
-            onClick={() => setRightBottomTab("build")}
-            title="Build"
-          >
-            <Hammer size={16} />
           </button>
 
           {/* Divider line before premium layout toggles */}
@@ -1270,20 +1342,7 @@ export default function App() {
           <button className="tool-btn tool-git" title="1. Git">
             <GitBranch size={14} />
           </button>
-          <button
-            className={`tool-btn tool-ai ${isAiViewActive && isRightSidebarOpen ? "active" : ""}`}
-            title="2. AI"
-            onClick={() => {
-              if (!isRightSidebarOpen) {
-                setIsRightSidebarOpen(true);
-                setIsAiViewActive(true);
-              } else {
-                setIsAiViewActive(!isAiViewActive);
-              }
-            }}
-          >
-            <Sparkles size={14} />
-          </button>
+
           <button
             className="tool-btn tool-ping"
             title="3. Ping"
@@ -1298,29 +1357,14 @@ export default function App() {
           >
             <Wifi size={14} />
           </button>
-          <button
-            className="tool-btn tool-zen"
-            title="4. Zen Browser"
-            onClick={async () => {
-              try {
-                await invoke("open_browser_window");
-              } catch (e) {
-                console.error("Failed to open Zen Browser:", e);
-                triggerToast("Failed to open Zen Browser.", "error");
-              }
-            }}
-          >
-            <ZenIcon size={14} />
-          </button>
+
           <button
             className="tool-btn tool-env"
             title="5. Environment (Môi trường)"
           >
             <Server size={14} />
           </button>
-          <button className="tool-btn tool-build" title="6. Build">
-            <Cpu size={14} />
-          </button>
+
           <button
             className="tool-btn tool-settings"
             title="7. Setting"
@@ -1532,4 +1576,3 @@ export default function App() {
     </div>
   );
 }
-
