@@ -453,8 +453,7 @@ export default function TerminalPanel({
         yaml += `    active: ${t.active ? "true" : "false"}\n`;
       });
       
-      const base64Content = stringToBase64(yaml);
-      await invoke("write_file_content", { path: CONFIG_PATH, content: base64Content });
+      await invoke("write_file_content", { path: CONFIG_PATH, content: yaml });
       setTunnels(updatedTunnels);
     } catch (e) {
       console.error("Failed to save cloudflare config in TerminalPanel:", e);

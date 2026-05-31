@@ -16,3 +16,6 @@ core_engine/src/agent_harness/report_C/
 
 
 /app_data
+
+
+core_engine/app_data/*

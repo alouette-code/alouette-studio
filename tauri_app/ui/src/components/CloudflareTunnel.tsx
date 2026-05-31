@@ -85,8 +85,7 @@ export default function CloudflareTunnel() {
     setSuccessMsg(null);
     try {
       const yamlContent = toYaml(mode, tunnelToken.trim());
-      const base64Content = stringToBase64(yamlContent);
-      await invoke("write_file_content", { path: CONFIG_PATH, content: base64Content });
+      await invoke("write_file_content", { path: CONFIG_PATH, content: yamlContent });
       setSuccessMsg("Lưu cấu hình Cloudflare thành công!");
       setTimeout(() => setSuccessMsg(null), 3000);
     } catch (err: any) {

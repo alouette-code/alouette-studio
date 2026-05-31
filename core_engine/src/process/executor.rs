@@ -191,6 +191,47 @@ impl ProcessManager {
                 if let Some(ref envs) = config.env {
                     cmd.envs(envs);
                 }
+
+                // Read Cloudflare token and inject it as CF_TUNNEL_TOKEN for the project
+                let current_dir = std::env::current_dir().unwrap_or_default();
+                let cf_path = current_dir.join("core_engine").join("app_data").join("cloudflare_config.yml");
+                if cf_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&cf_path) {
+                        let mut global_token = String::new();
+                        let mut active_token = String::new();
+                        let mut current_project_id = String::new();
+                        let mut current_token = String::new();
+                        let mut current_id = String::new();
+                        let mut current_active = false;
+                        for line in content.lines() {
+                            let trimmed = line.trim();
+                            if trimmed.starts_with("tunnel_token:") || trimmed.starts_with("api_key:") {
+                                global_token = trimmed.replace("tunnel_token:", "").replace("api_key:", "").replace('"', "").replace('\'', "").trim().to_string();
+                            } else if trimmed.starts_with("- id:") || trimmed.starts_with("id:") {
+                                if !current_id.is_empty() && current_project_id == project_id_str && current_active {
+                                    active_token = current_token.clone();
+                                }
+                                current_id = trimmed.replace("- id:", "").replace("id:", "").replace('"', "").replace('\'', "").trim().to_string();
+                                current_project_id.clear();
+                                current_token.clear();
+                                current_active = false;
+                            } else if trimmed.starts_with("project_id:") {
+                                current_project_id = trimmed.replace("project_id:", "").replace('"', "").replace('\'', "").trim().to_string();
+                            } else if trimmed.starts_with("token:") {
+                                current_token = trimmed.replace("token:", "").replace('"', "").replace('\'', "").trim().to_string();
+                            } else if trimmed.starts_with("active:") {
+                                current_active = trimmed.replace("active:", "").trim() == "true";
+                            }
+                        }
+                        if !current_id.is_empty() && current_project_id == project_id_str && current_active {
+                            active_token = current_token;
+                        }
+                        let final_token = if !active_token.is_empty() { active_token } else { global_token };
+                        if !final_token.is_empty() {
+                            cmd.env("CF_TUNNEL_TOKEN", final_token);
+                        }
+                    }
+                }
                 cmd.stdout(std::process::Stdio::piped());
                 cmd.stderr(std::process::Stdio::piped());
 
@@ -228,13 +269,14 @@ impl ProcessManager {
                         let mut tunnel_pid: Option<u32> = None;
                         if config.enable_tunnel == Some(true) {
                             let (mode, token, active_port) = {
-                                let path = std::path::Path::new("d:/alouette-server/core_engine/app_data/cloudflare_config.yml");
+                                let current_dir = std::env::current_dir().unwrap_or_default();
+                                let path = current_dir.join("core_engine").join("app_data").join("cloudflare_config.yml");
                                 if path.exists() {
                                     let mut mode = "default".to_string();
                                     let mut global_token = None;
                                     let mut active_token = None;
                                     let mut active_port = None;
-                                    if let Ok(content) = std::fs::read_to_string(path) {
+                                    if let Ok(content) = std::fs::read_to_string(&path) {
                                         let mut current_id = String::new();
                                         let mut current_project_id = String::new();
                                         let mut current_port = None;

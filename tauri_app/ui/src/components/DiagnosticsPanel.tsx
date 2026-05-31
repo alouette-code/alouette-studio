@@ -42,7 +42,7 @@ export default function DiagnosticsPanel({ uptimeSeconds }: DiagnosticsPanelProp
             </div>
             <div className="spec-item">
               <span>Environment Root</span>
-              <strong className="mono">d:\alouette-server</strong>
+              <strong className="mono">d:\core_alouette_server</strong>
             </div>
           </div>
         </div>

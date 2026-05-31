@@ -331,6 +331,8 @@ export default function App() {
     setNewProjToolchainVersion,
     newProjMaxLogLines,
     setNewProjMaxLogLines,
+    newProjEnableTunnel,
+    setNewProjEnableTunnel,
     portConflict,
     setPortConflict,
     handleStart,
@@ -867,6 +869,8 @@ export default function App() {
                   setNewProjToolchainVersion={setNewProjToolchainVersion}
                   newProjMaxLogLines={newProjMaxLogLines}
                   setNewProjMaxLogLines={setNewProjMaxLogLines}
+                  newProjEnableTunnel={newProjEnableTunnel}
+                  setNewProjEnableTunnel={setNewProjEnableTunnel}
                   handleResetSetupForm={handleResetSetupForm}
                   handleAddProject={handleAddProject}
                 />
@@ -1206,6 +1210,8 @@ export default function App() {
                   setNewProjToolchainVersion={setNewProjToolchainVersion}
                   newProjMaxLogLines={newProjMaxLogLines}
                   setNewProjMaxLogLines={setNewProjMaxLogLines}
+                  newProjEnableTunnel={newProjEnableTunnel}
+                  setNewProjEnableTunnel={setNewProjEnableTunnel}
                   handleResetSetupForm={handleResetSetupForm}
                   handleAddProject={handleAddProject}
                 />

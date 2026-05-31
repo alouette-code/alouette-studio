@@ -27,6 +27,8 @@ interface ConfigSetupProps {
   setNewProjToolchainVersion: (v: string) => void;
   newProjMaxLogLines: string;
   setNewProjMaxLogLines: (v: string) => void;
+  newProjEnableTunnel: boolean;
+  setNewProjEnableTunnel: (v: boolean) => void;
   handleResetSetupForm: () => void;
   handleAddProject: () => void;
 }
@@ -58,6 +60,8 @@ export default function ConfigSetup({
   setNewProjToolchainVersion,
   newProjMaxLogLines,
   setNewProjMaxLogLines,
+  newProjEnableTunnel,
+  setNewProjEnableTunnel,
   handleResetSetupForm,
   handleAddProject
 }: ConfigSetupProps) {
@@ -87,6 +91,20 @@ export default function ConfigSetup({
               />
               <label htmlFor="auto_restart_sw" className="checkbox-label">
                 Auto restart
+              </label>
+            </div>
+          </div>
+          <div className="form-group flex-1">
+            <label className="form-label">Cloudflare Tunnel</label>
+            <div className="checkbox-wrapper">
+              <input
+                type="checkbox"
+                id="enable_tunnel_sw"
+                checked={newProjEnableTunnel}
+                onChange={(e) => setNewProjEnableTunnel(e.target.checked)}
+              />
+              <label htmlFor="enable_tunnel_sw" className="checkbox-label">
+                Enable Tunnel
               </label>
             </div>
           </div>
@@ -121,7 +139,7 @@ export default function ConfigSetup({
             <input
               type="text"
               className="form-input-sm"
-              placeholder="e.g. d:\alouette-server"
+              placeholder="e.g. d:\core_alouette_server"
               value={newProjCwd}
               onChange={(e) => setNewProjCwd(e.target.value)}
             />
