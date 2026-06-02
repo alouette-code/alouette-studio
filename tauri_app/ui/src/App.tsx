@@ -777,6 +777,10 @@ export default function App() {
         onToggleTunnel={() => handleFileOpenCustom("__cloudflare_tunnel__")}
         showBlackPage={showBlackPage}
         setShowBlackPage={setShowBlackPage}
+        projects={projects}
+        projectStates={projectStates}
+        handleStartProject={handleStartProject}
+        handleStopProject={handleStopProject}
       />
 
       {!showBlackPage ? (

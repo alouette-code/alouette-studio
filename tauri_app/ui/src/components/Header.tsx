@@ -36,6 +36,10 @@ interface HeaderProps {
   onToggleTunnel?: () => void;
   showBlackPage: boolean;
   setShowBlackPage: (v: boolean) => void;
+  projects?: any[];
+  projectStates?: { [id: string]: any };
+  handleStartProject?: (id: string) => Promise<void>;
+  handleStopProject?: (id: string) => Promise<void>;
 }
 
 function CloudflareIcon({ size = 16, active = false }: { size?: number; active?: boolean }) {
@@ -78,7 +82,11 @@ export default function Header({
   onOpenResources,
   onToggleTunnel,
   showBlackPage,
-  setShowBlackPage
+  setShowBlackPage,
+  projects,
+  projectStates,
+  handleStartProject,
+  handleStopProject
 }: HeaderProps) {
   const appWindow = getCurrentWindow();
 
@@ -238,54 +246,107 @@ export default function Header({
           <Database size={13} />
         </button>
 
-        {activeProject && (
+        {(!showBlackPage && projects && projects.length > 0) ? (
           <div className="header-process-controls">
-            <button
-              style={{
-                background: "transparent",
-                border: "none",
-                padding: "0 4px",
-                marginRight: "4px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-                color: "inherit"
-              }}
-              onClick={onToggleTunnel}
-              title={activeProject.enable_tunnel ? "Cloudflare Tunnel Enabled (Click to Disable)" : "Cloudflare Tunnel Disabled (Click to Enable)"}
-            >
-              <CloudflareIcon active={!!activeProject.enable_tunnel} size={15} />
-            </button>
-            <span className="header-process-name" title={activeProject.name}>
-              {activeProject.name}
+            <span className="header-process-name">
+              All Projects
             </span>
             <div className="header-meta-capsule">
-              <span className="label">PID</span>
-              <span className="value mono">
-                {activeState?.type === "Running"
-                  ? (typeof activeState.data === "object" ? activeState.data?.pid : activeState.data)
-                  : "N/A"}
+              <span className="label">ACTIVE</span>
+              <span className="value mono text-success">
+                {projects.filter((p: any) => projectStates?.[p.id]?.type === "Running").length} / {projects.length}
               </span>
             </div>
-            {activeProject.port && (
-              <div className="header-meta-capsule">
-                <span className="label">PORT</span>
-                <span className="value mono text-success">{activeProject.port}</span>
-              </div>
-            )}
-            {activeState?.type === "Running" || activeState?.type === "Setup" ? (
-              <button className="btn-header-stop" onClick={handleStop} title="Stop process">
+            {projects.some((p: any) => {
+              const st = projectStates?.[p.id];
+              return st?.type === "Running" || st?.type === "Setup";
+            }) ? (
+              <button
+                className="btn-header-stop"
+                onClick={async () => {
+                  for (const p of projects) {
+                    const st = projectStates?.[p.id];
+                    if (st?.type === "Running" || st?.type === "Setup") {
+                      if (handleStopProject) {
+                        await handleStopProject(p.id);
+                      }
+                    }
+                  }
+                  triggerToast("Stopped all active projects", "info");
+                }}
+                title="Stop all processes"
+              >
                 <Square size={10} fill="currentColor" />
-                <span>Stop</span>
+                <span>Stop All</span>
               </button>
             ) : (
-              <button className="btn-header-start" onClick={handleStart} title="Start process">
+              <button
+                className="btn-header-start"
+                onClick={async () => {
+                  for (const p of projects) {
+                    if (handleStartProject) {
+                      await handleStartProject(p.id);
+                    }
+                  }
+                  triggerToast("Started all projects", "success");
+                }}
+                title="Start all processes"
+              >
                 <Play size={10} fill="currentColor" />
-                <span>Start</span>
+                <span>Start All</span>
               </button>
             )}
           </div>
+        ) : (
+          activeProject && (
+            <div className="header-process-controls">
+              <button
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  padding: "0 4px",
+                  marginRight: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: "inherit"
+                }}
+                onClick={onToggleTunnel}
+                title={activeProject.enable_tunnel ? "Cloudflare Tunnel Enabled (Click to Disable)" : "Cloudflare Tunnel Disabled (Click to Enable)"}
+              >
+                <CloudflareIcon active={!!activeProject.enable_tunnel} size={15} />
+              </button>
+              <span className="header-process-name" title={activeProject.name}>
+                {activeProject.name}
+              </span>
+              <div className="header-meta-capsule">
+                <span className="label">PID</span>
+                <span className="value mono">
+                  {activeState?.type === "Running"
+                    ? (typeof activeState.data === "object" ? activeState.data?.pid : activeState.data)
+                    : "N/A"}
+                </span>
+              </div>
+              {activeProject.port && (
+                <div className="header-meta-capsule">
+                  <span className="label">PORT</span>
+                  <span className="value mono text-success">{activeProject.port}</span>
+                </div>
+              )}
+              {activeState?.type === "Running" || activeState?.type === "Setup" ? (
+                <button className="btn-header-stop" onClick={handleStop} title="Stop process">
+                  <Square size={10} fill="currentColor" />
+                  <span>Stop</span>
+                </button>
+              ) : (
+                <button className="btn-header-start" onClick={handleStart} title="Start process">
+                  <Play size={10} fill="currentColor" />
+                  <span>Start</span>
+                </button>
+              )}
+            </div>
+          )
         )}
 
         <button
