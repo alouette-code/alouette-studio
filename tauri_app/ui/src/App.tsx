@@ -224,22 +224,7 @@ export default function App() {
   const [rightBottomTab, setRightBottomTab] = useState<"manager">("manager");
   const [showBlackPage, setShowBlackPage] = useState(false);
   const [chartType, setChartType] = useState<"cpu" | "ram">("cpu");
-  const [aiErrors, setAiErrors] = useState<any[]>([
-    {
-      id: 1,
-      project: "server_dvtn",
-      timestamp: "19:58:12",
-      type: "warning",
-      message: "Cảnh báo: CPU tăng đột biến (82.5%) trong vòng lặp xử lý tiến trình con. AI Local đề xuất: Kiểm tra việc đóng luồng IO tại các kết nối socket."
-    },
-    {
-      id: 2,
-      project: "Local Connection diagnostics",
-      timestamp: "19:59:45",
-      type: "info",
-      message: "AI Báo cáo: Các dịch vụ nền khởi chạy thành công. Kết nối nội bộ với local engine hoạt động ở mức trễ tối thiểu (1.2ms)."
-    }
-  ]);
+  const [aiErrors, setAiErrors] = useState<any[]>([]);
 
 
 
@@ -401,7 +386,26 @@ export default function App() {
   setProjectTerminalsRef.current = setProjectTerminalsState;
   setActiveTerminalIdsRef.current = setActiveTerminalIdsState;
 
+  const handleClearAiDiagnostics = async () => {
+    try {
+      await invoke("clear_ai_diagnostics");
+      setAiErrors([]);
+      triggerToast("Đã xóa toàn bộ chẩn đoán AI", "success");
+    } catch (err) {
+      console.error("Failed to clear AI diagnostics:", err);
+      triggerToast("Không thể xóa chẩn đoán AI", "error");
+    }
+  };
+
   useEffect(() => {
+    invoke<any[]>("get_ai_diagnostics")
+      .then((data) => {
+        setAiErrors(data || []);
+      })
+      .catch((err) => {
+        console.error("Failed to load AI diagnostics:", err);
+      });
+
     let unlistenFn: (() => void) | undefined;
     
     listen<any>("ai-diagnostic-alert", (event) => {
@@ -775,7 +779,7 @@ export default function App() {
         setShowBlackPage={setShowBlackPage}
       />
 
-      {showBlackPage ? (
+      {!showBlackPage ? (
         <div className="black-page-container" style={{ top: "40px" }}>
           <ExtendedDashboard
             projects={projects}
@@ -784,6 +788,7 @@ export default function App() {
             chartType={chartType}
             setChartType={setChartType}
             aiErrors={aiErrors}
+            onClearAiErrors={handleClearAiDiagnostics}
           />
         </div>
       ) : (

@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use std::collections::HashMap;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use chrono::Local;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tract_onnx::prelude::*;
 
 // Thread-safe singleton/context for the AI Diagnostics engine
@@ -15,13 +15,20 @@ pub struct AiDiagnosticEngine {
     last_alert_times: Mutex<HashMap<String, Instant>>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiAlertPayload {
     pub id: u64,
     pub project: String,
     pub timestamp: String,
     pub r#type: String, // "warning" | "error" | "info"
     pub message: String,
+}
+
+fn get_ai_log_path() -> PathBuf {
+    std::env::current_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("logs")
+        .join("ai_diagnostics.log")
 }
 
 impl AiDiagnosticEngine {
@@ -146,5 +153,77 @@ impl AiDiagnosticEngine {
         } else {
             "System Anomaly".to_string()
         }
+    }
+
+    pub fn save_diagnostic_to_file(&self, payload: &AiAlertPayload) {
+        let log_path = get_ai_log_path();
+        if let Some(parent) = log_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+        {
+            if let Ok(line) = serde_json::to_string(payload) {
+                use std::io::Write;
+                let _ = writeln!(file, "{}", line);
+            }
+        }
+    }
+
+    pub fn prune_old_diagnostics(&self) {
+        let log_path = get_ai_log_path();
+        if !log_path.exists() {
+            return;
+        }
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        
+        let three_days_ms = 259_200_000;
+        let limit = now_ms.saturating_sub(three_days_ms);
+
+        if let Ok(content) = std::fs::read_to_string(&log_path) {
+            let mut kept_lines = Vec::new();
+            let mut changed = false;
+            for line in content.lines() {
+                if let Ok(payload) = serde_json::from_str::<AiAlertPayload>(line) {
+                    if payload.id >= limit {
+                        kept_lines.push(line.to_string());
+                    } else {
+                        changed = true;
+                    }
+                }
+            }
+            if changed {
+                let _ = std::fs::write(&log_path, kept_lines.join("\n") + "\n");
+            }
+        }
+    }
+
+    pub fn load_recent_diagnostics(&self) -> Vec<AiAlertPayload> {
+        self.prune_old_diagnostics();
+        let log_path = get_ai_log_path();
+        if !log_path.exists() {
+            return Vec::new();
+        }
+        let mut list = Vec::new();
+        if let Ok(content) = std::fs::read_to_string(&log_path) {
+            for line in content.lines() {
+                if let Ok(payload) = serde_json::from_str::<AiAlertPayload>(line) {
+                    list.push(payload);
+                }
+            }
+        }
+        list.reverse();
+        list.truncate(20);
+        list
+    }
+
+    pub fn clear_diagnostics(&self) {
+        let log_path = get_ai_log_path();
+        let _ = std::fs::remove_file(log_path);
     }
 }

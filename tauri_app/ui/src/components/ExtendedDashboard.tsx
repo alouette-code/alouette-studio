@@ -12,6 +12,7 @@ interface ExtendedDashboardProps {
   chartType: "cpu" | "ram";
   setChartType: (type: "cpu" | "ram") => void;
   aiErrors: any[];
+  onClearAiErrors: () => void;
 }
 
 export default function ExtendedDashboard({
@@ -20,7 +21,8 @@ export default function ExtendedDashboard({
   resourceHistory,
   chartType,
   setChartType,
-  aiErrors
+  aiErrors,
+  onClearAiErrors
 }: ExtendedDashboardProps) {
   // Compute overall resource metrics for Bottom Bar (4)
   const runningProjsList = projects.filter(p => projectStates[p.id]?.type === "Running");
@@ -239,6 +241,35 @@ export default function ExtendedDashboard({
           <h3 className="dash-sec-title">
             <span>AI DIAGNOSTICS & ALERTS</span>
           </h3>
+          <div className="dash-sec-actions">
+            <button
+              className="btn-top-box"
+              onClick={onClearAiErrors}
+              style={{
+                fontSize: "10px",
+                padding: "2px 8px",
+                height: "20px",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                border: "1px solid rgba(239, 68, 68, 0.4)",
+                color: "#f43f5e",
+                borderRadius: "3px",
+                background: "transparent",
+                fontWeight: 600,
+                cursor: "pointer",
+                transition: "all 0.2s ease"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.backgroundColor = "rgba(239, 68, 68, 0.15)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.backgroundColor = "transparent";
+              }}
+            >
+              Clear
+            </button>
+          </div>
         </header>
 
         <div className="dash-error-list">

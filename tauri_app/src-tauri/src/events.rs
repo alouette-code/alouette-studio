@@ -222,6 +222,7 @@ pub fn spawn_ai_diagnostics_router(
         };
         while let Ok(log) = log_rx.recv().await {
             if let Some(payload) = engine.check_and_diagnose(&log.project_id, &log.text) {
+                engine.save_diagnostic_to_file(&payload);
                 let _ = window.emit("ai-diagnostic-alert", payload);
             }
         }

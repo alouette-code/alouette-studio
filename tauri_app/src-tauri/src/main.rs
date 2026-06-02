@@ -23,6 +23,21 @@ async fn toggle_alouette_open(
 }
 
 #[tauri::command]
+async fn get_ai_diagnostics(
+    engine: tauri::State<'_, Arc<ai_diagnostics::AiDiagnosticEngine>>,
+) -> Result<Vec<ai_diagnostics::AiAlertPayload>, String> {
+    Ok(engine.load_recent_diagnostics())
+}
+
+#[tauri::command]
+async fn clear_ai_diagnostics(
+    engine: tauri::State<'_, Arc<ai_diagnostics::AiDiagnosticEngine>>,
+) -> Result<(), String> {
+    engine.clear_diagnostics();
+    Ok(())
+}
+
+#[tauri::command]
 async fn get_custom_ai_config() -> Result<serde_json::Value, String> {
     Ok(serde_json::json!({
         "active_model": "gemini-3.5-flash",
@@ -215,6 +230,8 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             toggle_alouette_open,
+            get_ai_diagnostics,
+            clear_ai_diagnostics,
             get_custom_ai_config,
             save_custom_ai_config,
             commands::process::start_project_process,
