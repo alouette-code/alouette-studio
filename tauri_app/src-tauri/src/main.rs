@@ -1,11 +1,11 @@
 // Prevents additional console window on Windows in release (Trigger recompile: 2026-05-24 11:02)
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai_diagnostics;
 mod commands;
 mod events;
 mod state;
 mod system_manager;
-mod ai_diagnostics;
 
 use core_engine::{ProcessManager, ProcessState, ProjectConfig, ResourceMonitor};
 use state::AppState;
@@ -93,7 +93,6 @@ fn main() {
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
         .join("logs");
     let mut pm = ProcessManager::new(&log_dir);
-
 
     let process_manager = Arc::new(Mutex::new(pm));
     let resource_monitor = Arc::new(ResourceMonitor::new());
@@ -204,6 +203,9 @@ fn main() {
                 ai_engine.clone(),
                 window_clone.clone(),
             );
+
+            // 6. Spawn Auto-Start Projects Task (delayed 5s, each project 10s apart)
+            crate::system_manager::spawn_auto_start_projects(pm_clone.clone());
 
             Ok(())
         })

@@ -1,8 +1,10 @@
-use core_engine::AppSettings;
+use core_engine::{AppSettings, ProcessManager};
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
 use std::time::Instant;
 use tauri::WebviewWindow;
+use tokio::sync::Mutex;
 
 fn settings_path() -> PathBuf {
     std::env::current_dir()
@@ -66,6 +68,73 @@ pub fn init_system(window: &WebviewWindow) {
                 }
             }
         }
+    });
+}
+
+/// Spawn background auto-start projects task.
+/// Waits 5s for app to fully initialize, then starts each project with 10s interval.
+pub fn spawn_auto_start_projects(pm: Arc<Mutex<ProcessManager>>) {
+    tauri::async_runtime::spawn(async move {
+        // 1. Wait for app to fully initialize (5s)
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+
+        let settings = AppSettings::load_from_file(settings_path()).unwrap_or_default();
+        if !settings.auto_start_projects {
+            return;
+        }
+
+        // 2. Get all registered projects
+        let project_ids: Vec<String> = {
+            let pm = pm.lock().await;
+            pm.get_configs().iter().map(|c| c.id.clone()).collect()
+        };
+
+        if project_ids.is_empty() {
+            crate::state::log_to_app_file(
+                "[AutoStartProjects] No projects registered to auto-start.",
+            );
+            return;
+        }
+
+        crate::state::log_to_app_file(&format!(
+            "[AutoStartProjects] Starting {} project(s) with 10s interval...",
+            project_ids.len()
+        ));
+
+        // 3. Start each project with 10s delay
+        for (i, project_id) in project_ids.iter().enumerate() {
+            if i > 0 {
+                tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+            }
+
+            let mut pm = pm.lock().await;
+            match pm.start_process(project_id).await {
+                Ok(_) => {
+                    crate::state::log_to_app_file(&format!(
+                        "[AutoStartProjects] Started project: {}",
+                        project_id
+                    ));
+                }
+                Err(e) => {
+                    // Check if already running — not an error
+                    if e.contains("already running") || e.contains("Already running") {
+                        crate::state::log_to_app_file(&format!(
+                            "[AutoStartProjects] Project already running: {}",
+                            project_id
+                        ));
+                    } else {
+                        crate::state::log_to_app_file(&format!(
+                            "[AutoStartProjects] Failed to start project {}: {}",
+                            project_id, e
+                        ));
+                    }
+                }
+            }
+            // Drop the lock before next iteration
+            drop(pm);
+        }
+
+        crate::state::log_to_app_file("[AutoStartProjects] All projects processed.");
     });
 }
 
@@ -140,16 +209,24 @@ fn configure_autostart_windows(enabled: bool, cmd_line: &str) -> Result<(), Stri
             ));
         }
     } else {
-        let status = Command::new("reg")
-            .args(["delete", reg_key, "/v", value_name, "/f"])
+        // Only attempt to delete if the registry value exists, to avoid exit code 1 (not found)
+        let exists = Command::new("reg")
+            .args(["query", reg_key, "/v", value_name])
             .status()
-            .map_err(|e| format!("Failed to execute reg.exe: {}", e))?;
+            .map_or(false, |status| status.success());
 
-        if !status.success() {
-            return Err(format!(
-                "reg.exe failed with exit code: {:?}",
-                status.code()
-            ));
+        if exists {
+            let status = Command::new("reg")
+                .args(["delete", reg_key, "/v", value_name, "/f"])
+                .status()
+                .map_err(|e| format!("Failed to execute reg.exe: {}", e))?;
+
+            if !status.success() {
+                return Err(format!(
+                    "reg.exe failed with exit code: {:?}",
+                    status.code()
+                ));
+            }
         }
     }
 

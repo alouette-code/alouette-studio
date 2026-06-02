@@ -6,7 +6,6 @@ import {
   RefreshCw, 
   AlertCircle, 
   Check, 
-  PlusCircle, 
   Key, 
   FileSpreadsheet, 
   HelpCircle,
@@ -404,7 +403,11 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
                         {data.columns.map(col => (
                           <th key={col.name} className={col.is_pk ? "pk-header" : ""}>
                             <div className="header-cell">
-                              {col.is_pk && <Key size={11} className="pk-icon text-accent" title="Primary Key" />}
+                              {col.is_pk && (
+                                <span title="Primary Key">
+                                  <Key size={11} className="pk-icon text-accent" />
+                                </span>
+                              )}
                               <span className="col-name">{col.name}</span>
                               <span className="col-type text-muted">{col.data_type.toLowerCase()}</span>
                             </div>

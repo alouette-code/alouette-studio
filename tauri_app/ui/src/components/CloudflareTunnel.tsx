@@ -4,17 +4,6 @@ import { invoke } from "@tauri-apps/api/core";
 
 const CONFIG_PATH = "d:/alouette-server/core_engine/app_data/cloudflare_config.yml";
 
-// Helper to convert plain string to base64
-const stringToBase64 = (str: string): string => {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
-};
-
 // Helper to parse YAML manually for our simplified model
 const parseYaml = (yamlStr: string) => {
   const config = {

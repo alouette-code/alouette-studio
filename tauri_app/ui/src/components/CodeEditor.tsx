@@ -151,7 +151,7 @@ export default function CodeEditor({
     setSaveStatus("idle");
   }, [initialContent, filePath]);
 
-  const handleEditorDidMount = (editor: any, monaco: any) => {
+  const handleEditorDidMount = (editor: any) => {
     editorRef.current = editor;
 
     // Restore scroll and cursor for the active file path

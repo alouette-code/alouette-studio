@@ -334,18 +334,7 @@ function SimplePing() {
     </div>
   );
 }
-
 const CONFIG_PATH = "d:/alouette-server/core_engine/app_data/cloudflare_config.yml";
-
-const stringToBase64 = (str: string): string => {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
-};
 
 export default function TerminalPanel({
   theme,
@@ -743,7 +732,7 @@ export default function TerminalPanel({
     const activeTheme = theme === "light" ? XTERM_LIGHT_THEME : XTERM_DARK_THEME;
     Object.keys(instancesRef.current).forEach((sid) => {
       try {
-        instancesRef.current[sid].term.options.set("theme", activeTheme);
+        instancesRef.current[sid].term.options.theme = activeTheme;
       } catch (err) {
         console.warn("[term] update theme FAILED:", err);
       }

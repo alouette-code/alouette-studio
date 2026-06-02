@@ -53,7 +53,6 @@ export function useProjects(deps: UseProjectsDeps) {
   // File Editing State
   const [openFilePath, setOpenFilePath] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<string[]>([]);
-  const [openFileContent, setOpenFileContent] = useState<string | null>(null);
   const [isFileLoading, setIsFileLoading] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isSqliteFile, setIsSqliteFile] = useState(false);
@@ -692,7 +691,6 @@ export function useProjects(deps: UseProjectsDeps) {
     setOpenFilePath,
     openFiles,
     setOpenFiles,
-    openFileContent,
     isFileLoading,
     fileError,
     isSqliteFile,

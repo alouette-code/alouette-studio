@@ -31,7 +31,7 @@ pub struct AppSettings {
     pub desktop_single_exe: bool,
     pub desktop_upx: bool,
     pub android_build_tool: String, // "Gradle" | "Bazel"
-    pub build_type: String, // "Release" | "Debug"
+    pub build_type: String,         // "Release" | "Debug"
     pub build_output_dir: String,
     pub build_output_name: String,
     pub build_source_dir: String,
@@ -41,6 +41,7 @@ pub struct AppSettings {
     pub keep_alive: bool,
     pub auto_start: bool,
     pub run_in_background: bool,
+    pub auto_start_projects: bool,
     pub enable_limit: bool,
     pub max_cpu_percent: u32,
     pub max_ram_mb: u32,
@@ -76,6 +77,7 @@ impl Default for AppSettings {
             keep_alive: true,
             auto_start: false,
             run_in_background: false,
+            auto_start_projects: false,
             enable_limit: false,
             max_cpu_percent: 80,
             max_ram_mb: 1024,
@@ -93,8 +95,8 @@ impl AppSettings {
         }
         let content =
             fs::read_to_string(path).map_err(|e| format!("Failed to read settings file: {}", e))?;
-        let settings: AppSettings =
-            serde_json::from_str(&content).map_err(|e| format!("Failed to parse settings: {}", e))?;
+        let settings: AppSettings = serde_json::from_str(&content)
+            .map_err(|e| format!("Failed to parse settings: {}", e))?;
         Ok(settings)
     }
 
@@ -106,8 +108,7 @@ impl AppSettings {
             fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create parent directories: {}", e))?;
         }
-        fs::write(path, content)
-            .map_err(|e| format!("Failed to write settings file: {}", e))?;
+        fs::write(path, content).map_err(|e| format!("Failed to write settings file: {}", e))?;
         Ok(())
     }
 }
