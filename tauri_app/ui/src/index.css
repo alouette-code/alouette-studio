@@ -7548,4 +7548,67 @@ body {
     stroke-width: 1;
 }
 
+/* Light Theme Overrides for Extended Dashboard & Black Page */
+[data-theme="light"] .black-page-container {
+    background-color: var(--bg-primary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome {
+    background-color: var(--bg-primary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dashboard-section-1,
+[data-theme="light"] .extended-dashboard.monochrome .dashboard-section-2,
+[data-theme="light"] .extended-dashboard.monochrome .dashboard-section-3,
+[data-theme="light"] .extended-dashboard.monochrome .dashboard-bottom {
+    background-color: var(--bg-secondary);
+    border-color: var(--border-primary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dash-project-card.monochrome {
+    background-color: var(--bg-primary);
+    border-color: var(--border-primary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dash-project-card.monochrome:hover {
+    border-color: var(--text-secondary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dash-dot.running {
+    background-color: #000000;
+    box-shadow: 0 0 4px rgba(0, 0, 0, 0.2);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dash-dot.stopped {
+    background-color: var(--text-muted);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dash-status-text {
+    color: var(--text-secondary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .progress-bar-fill.cpu,
+[data-theme="light"] .extended-dashboard.monochrome .progress-bar-fill.ram {
+    background-color: #121216;
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .progress-bar-wrapper {
+    background-color: var(--bg-tertiary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dash-error-card.monochrome {
+    background-color: var(--bg-primary);
+    border-color: var(--border-primary);
+    border-left: 2px solid var(--text-muted);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .dash-error-proj {
+    color: var(--text-primary);
+}
+
+[data-theme="light"] .extended-dashboard.monochrome .chart-axis-line {
+    stroke: var(--border-primary);
+}
+
+
 

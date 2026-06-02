@@ -13,6 +13,7 @@ interface ExtendedDashboardProps {
   setChartType: (type: "cpu" | "ram") => void;
   aiErrors: any[];
   onClearAiErrors: () => void;
+  theme?: "dark" | "light";
 }
 
 export default function ExtendedDashboard({
@@ -22,7 +23,8 @@ export default function ExtendedDashboard({
   chartType,
   setChartType,
   aiErrors,
-  onClearAiErrors
+  onClearAiErrors,
+  theme
 }: ExtendedDashboardProps) {
   // Compute overall resource metrics for Bottom Bar (4)
   const runningProjsList = projects.filter(p => projectStates[p.id]?.type === "Running");
@@ -83,9 +85,13 @@ export default function ExtendedDashboard({
 
   // Monochrome strokes for minimalist look: clean white, lighter gray, darker gray
   const getMonochromeStroke = (index: number) => {
-    const STROKES = ["#a1a1aa", "#71717a", "#52525b", "#3f3f46"];
+    const STROKES = theme === "light"
+      ? ["#52525b", "#71717a", "#a1a1aa", "#d4d4d8"]
+      : ["#a1a1aa", "#71717a", "#52525b", "#3f3f46"];
     return STROKES[index % STROKES.length];
   };
+
+  const totalLineColor = theme === "light" ? "#121216" : "#ffffff";
 
   return (
     <div className="extended-dashboard monochrome">
@@ -210,7 +216,7 @@ export default function ExtendedDashboard({
                 <path
                   d={getSvgPath(totalHistory)}
                   fill="none"
-                  stroke="#ffffff"
+                  stroke={totalLineColor}
                   strokeWidth="2"
                   style={{ transition: "d 0.3s ease" }}
                 />
@@ -227,7 +233,7 @@ export default function ExtendedDashboard({
             ))}
             {totalHistory.length >= 2 && (
               <div className="legend-item">
-                <span className="legend-color" style={{ backgroundColor: "#ffffff" }} />
+                <span className="legend-color" style={{ backgroundColor: totalLineColor }} />
                 <span style={{ fontWeight: "600" }}>TOTAL USAGE</span>
               </div>
             )}

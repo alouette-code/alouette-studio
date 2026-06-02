@@ -70,11 +70,6 @@ const DOCK_ITEMS: DockItem[] = [
   },
   { id: "user", label: "User", icon: <User size={16} /> },
   { id: "git", label: "Git", icon: <GitBranch size={16} /> },
-  { id: "ai", label: "Model AI", icon: <Sparkles size={16} /> },
-  { id: "postman", label: "Post Mini", icon: <Wifi size={16} /> },
-  { id: "browser", label: "Zen Browser", icon: <ZenIcon size={16} /> },
-  { id: "environment", label: "Environment", icon: <Server size={16} /> },
-  { id: "build", label: "Build", icon: <Cpu size={16} /> },
   { id: "sandbox", label: "Sandbox", icon: <Box size={16} /> },
   { id: "theme", label: "Theme", icon: <Palette size={16} /> },
   { id: "language", label: "Programming Language", icon: <Code size={16} /> },
@@ -133,7 +128,10 @@ export default function AdminPanel() {
   const appWindowRef = useRef<WebviewWindow | null>(null);
   const [winReady, setWinReady] = useState(false);
   const [activeDock, setActiveDock] = useState("project");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("alouette_theme");
+    return saved === "light" ? "light" : "dark";
+  });
   const [toast, setToast] = useState<ToastState | null>(null);
 
   // ── Lấy window handle an toàn ──
@@ -148,8 +146,19 @@ export default function AdminPanel() {
 
   // ── Theme effect ──
   useEffect(() => {
+    localStorage.setItem("alouette_theme", theme);
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "alouette_theme" && (e.newValue === "dark" || e.newValue === "light")) {
+        setTheme(e.newValue);
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
 
   // ── Toast dismiss ──
   useEffect(() => {

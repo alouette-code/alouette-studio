@@ -170,7 +170,10 @@ import { useTerminal } from "./hooks/useTerminal";
 
 export default function App() {
   // Theme State
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    const saved = localStorage.getItem("alouette_theme");
+    return saved === "light" ? "light" : "dark";
+  });
 
   // Window label state to detect multi-window views (e.g. Mini Postman ping window)
   const [windowLabel, setWindowLabel] = useState<string>("main");
@@ -427,8 +430,19 @@ export default function App() {
 
   // ── Theme effect ──
   useEffect(() => {
+    localStorage.setItem("alouette_theme", theme);
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "alouette_theme" && (e.newValue === "dark" || e.newValue === "light")) {
+        setTheme(e.newValue);
+      }
+    };
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
 
   // Split Editor Pane structures
   interface EditorPane {
@@ -793,6 +807,7 @@ export default function App() {
             setChartType={setChartType}
             aiErrors={aiErrors}
             onClearAiErrors={handleClearAiDiagnostics}
+            theme={theme}
           />
         </div>
       ) : (

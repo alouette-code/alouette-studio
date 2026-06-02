@@ -94,27 +94,6 @@ fn main() {
         .join("logs");
     let mut pm = ProcessManager::new(&log_dir);
 
-    // Pre-populate a standard System Connection diagnostics task for ease of testing
-    let _ = tauri::async_runtime::block_on(pm.register_project(ProjectConfig {
-        id: "sys-ping".to_string(),
-        name: "Local Connection diagnostics".to_string(),
-        command: "ping".to_string(),
-        args: vec!["127.0.0.1".to_string(), "-n".to_string(), "20".to_string()],
-        cwd: None,
-        setup_command: None,
-        setup_args: None,
-        auto_restart: Some(false),
-        env: None,
-        max_cpu_percent: None,
-        max_ram_mb: None,
-        port: None,
-        source: None,
-        terminal_mode: None,
-        toolchain: None,
-        toolchain_version: None,
-        enable_tunnel: None,
-        max_log_lines: None,
-    }));
 
     let process_manager = Arc::new(Mutex::new(pm));
     let resource_monitor = Arc::new(ResourceMonitor::new());
