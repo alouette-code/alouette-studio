@@ -23,5 +23,7 @@ async-trait = "0.1"
 directories = "5.0"
 rusqlite = { version = "0.31.0", features = ["bundled"] }
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "jobapi2", "handleapi"] }
+tract-onnx = "0.21.0"
+
 
 

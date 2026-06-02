@@ -63,8 +63,29 @@ impl CloudflaredManager {
         }
     }
 
+    /// Kills any existing/leftover cloudflared processes on the system that belong to Alouette
+    pub async fn kill_all_tunnels() {
+        let current_dir = std::env::current_dir().unwrap_or_default();
+        let current_dir_str = current_dir.to_string_lossy().to_lowercase();
+
+        let mut sys = sysinfo::System::new();
+        sys.refresh_processes();
+
+        for (_, process) in sys.processes() {
+            if let Some(exe_path) = process.exe() {
+                let exe_str = exe_path.to_string_lossy().to_lowercase();
+                if exe_str.contains("cloudflared") && (exe_str.contains(&current_dir_str) || exe_str.contains("app_data")) {
+                    process.kill();
+                }
+            }
+        }
+    }
+
     /// Spawns a tunnel and returns the PID and a receiver for the tunnel URL
     pub async fn spawn_tunnel(&self, port: u16, token: Option<String>, _project_id: &str) -> Result<(u32, broadcast::Receiver<String>), String> {
+        // Kill any existing tunnels to prevent conflicts
+        Self::kill_all_tunnels().await;
+
         let mut cmd = Command::new(&self.executable_path);
         
         if let Some(ref t) = token {

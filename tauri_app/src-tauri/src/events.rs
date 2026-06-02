@@ -1,4 +1,5 @@
 use crate::state::log_to_app_file;
+use crate::ai_diagnostics::AiDiagnosticEngine;
 use core_engine::ProcessState;
 use std::sync::Arc;
 use tauri::{Emitter, WebviewWindow};
@@ -207,3 +208,23 @@ pub fn spawn_terminal_router(pm_clone: Arc<Mutex<core_engine::ProcessManager>>, 
         }
     });
 }
+
+/// Spawn the AI Diagnostics Event Router Task.
+pub fn spawn_ai_diagnostics_router(
+    pm_clone: Arc<Mutex<core_engine::ProcessManager>>,
+    engine: Arc<AiDiagnosticEngine>,
+    window: WebviewWindow,
+) {
+    tauri::async_runtime::spawn(async move {
+        let mut log_rx = {
+            let pm_lock = pm_clone.lock().await;
+            pm_lock.subscribe_logs()
+        };
+        while let Ok(log) = log_rx.recv().await {
+            if let Some(payload) = engine.check_and_diagnose(&log.project_id, &log.text) {
+                let _ = window.emit("ai-diagnostic-alert", payload);
+            }
+        }
+    });
+}
+

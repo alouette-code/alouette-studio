@@ -5,12 +5,73 @@ mod commands;
 mod events;
 mod state;
 mod system_manager;
+mod ai_diagnostics;
 
 use core_engine::{ProcessManager, ProcessState, ProjectConfig, ResourceMonitor};
 use state::AppState;
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
+
+#[tauri::command]
+async fn toggle_alouette_open(
+    enabled: bool,
+    engine: tauri::State<'_, Arc<ai_diagnostics::AiDiagnosticEngine>>,
+) -> Result<(), String> {
+    engine.set_enabled(enabled);
+    Ok(())
+}
+
+#[tauri::command]
+async fn get_custom_ai_config() -> Result<serde_json::Value, String> {
+    Ok(serde_json::json!({
+        "active_model": "gemini-3.5-flash",
+        "providers": {
+            "deepseek": {
+                "api_key": "",
+                "models": {
+                    "deepseek-v4-pro": { "context_limit": 1000000, "supports_vision": false },
+                    "deepseek-v4-flash": { "context_limit": 1000000, "supports_vision": false },
+                    "deepseek-r1": { "context_limit": 1000000, "supports_vision": false }
+                }
+            },
+            "claude": {
+                "api_key": "",
+                "models": {
+                    "claude-opus-4.7": { "context_limit": 200000, "supports_vision": true },
+                    "claude-sonnet-5": { "context_limit": 200000, "supports_vision": true }
+                }
+            },
+            "gpt-chatgpt": {
+                "api_key": "",
+                "models": {
+                    "gpt-5.5": { "context_limit": 200000, "supports_vision": true },
+                    "o1-pro": { "context_limit": 200000, "supports_vision": false },
+                    "o3-mini": { "context_limit": 200000, "supports_vision": false },
+                    "gpt-4o": { "context_limit": 128000, "supports_vision": true }
+                }
+            },
+            "gemini": {
+                "api_key": "",
+                "models": {
+                    "gemini-3.5-flash": { "context_limit": 1000000, "supports_vision": true },
+                    "gemini-3.1-pro": { "context_limit": 1000000, "supports_vision": true }
+                }
+            },
+            "qwen": {
+                "api_key": "",
+                "models": {
+                    "qwen-3.7-max": { "context_limit": 128000, "supports_vision": false }
+                }
+            }
+        }
+    }))
+}
+
+#[tauri::command]
+async fn save_custom_ai_config(_config: serde_json::Value) -> Result<(), String> {
+    Ok(())
+}
 
 fn main() {
     let log_dir = std::env::current_dir()
@@ -42,6 +103,7 @@ fn main() {
 
     let process_manager = Arc::new(Mutex::new(pm));
     let resource_monitor = Arc::new(ResourceMonitor::new());
+    let ai_engine = Arc::new(ai_diagnostics::AiDiagnosticEngine::new());
 
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
@@ -51,6 +113,7 @@ fn main() {
             process_manager,
             resource_monitor,
         })
+        .manage(ai_engine.clone())
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.
             let window = app
@@ -141,9 +204,19 @@ fn main() {
             // 4. Spawn Terminal Event Router Task
             events::spawn_terminal_router(pm_clone.clone(), window_clone.clone());
 
+            // 5. Spawn AI Diagnostics Event Router Task
+            events::spawn_ai_diagnostics_router(
+                pm_clone.clone(),
+                ai_engine.clone(),
+                window_clone.clone(),
+            );
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            toggle_alouette_open,
+            get_custom_ai_config,
+            save_custom_ai_config,
             commands::process::start_project_process,
             commands::process::stop_project_process,
             commands::process::get_projects,

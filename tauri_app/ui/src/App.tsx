@@ -1,9 +1,8 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import {
   LayoutGrid,
-  Activity,
-  User,
   Terminal as TerminalIcon,
   Plus,
   X,
@@ -16,10 +15,8 @@ import {
   GitBranch,
   Wifi,
   Server,
-  Cpu,
   Settings,
   SlidersHorizontal,
-  Hammer,
   Database,
   Cloud,
 } from "lucide-react";
@@ -37,6 +34,7 @@ import SqliteEditor from "./components/SqliteEditor";
 
 import ProjectResources from "./components/ProjectResources";
 import CloudflareTunnel from "./components/CloudflareTunnel";
+import ExtendedDashboard from "./components/ExtendedDashboard";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 function LayoutLeftIcon({
@@ -224,6 +222,27 @@ export default function App() {
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [settingMenuOpen, setSettingMenuOpen] = useState(false);
   const [rightBottomTab, setRightBottomTab] = useState<"manager">("manager");
+  const [showBlackPage, setShowBlackPage] = useState(false);
+  const [chartType, setChartType] = useState<"cpu" | "ram">("cpu");
+  const [aiErrors, setAiErrors] = useState<any[]>([
+    {
+      id: 1,
+      project: "server_dvtn",
+      timestamp: "19:58:12",
+      type: "warning",
+      message: "Cảnh báo: CPU tăng đột biến (82.5%) trong vòng lặp xử lý tiến trình con. AI Local đề xuất: Kiểm tra việc đóng luồng IO tại các kết nối socket."
+    },
+    {
+      id: 2,
+      project: "Local Connection diagnostics",
+      timestamp: "19:59:45",
+      type: "info",
+      message: "AI Báo cáo: Các dịch vụ nền khởi chạy thành công. Kết nối nội bộ với local engine hoạt động ở mức trễ tối thiểu (1.2ms)."
+    }
+  ]);
+
+
+
 
   // Canvas Refs for CPU/RAM Charts
   const cpuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -381,6 +400,26 @@ export default function App() {
   } = terminalHook;
   setProjectTerminalsRef.current = setProjectTerminalsState;
   setActiveTerminalIdsRef.current = setActiveTerminalIdsState;
+
+  useEffect(() => {
+    let unlistenFn: (() => void) | undefined;
+    
+    listen<any>("ai-diagnostic-alert", (event) => {
+      const payload = event.payload;
+      setAiErrors(prev => {
+        if (prev.some(err => err.id === payload.id)) {
+          return prev;
+        }
+        return [payload, ...prev.slice(0, 19)];
+      });
+    }).then(fn => {
+      unlistenFn = fn;
+    });
+
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
 
   // ── Theme effect ──
   useEffect(() => {
@@ -732,17 +771,32 @@ export default function App() {
         triggerToast={triggerToast}
         onOpenResources={() => handleFileOpenCustom("__resources__")}
         onToggleTunnel={() => handleFileOpenCustom("__cloudflare_tunnel__")}
+        showBlackPage={showBlackPage}
+        setShowBlackPage={setShowBlackPage}
       />
 
-      {/* 2. Main Workspace — Full Dashboard Grid */}
-      <div
-        className="workspace-grid"
-        style={{
-          gridTemplateColumns: `${isLeftSidebarOpen ? leftSidebarWidth : 0}px 1fr ${isRightSidebarOpen ? rightSidebarWidth : 0}px`,
-          position: "relative",
-        }}
-      >
-        {/* ── LEFT COLUMN: Zone 1 (Tab list) + Zone 3 (File Explorer) + Zone 6 (New project btn) ── */}
+      {showBlackPage ? (
+        <div className="black-page-container" style={{ top: "40px" }}>
+          <ExtendedDashboard
+            projects={projects}
+            projectStates={projectStates}
+            resourceHistory={resourceHistory}
+            chartType={chartType}
+            setChartType={setChartType}
+            aiErrors={aiErrors}
+          />
+        </div>
+      ) : (
+        <>
+          {/* 2. Main Workspace — Full Dashboard Grid */}
+          <div
+            className="workspace-grid"
+            style={{
+              gridTemplateColumns: `${isLeftSidebarOpen ? leftSidebarWidth : 0}px 1fr ${isRightSidebarOpen ? rightSidebarWidth : 0}px`,
+              position: "relative",
+            }}
+          >
+            {/* ── LEFT COLUMN: Zone 1 (Tab list) + Zone 3 (File Explorer) + Zone 6 (New project btn) ── */}
         <div
           className="col-left"
           style={{
@@ -1389,6 +1443,8 @@ export default function App() {
           </button>
         </div>
       </footer>
+    </>
+  )}
 
       {/* Port Conflict Resolver Modal */}
       {portConflict && (

@@ -34,6 +34,8 @@ interface HeaderProps {
   triggerToast: (message: string, type: "success" | "error" | "info") => void;
   onOpenResources: () => void;
   onToggleTunnel?: () => void;
+  showBlackPage: boolean;
+  setShowBlackPage: (v: boolean) => void;
 }
 
 function CloudflareIcon({ size = 16, active = false }: { size?: number; active?: boolean }) {
@@ -74,7 +76,9 @@ export default function Header({
   triggerConfirm,
   triggerToast,
   onOpenResources,
-  onToggleTunnel
+  onToggleTunnel,
+  showBlackPage,
+  setShowBlackPage
 }: HeaderProps) {
   const appWindow = getCurrentWindow();
 
@@ -189,6 +193,18 @@ export default function Header({
               </div>
             )}
           </div>
+        </div>
+
+        {/* Premium Page Toggle Switch */}
+        <div className="page-toggle-container">
+          <label className="premium-switch" title="Chuyển chế độ xem">
+            <input
+              type="checkbox"
+              checked={showBlackPage}
+              onChange={(e) => setShowBlackPage(e.target.checked)}
+            />
+            <span className="premium-slider"></span>
+          </label>
         </div>
       </div>
 

@@ -16,6 +16,11 @@ impl ProcessManager {
             return Err("Process is already running or in setup".to_string());
         }
 
+        // Set state to Setup synchronously to prevent rapid click race conditions
+        inst.state = ProcessState::Setup;
+        let _ = self.status_sender.send((project_id.to_string(), ProcessState::Setup));
+
+
         let mut config = inst.config.clone();
 
         // 1. Prepare Workspace (Clone or Copy) if CWD does not exist yet (fallback)
@@ -447,6 +452,9 @@ impl ProcessManager {
 
     /// Stops a running project process instance and tears down its child tree.
     pub async fn stop_process(&mut self, project_id: &str) -> Result<(), String> {
+        // Clean up all cloudflared tunnel processes on stop to prevent leftovers
+        crate::cloudflared_manager::CloudflaredManager::kill_all_tunnels().await;
+
         let inst = self.instances.get_mut(project_id)
             .ok_or_else(|| format!("Project '{}' not found", project_id))?;
 

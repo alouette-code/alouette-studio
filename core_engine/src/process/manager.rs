@@ -134,6 +134,10 @@ impl ProcessManager {
         self.proto_manager.ensure_stable_toolchains(&proto_bin).await?;
         let cloudflared_bin = CloudflaredManager::update_tunnel_binary(&bin_dir).await?;
         self.cloudflared_manager.executable_path = cloudflared_bin;
+        
+        // Clean up any leftover cloudflared processes from previous sessions
+        CloudflaredManager::kill_all_tunnels().await;
+        
         Ok(())
     }
 
