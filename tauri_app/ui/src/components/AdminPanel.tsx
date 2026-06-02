@@ -152,7 +152,10 @@ export default function AdminPanel() {
 
   useEffect(() => {
     const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "alouette_theme" && (e.newValue === "dark" || e.newValue === "light")) {
+      if (
+        e.key === "alouette_theme" &&
+        (e.newValue === "dark" || e.newValue === "light")
+      ) {
         setTheme(e.newValue);
       }
     };
@@ -252,7 +255,9 @@ export default function AdminPanel() {
               onClick={() => handleDockClick(item.id)}
               title={item.label}
             >
-              <span className="admin-dock-label" style={{ paddingLeft: "4px" }}>{item.label}</span>
+              <span className="admin-dock-label" style={{ paddingLeft: "4px" }}>
+                {item.label}
+              </span>
               {(item.id === "postman" || item.id === "browser") && (
                 <ExternalLink size={10} className="admin-dock-external" />
               )}
@@ -457,44 +462,110 @@ const STATIC_PREDEFINED_MODELS: PredefinedModel[] = [
     provider: "DeepSeek",
     id: "deepseek",
     models: [
-      { id: "deepseek-v4-pro", name: "DeepSeek-V4 Pro", context: "1000k", desc: "Mô hình nguồn mở hàng đầu năm 2026, tối ưu hóa suy luận logic vượt bậc." },
-      { id: "deepseek-v4-flash", name: "DeepSeek-V4 Flash", context: "1000k", desc: "Mô hình suy luận tốc độ nhanh và tối ưu hóa chi phí." },
-      { id: "deepseek-r1", name: "DeepSeek-R1 (Reasoning)", context: "1000k", desc: "Mô hình suy luận sâu chuyên biệt cho toán học và code." }
-    ]
+      {
+        id: "deepseek-v4-pro",
+        name: "DeepSeek-V4 Pro",
+        context: "1000k",
+        desc: "Mô hình nguồn mở hàng đầu năm 2026, tối ưu hóa suy luận logic vượt bậc.",
+      },
+      {
+        id: "deepseek-v4-flash",
+        name: "DeepSeek-V4 Flash",
+        context: "1000k",
+        desc: "Mô hình suy luận tốc độ nhanh và tối ưu hóa chi phí.",
+      },
+      {
+        id: "deepseek-r1",
+        name: "DeepSeek-R1 (Reasoning)",
+        context: "1000k",
+        desc: "Mô hình suy luận sâu chuyên biệt cho toán học và code.",
+      },
+    ],
   },
   {
     provider: "Claude",
     id: "claude",
     models: [
-      { id: "claude-opus-4.7", name: "Claude Opus 4.7", context: "200k", vision: true, desc: "Flagship tối tân nhất của Anthropic năm 2026, lập trình tự trị và lập luận đỉnh cao." },
-      { id: "claude-sonnet-5", name: "Claude Sonnet 5", context: "200k", vision: true, desc: "Mô hình cân bằng hoàn hảo giữa tốc độ và trí tuệ." }
-    ]
+      {
+        id: "claude-opus-4.7",
+        name: "Claude Opus 4.7",
+        context: "200k",
+        vision: true,
+        desc: "Flagship tối tân nhất của Anthropic năm 2026, lập trình tự trị và lập luận đỉnh cao.",
+      },
+      {
+        id: "claude-sonnet-5",
+        name: "Claude Sonnet 5",
+        context: "200k",
+        vision: true,
+        desc: "Mô hình cân bằng hoàn hảo giữa tốc độ và trí tuệ.",
+      },
+    ],
   },
   {
     provider: "ChatGPT",
     id: "gpt-chatgpt",
     models: [
-      { id: "gpt-5.5", name: "GPT-5.5", context: "200k", vision: true, desc: "Thế hệ siêu trí tuệ mới của OpenAI năm 2026, suy luận đa phương thức chính xác tuyệt đối." },
-      { id: "o1-pro", name: "o1-Pro (Reasoning)", context: "200k", desc: "Mô hình suy luận chuỗi ý nghĩ chuyên sâu cho toán học và lý thuyết." },
-      { id: "o3-mini", name: "o3-Mini (Coding)", context: "200k", desc: "Mô hình suy luận nhanh tối ưu cho lập trình phần mềm." },
-      { id: "gpt-4o", name: "GPT-4o (Vision)", context: "128k", vision: true, desc: "Mô hình đa phương thức linh hoạt cho các tác vụ tổng quát." }
-    ]
+      {
+        id: "gpt-5.5",
+        name: "GPT-5.5",
+        context: "200k",
+        vision: true,
+        desc: "Thế hệ siêu trí tuệ mới của OpenAI năm 2026, suy luận đa phương thức chính xác tuyệt đối.",
+      },
+      {
+        id: "o1-pro",
+        name: "o1-Pro (Reasoning)",
+        context: "200k",
+        desc: "Mô hình suy luận chuỗi ý nghĩ chuyên sâu cho toán học và lý thuyết.",
+      },
+      {
+        id: "o3-mini",
+        name: "o3-Mini (Coding)",
+        context: "200k",
+        desc: "Mô hình suy luận nhanh tối ưu cho lập trình phần mềm.",
+      },
+      {
+        id: "gpt-4o",
+        name: "GPT-4o (Vision)",
+        context: "128k",
+        vision: true,
+        desc: "Mô hình đa phương thức linh hoạt cho các tác vụ tổng quát.",
+      },
+    ],
   },
   {
     provider: "Gemini",
     id: "gemini",
     models: [
-      { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash", context: "1000k", vision: true, desc: "Mô hình tốc độ ánh sáng năm 2026 của Google, context cực rộng và tối ưu DEV agent." },
-      { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro", context: "1000k", vision: true, desc: "Mô hình thông minh cao cấp của Google cho phân tích phức tạp." }
-    ]
+      {
+        id: "gemini-3.5-flash",
+        name: "Gemini 3.5 Flash",
+        context: "1000k",
+        vision: true,
+        desc: "Mô hình tốc độ ánh sáng năm 2026 của Google, context cực rộng và tối ưu DEV agent.",
+      },
+      {
+        id: "gemini-3.1-pro",
+        name: "Gemini 3.1 Pro",
+        context: "1000k",
+        vision: true,
+        desc: "Mô hình thông minh cao cấp của Google cho phân tích phức tạp.",
+      },
+    ],
   },
   {
     provider: "Qwen",
     id: "qwen",
     models: [
-      { id: "qwen-3.7-max", name: "Qwen 3.7 Max", context: "128k", desc: "Siêu mô hình thế hệ mới từ Alibaba, vô địch về toán học và suy luận logic." }
-    ]
-  }
+      {
+        id: "qwen-3.7-max",
+        name: "Qwen 3.7 Max",
+        context: "128k",
+        desc: "Siêu mô hình thế hệ mới từ Alibaba, vô địch về toán học và suy luận logic.",
+      },
+    ],
+  },
 ];
 
 interface CustomModel {
@@ -509,19 +580,23 @@ interface CustomModel {
 }
 
 function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
-  const [predefinedModels, setPredefinedModels] = useState<PredefinedModel[]>(STATIC_PREDEFINED_MODELS);
+  const [predefinedModels, setPredefinedModels] = useState<PredefinedModel[]>(
+    STATIC_PREDEFINED_MODELS,
+  );
   const [expandedProviders, setExpandedProviders] = useState<string[]>([]);
   const [alouetteOpenEnabled, setAlouetteOpenEnabled] = useState(() => {
     const saved = localStorage.getItem("alouette_open_enabled");
     return saved ? JSON.parse(saved) : true;
   });
 
-  const [providerApiKeys, setProviderApiKeys] = useState<{ [id: string]: string }>({
+  const [providerApiKeys, setProviderApiKeys] = useState<{
+    [id: string]: string;
+  }>({
     deepseek: "",
     claude: "",
     "gpt-chatgpt": "",
     gemini: "",
-    qwen: ""
+    qwen: "",
   });
 
   const handleApiKeyChange = (providerId: string, newKey: string) => {
@@ -540,30 +615,34 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
       console.error("Failed to sync Alouette Open toggle:", err);
     }
     setToast({
-      message: nextVal ? "✓ Đã bật mô hình tích hợp Alouette Open" : "✕ Đã tắt mô hình tích hợp Alouette Open",
-      type: nextVal ? "success" : "info"
+      message: nextVal
+        ? "✓ Đã bật mô hình tích hợp Alouette Open"
+        : "✕ Đã tắt mô hình tích hợp Alouette Open",
+      type: nextVal ? "success" : "info",
     });
   };
 
   const toggleExpandProvider = (provId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setExpandedProviders((prev) =>
-      prev.includes(provId) ? prev.filter((id) => id !== provId) : [...prev, provId]
+      prev.includes(provId)
+        ? prev.filter((id) => id !== provId)
+        : [...prev, provId],
     );
   };
 
   const handleToggleProvider = (providerId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const provider = predefinedModels.find(p => p.id === providerId);
+    const provider = predefinedModels.find((p) => p.id === providerId);
     if (!provider) return;
 
-    const modelIds = provider.models.map(m => m.id);
-    const anyActive = modelIds.some(id => activeModels.includes(id));
+    const modelIds = provider.models.map((m) => m.id);
+    const anyActive = modelIds.some((id) => activeModels.includes(id));
 
     let updatedActive: string[];
     if (anyActive) {
       // Turn off all models for this provider
-      updatedActive = activeModels.filter(id => !modelIds.includes(id));
+      updatedActive = activeModels.filter((id) => !modelIds.includes(id));
     } else {
       // Turn on all models for this provider
       updatedActive = [...activeModels, ...modelIds];
@@ -578,21 +657,27 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
     const updatedActive = activeModels.includes(modelId)
       ? activeModels.filter((id) => id !== modelId)
       : [...activeModels, modelId];
-    
+
     setActiveModels(updatedActive);
     autoSave(updatedActive);
   };
 
-  const [activeModels, setActiveModels] = useState<string[]>(["deepseek-v4-pro", "claude-opus-4.7", "gemini-3.5-flash"]);
+  const [activeModels, setActiveModels] = useState<string[]>([
+    "deepseek-v4-pro",
+    "claude-opus-4.7",
+    "gemini-3.5-flash",
+  ]);
   const customModels: CustomModel[] = [];
 
   // Load configurations
   useEffect(() => {
     // Sync initial Alouette Open state to backend
     const savedAlouetteOpen = localStorage.getItem("alouette_open_enabled");
-    const alouetteEnabled = savedAlouetteOpen ? JSON.parse(savedAlouetteOpen) : true;
-    invoke("toggle_alouette_open", { enabled: alouetteEnabled }).catch(err => 
-      console.error("Failed to sync initial Alouette Open state:", err)
+    const alouetteEnabled = savedAlouetteOpen
+      ? JSON.parse(savedAlouetteOpen)
+      : true;
+    invoke("toggle_alouette_open", { enabled: alouetteEnabled }).catch((err) =>
+      console.error("Failed to sync initial Alouette Open state:", err),
     );
 
     const savedActive = localStorage.getItem("alouette_active_models");
@@ -618,21 +703,29 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
           active_model: string;
           providers: { [key: string]: RustProviderConfig };
         }
-        
+
         const config = await invoke<RustCustomAiConfig>("get_custom_ai_config");
         if (config && config.providers) {
           // Extract provider keys
           const keys: { [key: string]: string } = {};
-          Object.entries(config.providers).forEach(([providerId, providerCfg]) => {
-            keys[providerId] = providerCfg.api_key || "";
-          });
-          
+          Object.entries(config.providers).forEach(
+            ([providerId, providerCfg]) => {
+              keys[providerId] = providerCfg.api_key || "";
+            },
+          );
+
           setProviderApiKeys(keys);
-          localStorage.setItem("alouette_provider_api_keys", JSON.stringify(keys));
+          localStorage.setItem(
+            "alouette_provider_api_keys",
+            JSON.stringify(keys),
+          );
 
           // Dynamically construct predefined models list from YAML providers
-          const loadedProviders: PredefinedModel[] = Object.entries(config.providers).map(([providerId, providerCfg]) => {
-            let providerName = providerId.charAt(0).toUpperCase() + providerId.slice(1);
+          const loadedProviders: PredefinedModel[] = Object.entries(
+            config.providers,
+          ).map(([providerId, providerCfg]) => {
+            let providerName =
+              providerId.charAt(0).toUpperCase() + providerId.slice(1);
             if (providerId === "gpt-chatgpt") {
               providerName = "ChatGPT";
             } else if (providerId === "deepseek") {
@@ -648,28 +741,52 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
             return {
               provider: providerName,
               id: providerId,
-              models: Object.entries(providerCfg.models).map(([modelId, detail]) => {
-                let modelName = modelId.split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
-                if (modelId.startsWith("gpt-")) {
-                  modelName = "GPT-" + modelId.substring(4).toUpperCase();
-                } else if (modelId.startsWith("gemini-")) {
-                  modelName = "Gemini " + modelId.substring(7).split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
-                } else if (modelId.startsWith("claude-")) {
-                  modelName = "Claude " + modelId.substring(7).split("-").map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(" ");
-                } else if (modelId.startsWith("deepseek-")) {
-                  modelName = "DeepSeek-" + modelId.substring(9).toUpperCase();
-                } else if (modelId.startsWith("qwen-")) {
-                  modelName = "Qwen " + modelId.substring(5).toUpperCase();
-                }
+              models: Object.entries(providerCfg.models).map(
+                ([modelId, detail]) => {
+                  let modelName = modelId
+                    .split("-")
+                    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(" ");
+                  if (modelId.startsWith("gpt-")) {
+                    modelName = "GPT-" + modelId.substring(4).toUpperCase();
+                  } else if (modelId.startsWith("gemini-")) {
+                    modelName =
+                      "Gemini " +
+                      modelId
+                        .substring(7)
+                        .split("-")
+                        .map(
+                          (word) =>
+                            word.charAt(0).toUpperCase() + word.slice(1),
+                        )
+                        .join(" ");
+                  } else if (modelId.startsWith("claude-")) {
+                    modelName =
+                      "Claude " +
+                      modelId
+                        .substring(7)
+                        .split("-")
+                        .map(
+                          (word) =>
+                            word.charAt(0).toUpperCase() + word.slice(1),
+                        )
+                        .join(" ");
+                  } else if (modelId.startsWith("deepseek-")) {
+                    modelName =
+                      "DeepSeek-" + modelId.substring(9).toUpperCase();
+                  } else if (modelId.startsWith("qwen-")) {
+                    modelName = "Qwen " + modelId.substring(5).toUpperCase();
+                  }
 
-                return {
-                  id: modelId,
-                  name: modelName,
-                  context: `${Math.round(detail.context_limit / 1000)}k`,
-                  vision: detail.supports_vision,
-                  desc: `Mô hình ${modelName} nạp động từ file ai_config.yml.`
-                };
-              })
+                  return {
+                    id: modelId,
+                    name: modelName,
+                    context: `${Math.round(detail.context_limit / 1000)}k`,
+                    vision: detail.supports_vision,
+                    desc: `Mô hình ${modelName} nạp động từ file ai_config.yml.`,
+                  };
+                },
+              ),
             };
           });
 
@@ -695,7 +812,7 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
   const autoSave = async (newActive: string[], apiKeys = providerApiKeys) => {
     localStorage.setItem("alouette_active_models", JSON.stringify(newActive));
     localStorage.setItem("alouette_provider_api_keys", JSON.stringify(apiKeys));
-    
+
     // Trigger dynamic storage event for current window
     window.dispatchEvent(new Event("storage"));
 
@@ -714,16 +831,16 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
         api_url: string;
         models: { [key: string]: RustModelDetail };
       }
-      
+
       const providersMap: { [key: string]: RustProviderConfig } = {};
-      
+
       // Map each predefined model
       predefinedModels.forEach((providerGroup) => {
         const apiKey = apiKeys[providerGroup.id] || "";
-        
+
         let apiStandard = "openai";
         let apiUrl = "https://api.openai.com/v1";
-        
+
         if (providerGroup.id === "deepseek") {
           apiStandard = "openai";
           apiUrl = "https://api.deepseek.com/v1";
@@ -757,14 +874,14 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
             temperature: 0.2,
             top_p: 0.95,
             api_standard: apiStandard,
-            api_url: apiUrl
+            api_url: apiUrl,
           };
         });
 
         providersMap[providerGroup.id] = {
           api_key: apiKey,
           api_url: apiUrl,
-          models: modelsMap
+          models: modelsMap,
         };
       });
 
@@ -776,81 +893,167 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
       await invoke("save_custom_ai_config", {
         config: {
           active_model: activeModel,
-          providers: providersMap
-        }
+          providers: providersMap,
+        },
       });
     } catch (err) {
       console.error("Failed to save AI config to backend:", err);
     }
   };
 
-
   return (
-    <div className="admin-panel animate-fade-in" style={{ paddingBottom: "60px", display: "flex", flexDirection: "column", gap: "28px" }}>
+    <div
+      className="admin-panel animate-fade-in"
+      style={{
+        paddingBottom: "60px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "28px",
+      }}
+    >
       {/* Header */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-primary)", paddingBottom: "16px" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          borderBottom: "1px solid var(--border-primary)",
+          paddingBottom: "16px",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <Sparkles size={20} style={{ color: "var(--text-primary)" }} />
           <div>
-            <h2 className="admin-panel-title" style={{ margin: 0, fontSize: "18px", fontWeight: 700 }}>Model AI</h2>
-            <p className="admin-panel-desc" style={{ margin: "2px 0 0 0", fontSize: "12px" }}>
-              Quản lý và kích hoạt các nhà cung cấp mô hình AI mặc định và tùy chỉnh độc lập.
+            <h2
+              className="admin-panel-title"
+              style={{ margin: 0, fontSize: "18px", fontWeight: 700 }}
+            >
+              Model AI
+            </h2>
+            <p
+              className="admin-panel-desc"
+              style={{ margin: "2px 0 0 0", fontSize: "12px" }}
+            >
+              Quản lý và kích hoạt các nhà cung cấp mô hình AI mặc định và tùy
+              chỉnh độc lập.
             </p>
           </div>
         </div>
       </div>
 
-      <div style={{ height: "1px", backgroundColor: "var(--border-primary)", margin: "8px 0" }} />
+      <div
+        style={{
+          height: "1px",
+          backgroundColor: "var(--border-primary)",
+          margin: "8px 0",
+        }}
+      />
 
       {/* ── PART 3: ALOUETTE INTEGRATED MODELS ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         <div>
-          <h3 style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "4px" }}>
+          <h3
+            style={{
+              fontSize: "14px",
+              fontWeight: 700,
+              color: "var(--text-primary)",
+              marginBottom: "4px",
+            }}
+          >
             Alouette Integrated Models
           </h3>
-          <p style={{ fontSize: "11.5px", color: "var(--text-secondary)", margin: 0 }}>
-            Mô hình AI tích hợp sâu chạy ngầm phục vụ tác vụ tự trị và các tính năng lõi của hệ thống Alouette (Không hiển thị ở giao diện AI Agent chat).
+          <p
+            style={{
+              fontSize: "11.5px",
+              color: "var(--text-secondary)",
+              margin: 0,
+            }}
+          >
+            Mô hình AI tích hợp sâu chạy ngầm phục vụ tác vụ tự trị và các tính
+            năng lõi của hệ thống Alouette (Không hiển thị ở giao diện AI Agent
+            chat).
           </p>
         </div>
 
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "14px 18px",
-          backgroundColor: "var(--bg-secondary)",
-          border: `1px solid ${alouetteOpenEnabled ? "var(--text-primary)" : "var(--border-primary)"}`,
-          borderRadius: "4px"
-        }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 18px",
+            backgroundColor: "var(--bg-secondary)",
+            border: `1px solid ${alouetteOpenEnabled ? "var(--text-primary)" : "var(--border-primary)"}`,
+            borderRadius: "4px",
+          }}
+        >
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-              <span style={{ fontSize: "13.5px", fontWeight: 600, color: "var(--text-primary)" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                flexWrap: "wrap",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "13.5px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                }}
+              >
                 Alouette Open
               </span>
-              <span style={{
-                fontSize: "9px",
-                padding: "1px 5px",
-                backgroundColor: "var(--bg-tertiary)",
-                color: "var(--text-secondary)",
-                border: "1px solid var(--border-primary)",
-                fontWeight: 600,
-                borderRadius: "3px"
-              }}>
+              <span
+                style={{
+                  fontSize: "9px",
+                  padding: "1px 5px",
+                  backgroundColor: "var(--bg-tertiary)",
+                  color: "var(--text-secondary)",
+                  border: "1px solid var(--border-primary)",
+                  fontWeight: 600,
+                  borderRadius: "3px",
+                }}
+              >
                 MÔ HÌNH LÕI TÍCH HỢP
               </span>
             </div>
-            
-            <p style={{ fontSize: "11.5px", color: "var(--text-secondary)", margin: 0, lineHeight: "1.4" }}>
-              Mã máy: <strong style={{ color: "var(--text-primary)" }}>alouette_open-A1</strong> (Context: 40k) • Chuyên biệt cho xử lý logic hệ thống, tự động hóa quy trình và phân tích ngầm.
+
+            <p
+              style={{
+                fontSize: "11.5px",
+                color: "var(--text-secondary)",
+                margin: 0,
+                lineHeight: "1.4",
+              }}
+            >
+              Mã máy:{" "}
+              <strong style={{ color: "var(--text-primary)" }}>
+                alouette_open-A1
+              </strong>{" "}
+              (Context: 40k) • Chuyên biệt cho xử lý logic hệ thống, tự động hóa
+              quy trình và phân tích ngầm.
             </p>
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
             <div
               onClick={handleToggleAlouetteOpen}
-              style={{ display: "flex", alignItems: "center", gap: "8px", cursor: "pointer" }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                cursor: "pointer",
+              }}
             >
-              <span style={{ fontSize: "11px", color: alouetteOpenEnabled ? "var(--text-primary)" : "var(--text-secondary)" }}>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: alouetteOpenEnabled
+                    ? "var(--text-primary)"
+                    : "var(--text-secondary)",
+                }}
+              >
                 {alouetteOpenEnabled ? "Đang bật" : "Đã tắt"}
               </span>
               <CustomCheckbox
@@ -862,28 +1065,54 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
         </div>
       </div>
 
-      <div style={{ height: "1px", backgroundColor: "var(--border-primary)", margin: "8px 0" }} />
+      <div
+        style={{
+          height: "1px",
+          backgroundColor: "var(--border-primary)",
+          margin: "8px 0",
+        }}
+      />
 
       {/* ── PART 1: ALOUETTE AGENT PREDEFINED MODELS ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
         <div>
-          <h3 style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "4px" }}>
+          <h3
+            style={{
+              fontSize: "14px",
+              fontWeight: 700,
+              color: "var(--text-primary)",
+              marginBottom: "4px",
+            }}
+          >
             Alouette Agent Default Models
           </h3>
           <p style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
-            Các nhà cung cấp AI kết nối trực tiếp qua Alouette Server trung tâm. Không cần cấu hình API Key cá nhân.
+            Các nhà cung cấp AI kết nối trực tiếp qua Alouette Server trung tâm.
+            Không cần cấu hình API Key cá nhân.
           </p>
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "4px" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "10px",
+            marginTop: "4px",
+          }}
+        >
           {predefinedModels.map((model) => {
-            const providerModels = model.models.map(m => m.id);
-            const activeProviderModels = providerModels.filter(id => activeModels.includes(id));
+            const providerModels = model.models.map((m) => m.id);
+            const activeProviderModels = providerModels.filter((id) =>
+              activeModels.includes(id),
+            );
             const isProviderActive = activeProviderModels.length > 0;
             const isExpanded = expandedProviders.includes(model.id);
 
             return (
-              <div key={model.id} style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+              <div
+                key={model.id}
+                style={{ display: "flex", flexDirection: "column", gap: "1px" }}
+              >
                 {/* Provider Row */}
                 <div
                   onClick={(e) => handleToggleProvider(model.id, e)}
@@ -895,12 +1124,19 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                     backgroundColor: "var(--bg-secondary)",
                     border: `1px solid ${isProviderActive ? "var(--text-primary)" : "var(--border-primary)"}`,
                     cursor: "pointer",
-                    transition: "all var(--transition-fast)"
+                    transition: "all var(--transition-fast)",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "14px", maxWidth: "80%" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "14px",
+                      maxWidth: "80%",
+                    }}
+                  >
                     {/* Expand/Collapse Trigger */}
-                    <div 
+                    <div
                       onClick={(e) => toggleExpandProvider(model.id, e)}
                       style={{
                         display: "flex",
@@ -913,32 +1149,74 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                         borderRadius: "4px",
                         backgroundColor: "var(--bg-tertiary)",
                         border: "1px solid var(--border-primary)",
-                        transition: "all var(--transition-fast)"
+                        transition: "all var(--transition-fast)",
                       }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-primary)"}
-                      onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-secondary)"}
+                      onMouseEnter={(e) =>
+                        (e.currentTarget.style.color = "var(--text-primary)")
+                      }
+                      onMouseLeave={(e) =>
+                        (e.currentTarget.style.color = "var(--text-secondary)")
+                      }
                     >
-                      {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      {isExpanded ? (
+                        <ChevronDown size={14} />
+                      ) : (
+                        <ChevronRight size={14} />
+                      )}
                     </div>
 
-                    <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                      <span style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "3px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "14px",
+                          fontWeight: 700,
+                          color: "var(--text-primary)",
+                        }}
+                      >
                         {model.provider}
                       </span>
-                      <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
-                        {activeProviderModels.length}/{model.models.length} model đang bật
+                      <span
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        {activeProviderModels.length}/{model.models.length}{" "}
+                        model đang bật
                       </span>
                     </div>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }} onClick={(e) => e.stopPropagation()}>
-                    <span style={{ fontSize: "11.5px", color: isProviderActive ? "var(--text-primary)" : "var(--text-secondary)" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <span
+                      style={{
+                        fontSize: "11.5px",
+                        color: isProviderActive
+                          ? "var(--text-primary)"
+                          : "var(--text-secondary)",
+                      }}
+                    >
                       {isProviderActive ? "Đang bật" : "Đã tắt"}
                     </span>
                     <CustomCheckbox
                       checked={isProviderActive}
                       onChange={() => {
-                        const eventMock = { stopPropagation: () => {} } as React.MouseEvent;
+                        const eventMock = {
+                          stopPropagation: () => {},
+                        } as React.MouseEvent;
                         handleToggleProvider(model.id, eventMock);
                       }}
                     />
@@ -947,30 +1225,40 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
 
                 {/* Sub-models list (Expanded) */}
                 {isExpanded && (
-                  <div style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: "12px",
-                    padding: "16px 18px 20px 56px",
-                    backgroundColor: "rgba(255, 255, 255, 0.01)",
-                    borderLeft: "2px solid var(--border-primary)",
-                    borderRight: "1px solid var(--border-primary)",
-                    borderBottom: "1px solid var(--border-primary)",
-                    marginTop: "-1px",
-                    marginBottom: "8px",
-                    transition: "all var(--transition-fast)"
-                  }}>
-                    {/* API Key Input for Provider */}
-                    <div style={{
+                  <div
+                    style={{
                       display: "flex",
                       flexDirection: "column",
-                      gap: "6px",
-                      padding: "12px 14px",
-                      backgroundColor: "var(--bg-secondary)",
-                      border: "1px solid var(--border-primary)",
-                      borderRadius: "4px"
-                    }}>
-                      <label style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 600 }}>
+                      gap: "12px",
+                      padding: "16px 18px 20px 56px",
+                      backgroundColor: "rgba(255, 255, 255, 0.01)",
+                      borderLeft: "2px solid var(--border-primary)",
+                      borderRight: "1px solid var(--border-primary)",
+                      borderBottom: "1px solid var(--border-primary)",
+                      marginTop: "-1px",
+                      marginBottom: "8px",
+                      transition: "all var(--transition-fast)",
+                    }}
+                  >
+                    {/* API Key Input for Provider */}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "6px",
+                        padding: "12px 14px",
+                        backgroundColor: "var(--bg-secondary)",
+                        border: "1px solid var(--border-primary)",
+                        borderRadius: "4px",
+                      }}
+                    >
+                      <label
+                        style={{
+                          fontSize: "11px",
+                          color: "var(--text-secondary)",
+                          fontWeight: 600,
+                        }}
+                      >
                         API Key cho {model.provider}
                       </label>
                       <input
@@ -978,14 +1266,18 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                         className="admin-input"
                         placeholder={`Nhập API Key cho ${model.provider}...`}
                         value={providerApiKeys[model.id] || ""}
-                        onChange={(e) => handleApiKeyChange(model.id, e.target.value)}
+                        onChange={(e) =>
+                          handleApiKeyChange(model.id, e.target.value)
+                        }
                         style={{ width: "100%" }}
                       />
                     </div>
                     {model.models.map((subModel) => {
-                      const isSubModelActive = activeModels.includes(subModel.id);
+                      const isSubModelActive = activeModels.includes(
+                        subModel.id,
+                      );
                       return (
-                        <div 
+                        <div
                           key={subModel.id}
                           onClick={(e) => handleToggleModel(subModel.id, e)}
                           style={{
@@ -997,47 +1289,94 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                             backgroundColor: "var(--bg-tertiary)",
                             border: `1px solid ${isSubModelActive ? "var(--text-primary)" : "var(--border-primary)"}`,
                             cursor: "pointer",
-                            transition: "all var(--transition-fast)"
+                            transition: "all var(--transition-fast)",
                           }}
                         >
-                          <div style={{ display: "flex", flexDirection: "column", gap: "6px", maxWidth: "80%" }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                              <span style={{ fontSize: "12.5px", fontWeight: 600, color: "var(--text-primary)" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "6px",
+                              maxWidth: "80%",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "10px",
+                                flexWrap: "wrap",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: "12.5px",
+                                  fontWeight: 600,
+                                  color: "var(--text-primary)",
+                                }}
+                              >
                                 {subModel.name}
                               </span>
-                              <span style={{
-                                fontSize: "9px",
-                                padding: "1px 5px",
-                                backgroundColor: "var(--bg-secondary)",
-                                color: "var(--text-secondary)",
-                                border: "1px solid var(--border-primary)",
-                                fontWeight: 600
-                              }}>
+                              <span
+                                style={{
+                                  fontSize: "9px",
+                                  padding: "1px 5px",
+                                  backgroundColor: "var(--bg-secondary)",
+                                  color: "var(--text-secondary)",
+                                  border: "1px solid var(--border-primary)",
+                                  fontWeight: 600,
+                                }}
+                              >
                                 Vendor: {model.provider}
                               </span>
-                              <span style={{
-                                fontSize: "9px",
-                                padding: "1px 5px",
-                                backgroundColor: "var(--bg-secondary)",
-                                color: "var(--text-secondary)",
-                                border: "1px solid var(--border-primary)"
-                              }}>
+                              <span
+                                style={{
+                                  fontSize: "9px",
+                                  padding: "1px 5px",
+                                  backgroundColor: "var(--bg-secondary)",
+                                  color: "var(--text-secondary)",
+                                  border: "1px solid var(--border-primary)",
+                                }}
+                              >
                                 Context: {subModel.context}
                               </span>
                             </div>
-                            <p style={{ fontSize: "11px", color: "var(--text-secondary)", margin: 0, lineHeight: "1.4" }}>
+                            <p
+                              style={{
+                                fontSize: "11px",
+                                color: "var(--text-secondary)",
+                                margin: 0,
+                                lineHeight: "1.4",
+                              }}
+                            >
                               {subModel.desc}
                             </p>
                           </div>
 
-                          <div style={{ display: "flex", alignItems: "center", gap: "12px" }} onClick={(e) => e.stopPropagation()}>
-                            <span style={{ fontSize: "11.5px", color: isSubModelActive ? "var(--text-primary)" : "var(--text-secondary)" }}>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "12px",
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span
+                              style={{
+                                fontSize: "11.5px",
+                                color: isSubModelActive
+                                  ? "var(--text-primary)"
+                                  : "var(--text-secondary)",
+                              }}
+                            >
                               {isSubModelActive ? "Đang bật" : "Đã tắt"}
                             </span>
                             <CustomCheckbox
                               checked={isSubModelActive}
                               onChange={() => {
-                                const eventMock = { stopPropagation: () => {} } as React.MouseEvent;
+                                const eventMock = {
+                                  stopPropagation: () => {},
+                                } as React.MouseEvent;
                                 handleToggleModel(subModel.id, eventMock);
                               }}
                             />
@@ -1055,8 +1394,6 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
     </div>
   );
 }
-
-
 
 function EnvironmentSection() {
   return (
@@ -1120,16 +1457,31 @@ function BuildSection() {
   return (
     <div className="admin-panel animate-fade-in">
       <h2 className="admin-panel-title">Build</h2>
-      <p className="admin-panel-desc">Configure compile pipeline, compression, and platform-specific build tooling.</p>
+      <p className="admin-panel-desc">
+        Configure compile pipeline, compression, and platform-specific build
+        tooling.
+      </p>
 
       {settings && (
         <>
           <div className="admin-card-grid">
             {/* ── Desktop ── */}
             <div className="admin-card">
-              <div className="admin-card-header" style={{ display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid var(--border-primary)", paddingBottom: "10px", marginBottom: "14px" }}>
+              <div
+                className="admin-card-header"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  borderBottom: "1px solid var(--border-primary)",
+                  paddingBottom: "10px",
+                  marginBottom: "14px",
+                }}
+              >
                 <Monitor size={15} style={{ color: "var(--color-accent)" }} />
-                <span style={{ fontWeight: 600, letterSpacing: "0.5px" }}>Desktop Build</span>
+                <span style={{ fontWeight: 600, letterSpacing: "0.5px" }}>
+                  Desktop Build
+                </span>
               </div>
               <div
                 style={{
@@ -1166,8 +1518,16 @@ function BuildSection() {
                       Single Executable
                     </span>
                   </div>
-                  <span style={{ fontSize: "11px", color: "var(--text-secondary)", paddingLeft: "26px", lineHeight: "1.4" }}>
-                    Compile and package all resources into a single standalone binary.
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      paddingLeft: "26px",
+                      lineHeight: "1.4",
+                    }}
+                  >
+                    Compile and package all resources into a single standalone
+                    binary.
                   </span>
                 </div>
 
@@ -1199,8 +1559,16 @@ function BuildSection() {
                       UPX Compression
                     </span>
                   </div>
-                  <span style={{ fontSize: "11px", color: "var(--text-secondary)", paddingLeft: "26px", lineHeight: "1.4" }}>
-                    Compress the executable payload (default active) to minimize file size.
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      paddingLeft: "26px",
+                      lineHeight: "1.4",
+                    }}
+                  >
+                    Compress the executable payload (default active) to minimize
+                    file size.
                   </span>
                 </div>
               </div>
@@ -1208,9 +1576,24 @@ function BuildSection() {
 
             {/* ── Android ── */}
             <div className="admin-card">
-              <div className="admin-card-header" style={{ display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid var(--border-primary)", paddingBottom: "10px", marginBottom: "14px" }}>
-                <Smartphone size={15} style={{ color: "var(--color-accent)" }} />
-                <span style={{ fontWeight: 600, letterSpacing: "0.5px" }}>Android Build</span>
+              <div
+                className="admin-card-header"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  borderBottom: "1px solid var(--border-primary)",
+                  paddingBottom: "10px",
+                  marginBottom: "14px",
+                }}
+              >
+                <Smartphone
+                  size={15}
+                  style={{ color: "var(--color-accent)" }}
+                />
+                <span style={{ fontWeight: 600, letterSpacing: "0.5px" }}>
+                  Android Build
+                </span>
               </div>
               <div
                 style={{
@@ -1246,8 +1629,15 @@ function BuildSection() {
                     <option value="Gradle">Gradle (bin)</option>
                     <option value="Bazel">Bazel</option>
                   </select>
-                  <span style={{ fontSize: "11px", color: "var(--text-secondary)", marginTop: "4px" }}>
-                    Select build system to compile, run tests, and package Android binaries.
+                  <span
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      marginTop: "4px",
+                    }}
+                  >
+                    Select build system to compile, run tests, and package
+                    Android binaries.
                   </span>
                 </div>
               </div>
@@ -1258,7 +1648,12 @@ function BuildSection() {
             <button
               className="admin-btn admin-btn-primary"
               onClick={handleSave}
-              style={{ padding: "8px 18px", display: "flex", alignItems: "center", gap: "8px" }}
+              style={{
+                padding: "8px 18px",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+              }}
             >
               <Save size={14} />
               <span>Save Build Settings</span>
@@ -1509,8 +1904,6 @@ function SandboxSection() {
       scheduleSave(selectedProjectId, merged);
     }
   };
-
-
 
   return (
     <div
@@ -3068,6 +3461,10 @@ interface LanguageTool {
 
 function SystemSection() {
   const [settings, setSettings] = useState<any>(null);
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "success" | "error"
+  >("idle");
+  const [saveMessage, setSaveMessage] = useState("");
 
   // telegram bot (local state as user requested to handle backend integration for it later)
   const [enableTelegram, setEnableTelegram] = useState(false);
@@ -3079,6 +3476,24 @@ function SystemSection() {
     onError: true,
     onResourceAlert: false,
   });
+
+  // Detect OS for showing autostart mechanism
+  const osType = (() => {
+    const ua = navigator.userAgent.toLowerCase();
+    if (ua.includes("win")) return "Windows";
+    if (ua.includes("mac")) return "macOS";
+    if (ua.includes("linux")) return "Linux";
+    return "Unknown";
+  })();
+
+  const autostartMechanism =
+    osType === "Windows"
+      ? "Windows Registry"
+      : osType === "macOS"
+        ? "LaunchAgent"
+        : osType === "Linux"
+          ? ".desktop Autostart"
+          : "N/A";
 
   useEffect(() => {
     (async () => {
@@ -3093,138 +3508,388 @@ function SystemSection() {
 
   const handleSaveSettings = async () => {
     if (!settings) return;
+    setSaveStatus("saving");
+    setSaveMessage("");
     try {
       await invoke("save_settings", { settings });
-      alert("Đã lưu cấu hình hệ thống thành công!");
-    } catch (err) {
+      setSaveStatus("success");
+      setSaveMessage("Đã lưu cấu hình hệ thống thành công!");
+      setTimeout(() => {
+        setSaveStatus("idle");
+        setSaveMessage("");
+      }, 3000);
+    } catch (err: any) {
       console.error("Failed to save settings:", err);
-      alert("Có lỗi xảy ra khi lưu: " + err);
+      setSaveStatus("error");
+      setSaveMessage("Lỗi: " + err);
     }
   };
 
   if (!settings) {
     return (
-      <div className="admin-panel animate-fade-in" style={{ padding: "40px", textAlign: "center", color: "var(--text-secondary)" }}>
+      <div
+        className="admin-panel animate-fade-in"
+        style={{
+          padding: "40px",
+          textAlign: "center",
+          color: "var(--text-secondary)",
+        }}
+      >
         Đang tải cấu hình hệ thống...
       </div>
     );
   }
 
   return (
-    <div className="admin-panel animate-fade-in" style={{ paddingBottom: "60px", display: "flex", flexDirection: "column", gap: "28px" }}>
-      <div style={{ borderBottom: "1px solid var(--border-primary)", paddingBottom: "16px" }}>
-        <h2 className="admin-panel-title" style={{ margin: 0, fontSize: "18px", fontWeight: 700 }}>System Settings</h2>
-        <p className="admin-panel-desc" style={{ margin: "4px 0 0 0", fontSize: "12px" }}>
-          Cấu hình tối ưu hóa hệ thống, tự khởi động, kiểm soát tài nguyên và tích hợp Bot Telegram giám sát.
+    <div
+      className="admin-panel animate-fade-in"
+      style={{
+        paddingBottom: "60px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "28px",
+      }}
+    >
+      <div
+        style={{
+          borderBottom: "1px solid var(--border-primary)",
+          paddingBottom: "16px",
+        }}
+      >
+        <h2
+          className="admin-panel-title"
+          style={{ margin: 0, fontSize: "18px", fontWeight: 700 }}
+        >
+          System Settings
+        </h2>
+        <p
+          className="admin-panel-desc"
+          style={{ margin: "4px 0 0 0", fontSize: "12px" }}
+        >
+          Cấu hình tối ưu hóa hệ thống, tự khởi động, kiểm soát tài nguyên và
+          tích hợp Bot Telegram giám sát.
         </p>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         {/* ── Khởi động & Trạng thái ── */}
         <div className="admin-card">
-          <div className="admin-card-header" style={{ borderBottom: "1px solid var(--border-primary)", paddingBottom: "10px", marginBottom: "14px", fontWeight: 600 }}>
+          <div
+            className="admin-card-header"
+            style={{
+              borderBottom: "1px solid var(--border-primary)",
+              paddingBottom: "10px",
+              marginBottom: "14px",
+              fontWeight: 600,
+            }}
+          >
             Ứng Dụng & Khởi Động
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+          >
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+            >
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
                 <CustomCheckbox
                   checked={settings.keep_alive}
-                  onChange={(val) => setSettings({ ...settings, keep_alive: val })}
+                  onChange={(val) =>
+                    setSettings({ ...settings, keep_alive: val })
+                  }
                 />
-                <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--text-primary)",
+                    fontWeight: 500,
+                  }}
+                >
                   Giữ app sống khi lỡ tay tắt
                 </span>
               </div>
-              <span style={{ fontSize: "11px", color: "var(--text-secondary)", paddingLeft: "26px", lineHeight: "1.4" }}>
-                Khi nhấn nút đóng cửa sổ, ứng dụng sẽ thu nhỏ xuống thanh hệ thống (System Tray) thay vì thoát hoàn toàn.
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: "var(--text-secondary)",
+                  paddingLeft: "26px",
+                  lineHeight: "1.4",
+                }}
+              >
+                Khi nhấn nút đóng cửa sổ, ứng dụng sẽ thu nhỏ xuống thanh hệ
+                thống (System Tray) thay vì thoát hoàn toàn.
               </span>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+            >
+              <div
+                style={{ display: "flex", alignItems: "center", gap: "10px" }}
+              >
                 <CustomCheckbox
                   checked={settings.auto_start}
-                  onChange={(val) => setSettings({ ...settings, auto_start: val })}
+                  onChange={(val) =>
+                    setSettings({ ...settings, auto_start: val })
+                  }
                 />
-                <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--text-primary)",
+                    fontWeight: 500,
+                  }}
+                >
                   Tự khởi động theo OS
                 </span>
+                {/* Status badge */}
+                <span
+                  style={{
+                    fontSize: "10px",
+                    fontWeight: 600,
+                    padding: "3px 8px",
+                    borderRadius: "10px",
+                    backgroundColor: settings.auto_start
+                      ? "rgba(34, 197, 94, 0.15)"
+                      : "rgba(156, 163, 175, 0.15)",
+                    color: settings.auto_start ? "#22c55e" : "#9ca3af",
+                    border: `1px solid ${settings.auto_start ? "rgba(34, 197, 94, 0.3)" : "rgba(156, 163, 175, 0.2)"}`,
+                  }}
+                >
+                  {settings.auto_start ? "Đã bật" : "Tắt"}
+                </span>
               </div>
-              <span style={{ fontSize: "11px", color: "var(--text-secondary)", paddingLeft: "26px", lineHeight: "1.4" }}>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: "var(--text-secondary)",
+                  paddingLeft: "26px",
+                  lineHeight: "1.4",
+                }}
+              >
                 Tự động khởi chạy ứng dụng cùng hệ thống khi máy tính khởi động.
+                Sử dụng cơ chế{" "}
+                <strong style={{ color: "var(--text-primary)" }}>
+                  {autostartMechanism}
+                </strong>
+                .
               </span>
+              {settings.auto_start && (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    color: "#22c55e",
+                    paddingLeft: "26px",
+                    lineHeight: "1.4",
+                    marginTop: "2px",
+                  }}
+                >
+                  Khi OS khởi động, ứng dụng sẽ chạy ngầm ở khay hệ thống
+                  (System Tray), không hiện cửa sổ.
+                </span>
+              )}
             </div>
-
           </div>
         </div>
 
         {/* ── Tự động Restart & Tài nguyên ── */}
-        <div className="admin-card" style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+        <div
+          className="admin-card"
+          style={{ display: "flex", flexDirection: "column", gap: "16px" }}
+        >
           <div>
-            <div className="admin-card-header" style={{ borderBottom: "1px solid var(--border-primary)", paddingBottom: "10px", marginBottom: "14px", fontWeight: 600 }}>
+            <div
+              className="admin-card-header"
+              style={{
+                borderBottom: "1px solid var(--border-primary)",
+                paddingBottom: "10px",
+                marginBottom: "14px",
+                fontWeight: 600,
+              }}
+            >
               Kiểm Soát Tài Nguyên & Restart
             </div>
-            
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "12px",
+                marginBottom: "20px",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  marginBottom: "4px",
+                }}
+              >
                 <CustomCheckbox
                   checked={settings.enable_limit}
-                  onChange={(val) => setSettings({ ...settings, enable_limit: val })}
+                  onChange={(val) =>
+                    setSettings({ ...settings, enable_limit: val })
+                  }
                 />
-                <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--text-primary)",
+                    fontWeight: 500,
+                  }}
+                >
                   Giới hạn tài nguyên phần cứng
                 </span>
               </div>
-              
-              <div style={{ display: "flex", gap: "10px", paddingLeft: "26px", opacity: settings.enable_limit ? 1 : 0.6, transition: "opacity 0.2s ease" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
-                  <label style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 600 }}>Max CPU (%)</label>
+
+              <div
+                style={{
+                  display: "flex",
+                  gap: "10px",
+                  paddingLeft: "26px",
+                  opacity: settings.enable_limit ? 1 : 0.6,
+                  transition: "opacity 0.2s ease",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    flex: 1,
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Max CPU (%)
+                  </label>
                   <input
                     type="number"
                     disabled={!settings.enable_limit}
                     className="admin-input"
-                    style={{ padding: "6px 8px", cursor: settings.enable_limit ? "text" : "not-allowed" }}
+                    style={{
+                      padding: "6px 8px",
+                      cursor: settings.enable_limit ? "text" : "not-allowed",
+                    }}
                     value={settings.max_cpu_percent}
-                    onChange={(e) => setSettings({ ...settings, max_cpu_percent: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        max_cpu_percent: parseInt(e.target.value) || 0,
+                      })
+                    }
                   />
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px", flex: 1 }}>
-                  <label style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 600 }}>Max RAM (MB)</label>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                    flex: 1,
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Max RAM (MB)
+                  </label>
                   <input
                     type="number"
                     disabled={!settings.enable_limit}
                     className="admin-input"
-                    style={{ padding: "6px 8px", cursor: settings.enable_limit ? "text" : "not-allowed" }}
+                    style={{
+                      padding: "6px 8px",
+                      cursor: settings.enable_limit ? "text" : "not-allowed",
+                    }}
                     value={settings.max_ram_mb}
-                    onChange={(e) => setSettings({ ...settings, max_ram_mb: parseInt(e.target.value) || 0 })}
+                    onChange={(e) =>
+                      setSettings({
+                        ...settings,
+                        max_ram_mb: parseInt(e.target.value) || 0,
+                      })
+                    }
                   />
                 </div>
               </div>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  marginBottom: "4px",
+                }}
+              >
                 <CustomCheckbox
                   checked={settings.auto_restart}
-                  onChange={(val) => setSettings({ ...settings, auto_restart: val })}
+                  onChange={(val) =>
+                    setSettings({ ...settings, auto_restart: val })
+                  }
                 />
-                <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
+                <span
+                  style={{
+                    fontSize: "13px",
+                    color: "var(--text-primary)",
+                    fontWeight: 500,
+                  }}
+                >
                   Tự restart app định kỳ
                 </span>
               </div>
-              
-              <div style={{ display: "flex", alignItems: "center", gap: "8px", paddingLeft: "26px", opacity: settings.auto_restart ? 1 : 0.6, transition: "opacity 0.2s ease" }}>
-                <span style={{ fontSize: "12px", color: "var(--text-primary)" }}>Chu kỳ:</span>
+
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  paddingLeft: "26px",
+                  opacity: settings.auto_restart ? 1 : 0.6,
+                  transition: "opacity 0.2s ease",
+                }}
+              >
+                <span
+                  style={{ fontSize: "12px", color: "var(--text-primary)" }}
+                >
+                  Chu kỳ:
+                </span>
                 <input
                   type="number"
                   disabled={!settings.auto_restart}
                   className="admin-input"
-                  style={{ width: "80px", padding: "6px 8px", cursor: settings.auto_restart ? "text" : "not-allowed" }}
+                  style={{
+                    width: "80px",
+                    padding: "6px 8px",
+                    cursor: settings.auto_restart ? "text" : "not-allowed",
+                  }}
                   value={settings.restart_interval_hours}
-                  onChange={(e) => setSettings({ ...settings, restart_interval_hours: parseInt(e.target.value) || 0 })}
+                  onChange={(e) =>
+                    setSettings({
+                      ...settings,
+                      restart_interval_hours: parseInt(e.target.value) || 0,
+                    })
+                  }
                 />
-                <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>giờ</span>
+                <span
+                  style={{ fontSize: "12px", color: "var(--text-secondary)" }}
+                >
+                  giờ
+                </span>
               </div>
             </div>
           </div>
@@ -3232,25 +3897,77 @@ function SystemSection() {
 
         {/* ── Telegram Bot Integration ── */}
         <div className="admin-card">
-          <div className="admin-card-header" style={{ borderBottom: "1px solid var(--border-primary)", paddingBottom: "10px", marginBottom: "14px", fontWeight: 600 }}>
+          <div
+            className="admin-card-header"
+            style={{
+              borderBottom: "1px solid var(--border-primary)",
+              paddingBottom: "10px",
+              marginBottom: "14px",
+              fontWeight: 600,
+            }}
+          >
             Cấu Hình Bot Telegram Giám Sát
           </div>
-          
-          <div style={{ display: "flex", flexDirection: "column", gap: "18px" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: "18px" }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "10px",
+                marginBottom: "4px",
+              }}
+            >
               <CustomCheckbox
                 checked={enableTelegram}
                 onChange={setEnableTelegram}
               />
-              <span style={{ fontSize: "13px", color: "var(--text-primary)", fontWeight: 500 }}>
+              <span
+                style={{
+                  fontSize: "13px",
+                  color: "var(--text-primary)",
+                  fontWeight: 500,
+                }}
+              >
                 Kích hoạt Bot Telegram báo cáo trạng thái
               </span>
             </div>
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "16px", paddingLeft: "26px", opacity: enableTelegram ? 1 : 0.6, transition: "opacity 0.2s ease" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 600 }}>Bot Token API</label>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: "16px",
+                paddingLeft: "26px",
+                opacity: enableTelegram ? 1 : 0.6,
+                transition: "opacity 0.2s ease",
+              }}
+            >
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: "14px",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    Bot Token API
+                  </label>
                   <input
                     type="password"
                     disabled={!enableTelegram}
@@ -3261,8 +3978,22 @@ function SystemSection() {
                     onChange={(e) => setBotToken(e.target.value)}
                   />
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <label style={{ fontSize: "11px", color: "var(--text-secondary)", fontWeight: 600 }}>User ID / Chat ID</label>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  <label
+                    style={{
+                      fontSize: "11px",
+                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                    }}
+                  >
+                    User ID / Chat ID
+                  </label>
                   <input
                     type="text"
                     disabled={!enableTelegram}
@@ -3275,46 +4006,123 @@ function SystemSection() {
                 </div>
               </div>
 
-              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <span style={{ fontSize: "11.5px", color: "var(--text-secondary)", fontWeight: 600 }}>Gửi thông báo khi:</span>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: enableTelegram ? "pointer" : "not-allowed" }}>
+              <div
+                style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+              >
+                <span
+                  style={{
+                    fontSize: "11.5px",
+                    color: "var(--text-secondary)",
+                    fontWeight: 600,
+                  }}
+                >
+                  Gửi thông báo khi:
+                </span>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: "10px",
+                  }}
+                >
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "12px",
+                      cursor: enableTelegram ? "pointer" : "not-allowed",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       disabled={!enableTelegram}
                       checked={botEvents.onStart}
-                      onChange={(e) => setBotEvents({ ...botEvents, onStart: e.target.checked })}
-                      style={{ accentColor: "var(--color-accent)", cursor: enableTelegram ? "pointer" : "not-allowed" }}
+                      onChange={(e) =>
+                        setBotEvents({
+                          ...botEvents,
+                          onStart: e.target.checked,
+                        })
+                      }
+                      style={{
+                        accentColor: "var(--color-accent)",
+                        cursor: enableTelegram ? "pointer" : "not-allowed",
+                      }}
                     />
                     Ứng dụng khởi động
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: enableTelegram ? "pointer" : "not-allowed" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "12px",
+                      cursor: enableTelegram ? "pointer" : "not-allowed",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       disabled={!enableTelegram}
                       checked={botEvents.onStop}
-                      onChange={(e) => setBotEvents({ ...botEvents, onStop: e.target.checked })}
-                      style={{ accentColor: "var(--color-accent)", cursor: enableTelegram ? "pointer" : "not-allowed" }}
+                      onChange={(e) =>
+                        setBotEvents({ ...botEvents, onStop: e.target.checked })
+                      }
+                      style={{
+                        accentColor: "var(--color-accent)",
+                        cursor: enableTelegram ? "pointer" : "not-allowed",
+                      }}
                     />
                     Ứng dụng tắt/dừng
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: enableTelegram ? "pointer" : "not-allowed" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "12px",
+                      cursor: enableTelegram ? "pointer" : "not-allowed",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       disabled={!enableTelegram}
                       checked={botEvents.onError}
-                      onChange={(e) => setBotEvents({ ...botEvents, onError: e.target.checked })}
-                      style={{ accentColor: "var(--color-accent)", cursor: enableTelegram ? "pointer" : "not-allowed" }}
+                      onChange={(e) =>
+                        setBotEvents({
+                          ...botEvents,
+                          onError: e.target.checked,
+                        })
+                      }
+                      style={{
+                        accentColor: "var(--color-accent)",
+                        cursor: enableTelegram ? "pointer" : "not-allowed",
+                      }}
                     />
                     Có lỗi hệ thống phát sinh
                   </label>
-                  <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", cursor: enableTelegram ? "pointer" : "not-allowed" }}>
+                  <label
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      fontSize: "12px",
+                      cursor: enableTelegram ? "pointer" : "not-allowed",
+                    }}
+                  >
                     <input
                       type="checkbox"
                       disabled={!enableTelegram}
                       checked={botEvents.onResourceAlert}
-                      onChange={(e) => setBotEvents({ ...botEvents, onResourceAlert: e.target.checked })}
-                      style={{ accentColor: "var(--color-accent)", cursor: enableTelegram ? "pointer" : "not-allowed" }}
+                      onChange={(e) =>
+                        setBotEvents({
+                          ...botEvents,
+                          onResourceAlert: e.target.checked,
+                        })
+                      }
+                      style={{
+                        accentColor: "var(--color-accent)",
+                        cursor: enableTelegram ? "pointer" : "not-allowed",
+                      }}
                     />
                     Cảnh báo vượt hạn mức tài nguyên
                   </label>
@@ -3325,8 +4133,15 @@ function SystemSection() {
                 type="button"
                 disabled={!enableTelegram}
                 className="admin-btn admin-btn-secondary"
-                style={{ alignSelf: "flex-start", fontSize: "11px", padding: "6px 12px", cursor: enableTelegram ? "pointer" : "not-allowed" }}
-                onClick={() => alert("Gửi tin nhắn thử nghiệm thành công đến Telegram!")}
+                style={{
+                  alignSelf: "flex-start",
+                  fontSize: "11px",
+                  padding: "6px 12px",
+                  cursor: enableTelegram ? "pointer" : "not-allowed",
+                }}
+                onClick={() =>
+                  alert("Gửi tin nhắn thử nghiệm thành công đến Telegram!")
+                }
               >
                 Gửi tin nhắn test thử (Send Test Message)
               </button>
@@ -3335,13 +4150,37 @@ function SystemSection() {
         </div>
       </div>
 
+      {/* Save status message */}
+      {saveMessage && (
+        <div
+          style={{
+            fontSize: "12px",
+            padding: "8px 14px",
+            borderRadius: "6px",
+            backgroundColor:
+              saveStatus === "error"
+                ? "rgba(239, 68, 68, 0.1)"
+                : "rgba(34, 197, 94, 0.1)",
+            color: saveStatus === "error" ? "#ef4444" : "#22c55e",
+            border: `1px solid ${saveStatus === "error" ? "rgba(239, 68, 68, 0.2)" : "rgba(34, 197, 94, 0.2)"}`,
+            marginTop: "4px",
+          }}
+        >
+          {saveMessage}
+        </div>
+      )}
+
       <div className="admin-actions-bar" style={{ marginTop: "12px" }}>
         <button
           className="admin-btn admin-btn-primary"
           onClick={handleSaveSettings}
-          style={{ padding: "8px 20px" }}
+          disabled={saveStatus === "saving"}
+          style={{
+            padding: "8px 20px",
+            opacity: saveStatus === "saving" ? 0.7 : 1,
+          }}
         >
-          Lưu Cấu Hình Hệ Thống
+          {saveStatus === "saving" ? "Đang lưu..." : "Lưu Cấu Hình Hệ Thống"}
         </button>
       </div>
     </div>

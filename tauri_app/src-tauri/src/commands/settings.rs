@@ -19,10 +19,20 @@ pub fn get_settings() -> Result<AppSettings, String> {
 pub fn save_settings(settings: AppSettings) -> Result<(), String> {
     let path = settings_path();
 
-    // Configure Windows Autostart Registry entry cleanly
-    let _ = crate::system_manager::configure_autostart(settings.auto_start);
+    // Configure OS autostart (cross-platform: Windows/macOS/Linux)
+    // Execute BEFORE saving so that on failure the user can retry
+    crate::system_manager::configure_autostart(settings.auto_start)
+        .map_err(|e| format!("Failed to configure autostart: {}", e))?;
 
-    settings.save_to_file(&path)
+    settings.save_to_file(&path)?;
+
+    // Log success
+    crate::state::log_to_app_file(&format!(
+        "[Settings] Saved — auto_start: {}",
+        settings.auto_start
+    ));
+
+    Ok(())
 }
 
 #[tauri::command]
