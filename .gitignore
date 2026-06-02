@@ -23,4 +23,4 @@ core_engine/app_data/*
 
 core_engine/src/model_AI
 
-tauri_app/ui/dist/
+tauri_app/ui/dist

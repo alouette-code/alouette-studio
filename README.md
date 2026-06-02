@@ -1,437 +1,153 @@
 # Alouette Studio
 
-**Integrated Development Studio & Native Process Orchestrator** — a high-performance desktop application for managing isolated development environments with enterprise-grade toolchain isolation, real-time resource monitoring, integrated multi-session terminal access, built-in Monaco Editor, SQLite browser, robust API client, and local AI-powered log diagnostic suite.
+### Integrated Development Studio and Native Process Orchestrator
 
-Built with **Rust + Tauri v2 + React 18 + TypeScript**.
+A high-performance desktop application built with Rust, Tauri v2, React 18, and TypeScript. It is designed to register, execute, isolate, and monitor independent development environments with enterprise-grade sandboxing, automated toolchain management, virtual PTY terminals, an integrated Monaco editor, and a SQLite database browser.
 
----
-
-## Features
-
-### Process Management
-- Register, start, stop, and deregister project processes
-- Automatic restart with exponential backoff (configurable)
-- Setup command execution before main process
-- Force kill with process tree traversal
-- Port scanning (netstat on Windows, lsof on Unix)
-
-### Resource Monitoring
-- Real-time CPU and RAM usage per process tree
-- Live canvas-based charts via Tauri events
-- Configurable resource limits (max CPU %, max RAM MB)
-- Watchdog enforcement: auto-terminate processes exceeding limits for 30+ seconds
-
-### Proto Toolchain Isolation
-- Automatic download of [Proto](https://moonrepo.dev/proto) CLI (moonrepo)
-- Isolated toolchain environments for Node.js, Go, and Python
-- Spoofed PATH environment to prevent system tool conflicts
-- Per-project toolchain version pinning (e.g., `node 20.9.0`)
-
-### Interactive Terminals
-- PTY-based interactive shell sessions (Mode A)
-- Piped log stream capture (Mode B)
-- Multiple terminal sessions per project
-- Sandboxed within workspace directories
-- Full stdin/stdout/stderr routing
-- Session resizing support
-
-### Alouette Open — AI-Powered Log Monitoring (Alouette A1)
-- **Real-Time Log Monitoring:** High-performance background polling (500ms intervals) of process log outputs and system log streams.
-- **ONNX Model & Heuristic Detection:** Integrates local `alouette_open-A1 v1.0.onnx` execution via `tract-onnx` in Rust alongside heuristic fallbacks for robust and instant error detection.
-- **Interactive UI Cards:** Displays gorgeous, floating error alerts in the AI Agent chat panel built with Lucide React icons (`Bot`, `X`, `Search`).
-- **Instant Fix Workflow:** One-click "Bắt đầu tìm hiểu" sends diagnostic reports and commands directly to the active AI Agent to research and suggest instant codebase resolutions.
-
-### Sandbox — 3-Tier Command Protection
-Designed to prevent destructive command execution (e.g., `rm -rf /`, `cd ~ && rm -rf .`, `Format C:`):
-
-| Tier | Component | Mechanism |
-|------|-----------|-----------|
-| **1a** | Interceptor | Semantic analysis — parses command tree, classifies risk, resolves paths (`~`, `$env`, relative), checks workspace boundary |
-| **1b** | Engine | Token-based fallback — path resolution and boundary checking |
-| **2**  | OS-level | AppContainer (Windows), seccomp/landlock (Linux), sandbox_init (macOS) — platform-specific kernel isolation |
-
-Commands are intercepted before being sent to the PTY shell. Navigation (`cd`, `sl`, `pushd`) is allowed only within the workspace boundary.
-
-### Cloudflared Tunnel Integration
-- Automatic download of latest Cloudflared binary
-- Tunnel URL parsing from stderr output
-- Per-project tunnel enable/disable
-
-### MiniPostman — Built-in API Client
-A full-featured HTTP client embedded directly in the application:
-
-- **Methods:** GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD
-- **Request:** Query params, headers, body (JSON, text, XML, form-data, x-www-form-urlencoded, GraphQL, binary)
-- **Authentication:** Bearer token, Basic Auth, API Key, OAuth 2.0, AWS Signature
-- **Response:** Formatted body viewer, raw view, headers, cookies, timing breakdown, redirect chain
-- **Tests:** Automated test scripts (status code, latency, JSON validity, text matching)
-- **Scripts:** Pre-request and post-response JavaScript-like scripting
-- **Collections:** Organize and save requests
-- **Environments:** Variable management with scoped environments
-- **History:** Full request history with search
-- **Code Generation:** Generate cURL commands from any request
-
-### Network Tools
-- **DNS Lookup** — resolve domain names
-- **Ping** — ICMP reachability test
-- **SSL Certificate Info** — inspect certificate chain
-- **cURL Generator** — convert request to cURL command
-- **JWT Decoder** — inspect JWT token payload
-- **Hash Generator** — MD5, SHA1, SHA256, SHA512
-- **Base64 Encoder/Decoder**
-- **Timestamp Converter** — Unix ↔ human-readable
-- **HTTP Status Code Reference**
-- **JSON Schema Validator & Formatter**
-- **XML Prettifier**
-- **Response Diff** — compare two API responses
-
-### SQLite Persistence
-- WAL mode for concurrent read/write safety
-- Automatic log persistence with pruning (5000 lines per project)
-- Full CRUD operations via Tauri commands
-- Foreign key cascading deletes
-
-### File Editor
-- Monaco Editor integration with syntax highlighting
-- File tree explorer with recursive directory traversal
-- Base64 encoding for safe binary file transfer over IPC
-- Save with Ctrl+S shortcut
-- Scroll position and cursor position preservation across file switches
-
-### SQLite Browser
-- List all user tables in any SQLite database
-- View table structure (columns, types, primary keys)
-- Edit individual cell values
-- Insert new rows, delete rows
-- Add columns (TEXT, INTEGER, REAL)
-
-### Global Settings
-Persistent application settings stored in `app_data/settings.json`:
-
-| Category | Fields |
-|----------|--------|
-| **General** | Theme (dark/light), language |
-| **Logs** | Max log lines, auto-scroll, active log filter |
-| **Performance** | Max history points, max terminal output length, monitor interval |
-| **Appearance** | Font size, sidebar widths, panel heights |
-
-### Zen Browser Integration
-Launch a Zen Browser window directly from the application with bundled browser resources.
+> [!NOTE]
+> The current branch (`core_server`) contains a streamlined codebase optimized for native process orchestration, security boundaries, and toolchain management. Legacy HTTP testing interfaces (such as the MiniPostman client UI) have been removed to minimize resource consumption and improve stability.
 
 ---
 
-## Architecture
+## Core Features
 
-```
+### 1. Process Management
+* **Lifecycle Control:** Register, start, stop, and deregister system processes directly from the user interface.
+* **Auto-Restart:** Automatically detect crashed processes and execute restarts using an exponential backoff algorithm.
+* **Pre-execution Setup:** Execute initialization routines (such as package installations) before launching the main application process.
+* **Recursive Teardown:** Terminate entire process trees recursively to prevent orphaned background processes.
+* **Port Conflict Detection:** Query active TCP ports to identify conflicting PIDs before execution.
+
+### 2. Resource Monitoring
+* **Real-time Metrics:** Capture CPU usage percentage and memory consumption (RAM) across the entire child process hierarchy.
+* **Interactive Charts:** Render performance history graphs using HTML5 Canvas powered by asynchronous Tauri IPC events.
+* **Watchdog Enforcement:** Detect and terminate target processes that exceed configured resource thresholds for prolonged durations.
+
+### 3. Proto Toolchain Isolation
+* **Automated Installation:** Download and manage moonrepo's [Proto CLI](https://moonrepo.dev/proto) engine.
+* **Path Environment Spoofing:** Construct isolated execution environments by overriding the PATH variable. This allows projects to run distinct versions of Node.js, Python, or Go without conflicting with host system libraries.
+* **Version Pinning:** Pin specific toolchain versions per project configuration.
+
+### 4. Interactive Terminals
+* **PTY Virtualization:** Seamlessly route input and output streams through virtual PTY terminal sessions (utilizing xterm.js in the frontend and non-blocking I/O routines on the Rust backend).
+* **Multi-session Layout:** Support spawning multiple concurrent terminal instances within the scope of a single project.
+* **Dynamic Resizing:** Automatically synchronize terminal rows and columns during container layout changes.
+
+### 5. Command Sandbox
+Prevent destructive actions (such as `rm -rf /` or unauthorized directory escapes) during terminal sessions:
+* **Tier 1a (Interceptor):** Parse command semantics, resolve virtual environment variables, and enforce project workspace boundaries.
+* **Tier 1b (Engine):** Fallback token matching to secure paths.
+* **Tier 2 (OS-level Isolation):** Utilize AppContainer on Windows platforms and sandbox kernels on Unix-like environments.
+
+### 6. Cloudflare Tunnel Integration
+* **Automated Binary Management:** Retrieve and execute the latest `cloudflared` package.
+* **Zero-config Routing:** Expose local services to secure public URLs by reading tunnel outputs automatically.
+
+### 7. SQLite Browser and Monaco Editor
+* **Monaco Editor:** Edit configuration and source files directly inside the application workspace with syntax highlighting, automatic saving, and cursor position persistence.
+* **Database Explorer:** Inspect SQLite schemas, insert or delete table rows, modify table fields, and edit cell values directly.
+
+### 8. AI Log Diagnostics
+* **Anomaly Classification:** Scan real-time log outputs to identify system errors, socket conflicts, database exceptions, out-of-memory errors, and permission failures.
+* **ONNX Inference Engine:** Run the local `alouette_open-A1 v1.0.onnx` classifier via `tract-onnx` combined with regex-lite heuristic fallbacks.
+
+---
+
+## System Architecture
+
+```text
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Tauri Desktop Shell                          │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                    React Frontend (UI)                        │  │
-│  │  Components | Hooks | Monaco | xterm.js | Charts            │  │
+│  │  Components | Hooks | Monaco | xterm.js | Canvas Charts       │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │  │              Tauri IPC Bridge (Commands + Events)             │  │
 │  ┌───────────────────────────────────────────────────────────────┐  │
 │  │                   Core Engine (Rust)                          │  │
-│  │  Process Manager | Sandbox | Proto | Cloudflared | DB       │  │
+│  │  Process Manager | Sandbox | Proto | Cloudflared | DB WAL     │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────────────┘
 ```
-
-| Layer | Technology | Responsibility |
-|-------|-----------|----------------|
-| **UI** | React 18 + TypeScript + Vite + xterm.js + Monaco | Desktop interface with process dashboards, terminals, file editor, SQLite browser, API client, admin panel |
-| **Bridge** | Tauri v2 IPC | Type-safe command handlers, event routers, state management |
-| **Engine** | Rust (Tokio async) | Process lifecycle, sandbox enforcement, proto toolchain isolation, resource monitoring, SQLite persistence |
 
 ---
 
 ## Project Structure
 
-```
+The codebase is organized into the following layout:
+
+```text
 alouette-server/
-├── Cargo.toml                      # Rust workspace root
-├── README.md
-├── AI.json                         # AI assistant guidelines
-├── fix.js                          # Utility fix script
-├── icon.png                        # Application icon
+├── core_engine/                    # Core backend system written in Rust
+│   ├── src/
+│   │   ├── config.rs               # TOML parser configurations
+│   │   ├── db.rs                   # SQLite storage engine using WAL mode
+│   │   ├── monitor.rs              # CPU and RAM tracking routines
+│   │   ├── settings.rs             # Application-wide settings configurations
+│   │   ├── cloudflared_manager.rs  # Cloudflared wrapper lifecycle logic
+│   │   ├── proto_manager.rs        # Toolchain installer and path isolator
+│   │   ├── workspace_manager.rs    # Project workspace directory setups
+│   │   └── process/                # Process execution and terminal routing
+│   │       ├── executor.rs         # Subprocess spawner and stream pipelines
+│   │       ├── terminal.rs         # Virtual PTY terminal managers
+│   │       └── sandbox/            # Three-tier command protection policies
 │
-├── core_engine/                    # Rust library crate — core logic
-│   ├── Cargo.toml
-│   ├── app_data/                   # Runtime data (workspaces, toolchains, DB)
-│   └── src/
-│       ├── lib.rs                  # Crate root + public re-exports
-│       ├── config.rs               # TOML configuration deserialization
-│       ├── db.rs                   # SQLite persistence layer (WAL mode)
-│       ├── monitor.rs              # Resource monitoring (CPU/RAM per process tree)
-│       ├── settings.rs             # Global app settings (JSON persistence)
-│       ├── cloudflared_manager.rs  # Cloudflare tunnel binary management
-│       ├── proto_manager.rs        # Proto toolchain download & isolation
-│       ├── workspace_manager.rs    # Git clone / local copy workspace setup
-│       └── process/                # Process lifecycle management
-│           ├── mod.rs              # Module declarations + re-exports
-│           ├── models.rs           # ProcessState, ProcessLog, TerminalOutput, ProjectInstance
-│           ├── manager.rs          # ProcessManager struct + CRUD
-│           ├── executor.rs         # start_process, stop_process, force_fatal_stop
-│           ├── terminal.rs         # spawn_terminal, write_terminal, kill_terminal
-│           ├── logging.rs          # Log rotation, stream piping
-│           ├── tree.rs             # Process tree traversal, path utilities
-│           └── sandbox/            # 3-tier command protection
-│               ├── mod.rs          # Module entry + orchestration
-│               ├── interceptor.rs  # Tier 1a — semantic command analysis
-│               ├── engine.rs       # Tier 1b — token-based fallback
-│               ├── windows.rs      # Tier 2 — AppContainer (Windows)
-│               ├── linux.rs        # Tier 2 — placeholder (Linux)
-│               └── macos.rs        # Tier 2 — placeholder (macOS)
-│
-├── tauri_app/                      # Tauri v2 desktop application
+├── tauri_app/                      # Desktop shell framework (Tauri v2)
 │   ├── src-tauri/
-│   │   ├── Cargo.toml              # Tauri binary crate
-│   │   ├── tauri.conf.json         # Tauri configuration (undecorated window)
-│   │   ├── build.rs                # Tauri build script
-│   │   ├── capabilities/           # Permission capabilities
-│   │   ├── icons/                  # Application icons
-│   │   ├── app_data/
-│   │   │   └── model_alouette_open/
-│   │   │       └── alouette_open-A1 v1.0.onnx # Local ONNX AI Model
+│   │   ├── Cargo.toml
 │   │   └── src/
-│   │       ├── main.rs             # Entry point + Tauri setup + exit cleanup
-│   │       ├── alouette_open.rs    # Alouette A1 background log monitor (ONNX + Heuristics)
-│   │       ├── state.rs            # AppState struct + logging utility
-│   │       ├── events.rs           # Background event router tasks (5 routers)
-│   │       └── commands/           # Tauri IPC command handlers
-│   │           ├── mod.rs
-│   │           ├── process.rs      # Start/stop/register/deregister projects
-│   │           ├── terminal.rs     # Spawn/write/kill/resize/check terminal sessions
-│   │           ├── files.rs        # File explorer + read/write file content
-│   │           ├── sqlite.rs       # SQLite table browser + CRUD editor
-│   │           ├── network.rs      # HTTP requests, DNS, ping, SSL, JWT, hash, etc.
-│   │           ├── browser.rs      # Zen Browser window launcher
-│   │           └── settings.rs     # Global settings get/save/reset
-│   │
-│   └── ui/                         # React frontend (Vite)
-│       ├── package.json
-│       ├── vite.config.ts
-│       ├── tsconfig.json
-│       ├── index.html
-│       └── src/
-│           ├── main.tsx            # React entry point
-│           ├── App.tsx             # Application orchestrator
-│           ├── index.css           # Global styles + CSS variables + dark/light
-│           ├── constants.ts        # Static mock data + configuration
-│           ├── vite-env.d.ts       # Vite type declarations
-│           ├── types/
-│           │   └── index.ts        # TypeScript interfaces (Project, TerminalState, etc.)
-│           ├── hooks/
-│           │   ├── useProjects.ts  # Project CRUD + event listeners
-│           │   ├── useResources.ts # Resource monitoring + canvas charts
-│           │   └── useTerminal.ts  # Terminal session management
-│           └── components/
-│               ├── Header.tsx          # Title bar + window controls
-│               ├── TabList.tsx         # Project tab navigation
-│               ├── ProcessManager.tsx  # Process control dashboard
-│               ├── TerminalPanel.tsx   # PTY terminal UI (xterm.js)
-│               ├── ConfigSetup.tsx     # Project configuration editor
-│               ├── CodeEditor.tsx      # Monaco file editor
-│               ├── FileExplorer.tsx    # File tree browser
-│               ├── SqliteEditor.tsx    # SQLite database browser
-│               ├── DiagnosticsPanel.tsx# Log viewer + diagnostics
-│               ├── AdminPanel.tsx      # Admin & system management
-│               ├── MiniPostman.tsx              # API client (Postman-like)
-│               ├── MiniPostmanTypes.ts           # API client type definitions
-│               ├── MiniPostmanCollections.tsx    # Saved request collections
-│               ├── MiniPostmanCodeSnippets.tsx   # Code generation view
-│               ├── MiniPostmanEnvManager.tsx     # Environment variables
-│               ├── MiniPostmanScripts.tsx        # Pre-request/post-response scripts
-│               ├── MiniPostmanNetworkTools.tsx   # DNS, ping, SSL, JWT, hash, etc.
-│               └── brand-icon.png    # Brand logo asset
+│   │       ├── main.rs             # Application initialization entrypoint
+│   │       ├── ai_diagnostics.rs   # Local log classifications (ONNX + Heuristics)
+│   │       ├── system_manager.rs   # Window routers and helper controllers
+│   │       └── commands/           # IPC command handlers invoked by the frontend
 │
-├── scripts/                        # Utility scripts
-│   ├── generate_icons.js
-│   └── generate_icons.py
-│
-├── assets/                         # Static assets
-│   ├── icon-app.png
-│   └── icon-app-square.png
-│
-└── docs/                           # Technical documentation
-    ├── README.md
-    ├── cloudflared_tunnels.md
-    ├── frontend_state.md
-    ├── interactive_terminals.md
-    ├── process_lifecycle.md
-    ├── proto_toolchain.md
-    ├── resource_monitoring.md
-    └── sqlite_storage.md
+│   └── ui/                         # React UI Frontend (Vite)
+│       ├── src/
+│       │   ├── App.tsx             # Workspace router and main tab interface
+│       │   ├── index.css           # Design system tokens and styles
+│       │   └── components/
+│       │       ├── Header.tsx      # Title bar and window actions
+│       │       ├── FileExplorer.tsx# Directory browser
+│       │       ├── CodeEditor.tsx  # Monaco-based code wrapper
+│       │       ├── SqliteEditor.tsx# Database admin table browser
+│       │       ├── TerminalPanel.tsx# Terminal UI component (xterm.js)
+│       │       ├── AdminPanel.tsx  # Central configuration dashboard
+│       │       └── ExtendedDashboard.tsx # System status overview
 ```
 
 ---
 
-## Prerequisites
+## Getting Started
 
-| Dependency  | Version  | Purpose                                      |
-|-------------|----------|----------------------------------------------|
-| Rust        | 1.75+    | Core engine + Tauri backend compilation      |
-| Node.js     | 18+      | Frontend development + npm scripts           |
-| npm         | 9+       | Package management for UI                    |
-| Git         | 2.40+    | Workspace cloning                            |
-| Windows SDK | Latest   | Windows build toolchain (MSVC)               |
+### Prerequisites
+* **Rust:** Version `1.75+`
+* **Node.js:** Version `18+` (including `npm` package manager)
+* **Git:** Version `2.40+`
+* **Windows 10/11** (or compatible Linux/macOS build toolchains)
 
-### Platform Support
+### Running in Development Mode
 
-| Platform             | Status                        |
-|----------------------|-------------------------------|
-| Windows (x64)        | Primary target                |
-| macOS (x64/ARM)      | Supported (conditional)       |
-| Linux (x64)          | Supported (conditional)       |
+1. Install frontend packages:
+   ```bash
+   cd tauri_app/ui
+   npm install
+   cd ../..
+   ```
 
----
+2. Start the Tauri development hot-reload server:
+   ```bash
+   npx --prefix tauri_app/ui run tauri dev
+   ```
 
-## Quick Start
+### Building for Production
 
+Compile and pack the application binaries:
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd alouette-server
-
-# Install frontend dependencies
-cd tauri_app/ui
-npm install
-cd ../..
-
-# Run in development mode
-npm --prefix tauri_app/ui run tauri dev
+npx --prefix tauri_app/ui run tauri build
 ```
-
-The Tauri development server will start the Vite dev server on port 5173 and launch the desktop application window with an undecorated custom title bar.
-
----
-
-## Development
-
-### Backend (Rust)
-
-```bash
-# Build the entire workspace
-cargo build
-
-# Run all tests
-cargo test
-
-# Run specific crate tests
-cargo test -p core_engine
-cargo test -p tauri_app
-
-# Check compilation without building
-cargo check
-```
-
-### Frontend (React + TypeScript)
-
-```bash
-cd tauri_app/ui
-
-# Start Vite dev server (standalone, without Tauri shell)
-npm run dev
-
-# TypeScript type checking + build
-npm run build
-
-# Preview production build
-npm run preview
-```
+The compiled installers will be located in: `tauri_app/src-tauri/target/release/bundle/`.
 
 ---
 
-## Build & Distribution
-
-```bash
-npm --prefix tauri_app/ui run tauri build
-
-# The distributable will be in:
-# tauri_app/src-tauri/target/release/bundle/
-```
-
----
-
-## Project Configuration
-
-Projects are stored in SQLite (`app_data/alouette.db`) and can be exported/imported via the File menu.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | string | Unique project identifier |
-| `name` | string | Display name in tabs and UI |
-| `command` | string | Executable to run |
-| `args` | string[] | Command-line arguments |
-| `cwd` | string | Working directory (optional) |
-| `setup_command` | string | Pre-run setup command (optional) |
-| `setup_args` | string[] | Setup command arguments (optional) |
-| `auto_restart` | boolean | Auto-restart on crash (optional) |
-| `env` | object | Environment variables (optional) |
-| `max_cpu_percent` | number | CPU limit percentage (optional) |
-| `max_ram_mb` | number | RAM limit in MB (optional) |
-| `port` | number | Port scanner target (optional) |
-| `source` | string | Git URL or local path to clone/copy (optional) |
-| `terminal_mode` | string | `"pty"` or `"log"` (optional) |
-| `toolchain` | string | `"node"`, `"go"`, or `"python"` (optional) |
-| `toolchain_version` | string | Version pin (e.g. `"stable"`, `"20.9.0"`) (optional) |
-| `enable_tunnel` | boolean | Enable Cloudflare tunnel (optional) |
-| `max_log_lines` | number | Max persisted log lines (optional) |
-
----
-
-## Testing
-
-The project includes automated tests covering:
-
-- Configuration serialization/deserialization (TOML round-trip)
-- SQLite persistence flow (insert, query, prune, cascade delete)
-- Resource monitor registration and polling
-- Process manager registration
-- Process execution lifecycle
-- Non-existent command handling
-- Setup command failure handling
-- Stop process edge cases
-- Log rotation
-- Environment variable injection
-- Settings save/load/reset round-trip
-
-```bash
-cargo test
-```
-
-All tests pass on every commit. Test data is stored in temporary directories and cleaned up automatically.
-
----
-
-## Events System
-
-The application uses 5 background event routers:
-
-| Router | Event Name | Purpose |
-|--------|-----------|---------|
-| **Log Router** | `log-line` | Streams process stdout/stderr to frontend |
-| **Status Router** | `process-status` | Broadcasts process state changes |
-| **Resource Router** | `resource-update` | Real-time CPU/RAM stats + watchdog |
-| **Terminal Router** | `terminal-output` | Routes PTY output to frontend |
-| **Init Router** | — | Preloads environment info on startup |
-
-On exit, the application gracefully terminates all running processes and terminal sessions before closing.
-
----
-
-## Documentation
-
-Detailed technical documentation is available in the `docs/` directory:
-
-| Document | Description |
-|----------|-------------|
-| `cloudflared_tunnels.md` | Cloudflare tunnel integration and lifecycle |
-| `frontend_state.md` | Frontend state management architecture |
-| `interactive_terminals.md` | PTY-based terminal session design |
-| `process_lifecycle.md` | Process state machine and lifecycle events |
-| `proto_toolchain.md` | Proto toolchain isolation and environment spoofing |
-| `resource_monitoring.md` | Resource metrics collection and watchdog |
-| `sqlite_storage.md` | Database schema, WAL mode, and persistence strategy |
-
----
+## Development Guidelines
+For guidelines regarding code styles, test execution, and architecture boundaries, refer to [CLAUDE.md](file:///d:/core_alouette_server/CLAUDE.md).
