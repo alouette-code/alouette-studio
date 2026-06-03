@@ -28,6 +28,7 @@ pub async fn write_to_terminal_session(
     session_id: String,
     input: String,
 ) -> Result<(), String> {
+    eprintln!("[term-input] Received input: {:?}", input);
     // 1. Immediately handle Ctrl+C to interrupt executing commands safely
     if input.contains('\x03') {
         let mut pm = state.process_manager.lock().await;

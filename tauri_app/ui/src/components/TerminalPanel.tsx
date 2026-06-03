@@ -533,6 +533,11 @@ export default function TerminalPanel({
     if (editingId && renameValue.trim())
       onRenameTerminal(editingId, renameValue.trim());
     setEditingId(null);
+    setTimeout(() => {
+      if (activeTerminalId && instancesRef.current[activeTerminalId]) {
+        instancesRef.current[activeTerminalId].term.focus();
+      }
+    }, 50);
   };
 
   // ── Helper to mount xterm into a container div ──────────────────────
@@ -552,9 +557,9 @@ export default function TerminalPanel({
         cursorWidth: 2,
         fontSize: 13,
         lineHeight: 1.2,
-        letterSpacing: 0.5,
+        letterSpacing: 0,
         fontFamily:
-          "'JetBrains Mono', Consolas, 'Courier New', monospace",
+          "'JetBrains Mono', monospace",
         theme: activeTheme,
         convertEol: true,
         rows: 24,
@@ -574,6 +579,26 @@ export default function TerminalPanel({
 
       term.loadAddon(fit);
       term.open(container);
+
+      // Force disable IME at the DOM root level to prevent Linux IBus/Bamboo from even attempting to hook into the textarea
+      try {
+        const textarea = (term as any).textarea as HTMLTextAreaElement;
+        if (textarea) {
+          textarea.setAttribute("inputmode", "url");
+          textarea.setAttribute("autocomplete", "off");
+          textarea.setAttribute("autocorrect", "off");
+          textarea.setAttribute("autocapitalize", "off");
+          textarea.setAttribute("spellcheck", "false");
+          
+          // Brutal fallback: instantly kill any composition session if the OS ignores inputmode
+          textarea.addEventListener("compositionstart", (e) => {
+             textarea.blur();
+             setTimeout(() => textarea.focus(), 10);
+          });
+        }
+      } catch (e) {
+        console.warn("[term] Failed to configure IME restrictions on textarea", e);
+      }
 
       const doFit = () => {
         try {
@@ -613,7 +638,13 @@ export default function TerminalPanel({
         if (event.payload.session_id === sessionId) {
           const text = event.payload.text;
           if (text) {
-            term.write(text);
+            term.write(text, () => {
+              try {
+                // Force cursor row to refresh immediately to prevent overlapping/squishing
+                const cursorY = term.buffer.active.cursorY;
+                term.refresh(cursorY, cursorY);
+              } catch {}
+            });
           }
         }
       }).then((u) => {
@@ -664,6 +695,26 @@ export default function TerminalPanel({
 
       // Key handler: copy/paste
       term.attachCustomKeyEventHandler((e) => {
+        // Block IME composition (e.g. Bamboo Vietnamese) so the terminal only accepts raw English keypresses
+        // e.keyCode === 229 is the standard code for IME processing.
+        // Returning false tells xterm.js to swallow the event (preventDefault and stopPropagation).
+        if (e.isComposing || e.keyCode === 229) {
+          return false;
+        }
+
+        // Force refresh of the cursor row on key down to guarantee correct rendering of characters
+        if (e.type === "keydown") {
+          setTimeout(() => {
+            try {
+              const cursorY = term.buffer.active.cursorY;
+              term.refresh(cursorY, cursorY);
+            } catch {}
+          }, 0);
+        }
+
+        // Prevent terminal keystrokes from bubbling up to parent window/document listeners
+        e.stopPropagation();
+
         if (e.key === "ArrowUp" && e.type === "keydown") {
           invoke("write_to_terminal_session", {
             sessionId,
@@ -683,11 +734,19 @@ export default function TerminalPanel({
           const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;
           const line =
             activeBuffer.getLine(lineIndex)?.translateToString(true) || "";
-          const firstGreater = line.indexOf(">");
+          
+          const promptChars = ['>', '$', '#'];
+          let promptCharIndex = -1;
+          for (let i = line.length - 1; i >= 0; i--) {
+            if (promptChars.includes(line[i])) {
+              promptCharIndex = i;
+              break;
+            }
+          }
 
-          // Guard: If the line doesn't contain '>' yet (e.g. still replaying/loading),
-          // or if the cursor is at or before the prompt boundary (CWD> ), block Backspace!
-          if (firstGreater === -1 || activeBuffer.cursorX <= firstGreater + 2) {
+          // Guard: If the line doesn't contain prompt char yet (e.g. still replaying/loading),
+          // or if the cursor is at or before the prompt boundary (CWD$ ), block Backspace!
+          if (promptCharIndex === -1 || activeBuffer.cursorX <= promptCharIndex + 2) {
             return false;
           }
         }
@@ -744,7 +803,7 @@ export default function TerminalPanel({
     const activeTheme = theme === "light" ? XTERM_LIGHT_THEME : XTERM_DARK_THEME;
     Object.keys(instancesRef.current).forEach((sid) => {
       try {
-        instancesRef.current[sid].term.options.set("theme", activeTheme);
+        instancesRef.current[sid].term.options.theme = activeTheme;
       } catch (err) {
         console.warn("[term] update theme FAILED:", err);
       }
@@ -812,8 +871,14 @@ export default function TerminalPanel({
       const handleFontsLoaded = () => {
         Object.keys(instancesRef.current).forEach((sid) => {
           try {
+            const term = instancesRef.current[sid].term;
+            // Force re-measurement of characters by toggling fontFamily to clear the metrics cache
+            const font = term.options.fontFamily || "'JetBrains Mono', monospace";
+            term.options.fontFamily = "monospace";
+            term.options.fontFamily = font;
+
             instancesRef.current[sid].fit.fit();
-            instancesRef.current[sid].term.refresh(0, instancesRef.current[sid].term.rows - 1);
+            term.refresh(0, term.rows - 1);
           } catch {}
         });
       };
@@ -914,7 +979,7 @@ export default function TerminalPanel({
                           Connecting sandbox shell...
                         </span>
                         <span className="sandbox-overlay-sub">
-                          Spawning PowerShell PTY at <code>{workspacePath}</code>
+                          Spawning shell PTY at <code>{workspacePath}</code>
                         </span>
                       </>
                     )}
@@ -945,7 +1010,14 @@ export default function TerminalPanel({
 
                 {/* Render a separate xterm container for each terminal session.
                     Only the active one is visible; others are hidden offscreen/via opacity to preserve layout measurements. */}
-                <div className="sandbox-xterm-wrapper">
+                <div 
+                  className="sandbox-xterm-wrapper"
+                  onScroll={(e) => {
+                    // Prevent browser from scrolling this container due to xterm textarea focus (fixes sinking bug)
+                    e.currentTarget.scrollTop = 0;
+                    e.currentTarget.scrollLeft = 0;
+                  }}
+                >
                   {terminals.map((t) => (
                     <div
                       key={t.id}
@@ -953,6 +1025,14 @@ export default function TerminalPanel({
                         containerRefs.current[t.id] = el;
                       }}
                       className={`sandbox-xterm-viewport ${t.id === activeTerminalId ? "active" : ""}`}
+                      onClick={() => {
+                        instancesRef.current[t.id]?.term.focus();
+                      }}
+                      onScroll={(e) => {
+                        // Prevent jump/sink on textarea focus
+                        e.currentTarget.scrollTop = 0;
+                        e.currentTarget.scrollLeft = 0;
+                      }}
                     />
                   ))}
                 </div>

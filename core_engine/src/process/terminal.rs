@@ -194,24 +194,35 @@ impl ProcessManager {
             envs.push(("PATH".into(), full.to_string_lossy().to_string()));
         }
 
-        let prompt = r#"function global:prompt { "$((Get-Location).Path)> " }"#.to_string();
-
-        let tmp_dir = std::env::temp_dir().join("alouette_term");
-        let _ = std::fs::create_dir_all(&tmp_dir);
-        let profile_path = tmp_dir.join(format!("prompt_{sid}.ps1"));
-        let _ = std::fs::write(&profile_path, prompt.replace('\n', "\r\n"));
-        self._prompt_files.insert(sid.clone(), profile_path.clone());
-
         let pty_system = native_pty_system();
         let pty = pty_system
             .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
             .map_err(|e| format!("PTY open: {e}"))?;
 
-        let mut cmd = CommandBuilder::new("powershell.exe");
-        cmd.arg("-NoLogo");
-        cmd.arg("-NoExit");
-        cmd.arg("-File");
-        cmd.arg(profile_path.to_string_lossy().to_string());
+        let mut cmd = if cfg!(target_os = "windows") {
+            let prompt = r#"function global:prompt { "$((Get-Location).Path)> " }"#.to_string();
+
+            let tmp_dir = std::env::temp_dir().join("alouette_term");
+            let _ = std::fs::create_dir_all(&tmp_dir);
+            let profile_path = tmp_dir.join(format!("prompt_{sid}.ps1"));
+            let _ = std::fs::write(&profile_path, prompt.replace('\n', "\r\n"));
+            self._prompt_files.insert(sid.clone(), profile_path.clone());
+
+            let mut c = CommandBuilder::new("powershell.exe");
+            c.arg("-NoLogo");
+            c.arg("-NoExit");
+            c.arg("-File");
+            c.arg(profile_path.to_string_lossy().to_string());
+            c
+        } else {
+            let shell = if std::path::Path::new("/bin/bash").exists() {
+                "bash"
+            } else {
+                "sh"
+            };
+            CommandBuilder::new(shell)
+        };
+
         if let Some(dir) = cwd {
             cmd.cwd(dir);
         }
@@ -219,8 +230,9 @@ impl ProcessManager {
             cmd.env(k, v);
         }
 
+        let shell_name = if cfg!(target_os = "windows") { "powershell.exe" } else { "shell" };
         let child: Box<dyn portable_pty::Child + Send + Sync> = pty.slave.spawn_command(cmd)
-            .map_err(|e| format!("Spawn powershell.exe: {e}"))?;
+            .map_err(|e| format!("Spawn {shell_name}: {e}"))?;
         let pid = child.process_id().unwrap_or(0);
         eprintln!("[terminal] Spawned '{sid}' PID {pid}");
 

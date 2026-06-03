@@ -79,7 +79,9 @@
 body {
     background-color: var(--bg-primary);
     color: var(--text-primary);
-    height: 100vh;
+    width: 100%;
+    height: 100%;
+    position: fixed;
     overflow: hidden;
     font-size: 13px;
     user-select: none;
@@ -6517,8 +6519,7 @@ body {
 
 .sandbox-xterm-viewport {
     position: absolute;
-    inset: 0;
-    padding: 8px 12px;
+    inset: 8px 12px;
     overflow: hidden;
     visibility: hidden;
     opacity: 0;
@@ -6543,6 +6544,23 @@ body {
     -webkit-user-select: text !important;
 }
 
+/* Override body user-select:none for xterm.js helper textarea to capture IME/composition input */
+.sandbox-xterm-wrapper .xterm-helper-textarea {
+    user-select: text !important;
+    -webkit-user-select: text !important;
+    border: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    outline: none !important;
+}
+
+/* Fix for IME composition text hiding behind terminal canvas (sinking text bug) */
+.sandbox-xterm-wrapper .xterm .composition-view {
+    z-index: 999 !important;
+    background-color: var(--terminal-bg) !important;
+    color: var(--color-accent) !important; /* Make IME composition clearly visible */
+}
+
 .sandbox-xterm-wrapper .xterm-selection div {
     background-color: rgba(82, 139, 255, 0.35) !important;
 }
@@ -6556,6 +6574,7 @@ body {
 /* Force correct monospace font-family on xterm instances to fix character overlapping/squishing */
 .xterm,
 .xterm *,
+.xterm-char-measure-element,
 .monaco-editor,
 .monaco-editor * {
     font-family: var(--font-mono) !important;
