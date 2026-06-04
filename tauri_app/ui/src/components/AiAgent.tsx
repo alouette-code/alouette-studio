@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Plus,
-  Send,
   RefreshCw,
   Layers,
   History,
@@ -24,6 +23,11 @@ import {
   ChevronDown,
   ChevronRight,
   AlertCircle,
+  Pencil,
+  Wrench,
+  Box,
+  CornerDownLeft,
+  Sparkles,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -85,6 +89,8 @@ export default function AiAgent({
   const [selectedModel, setSelectedModel] = useState("gemini-3.5-flash");
   const [selectedMode, setSelectedMode] = useState("interactive");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+  const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("Agent Active Session #1");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
@@ -144,6 +150,8 @@ export default function AiAgent({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const modeDropdownRef = useRef<HTMLDivElement>(null);
   const processedIters = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -365,6 +373,18 @@ export default function AiAgent({
         !dropdownRef.current.contains(e.target as Node)
       ) {
         setMenuOpen(false);
+      }
+      if (
+        modelDropdownRef.current &&
+        !modelDropdownRef.current.contains(e.target as Node)
+      ) {
+        setModelDropdownOpen(false);
+      }
+      if (
+        modeDropdownRef.current &&
+        !modeDropdownRef.current.contains(e.target as Node)
+      ) {
+        setModeDropdownOpen(false);
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
@@ -2025,253 +2045,476 @@ export default function AiAgent({
           </div>
         )}
 
-        {/* Capabilities Panel */}
-        {capsOpen && (
-          <div
-            className="agent-fade-in"
-            style={{
-              display: "flex",
-              flexWrap: "wrap",
-              gap: "4px",
-              padding: "10px 0 6px",
-              borderBottom: "1px solid var(--border-primary)",
-            }}
-          >
-            {capList.map((item) => {
-              return (
-                <button
-                  key={item.key}
-                  type="button"
-                  onClick={() => toggleCapability(item.key)}
-                  className="agent-capsule-btn"
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
-                    padding: "4px 10px",
-                    fontSize: "10px",
-                    borderRadius: "4px",
-                    border: item.isActive
-                      ? "1px solid var(--border-strong, #374151)"
-                      : "1px solid var(--border-primary)",
-                    background: item.isActive
-                      ? "var(--bg-tertiary)"
-                      : "transparent",
-                    color: item.isActive
-                      ? "var(--text-primary)"
-                      : "var(--text-muted)",
-                    cursor: "pointer",
-                    transition: "all 0.1s",
-                    outline: "none",
-                  }}
-                >
-                  <span>{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Input Row */}
+        {/* Input box styled exactly like the screenshot */}
         <form
           onSubmit={handleSend}
           style={{
             display: "flex",
-            alignItems: "flex-end",
-            gap: "8px",
-            paddingTop: capsOpen ? "0" : "10px",
+            flexDirection: "column",
+            background: "#18181b",
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            borderRadius: "24px",
+            padding: "12px 18px",
+            gap: "6px",
+            position: "relative",
+            boxShadow: "0 10px 30px -10px rgba(0, 0, 0, 0.7)",
           }}
         >
+          {/* Top Row: Icons on Left, "Local Config v" on Right */}
           <div
             style={{
-              flex: 1,
               display: "flex",
-              alignItems: "flex-end",
-              background: "var(--bg-primary)",
-              border: "1px solid var(--border-primary)",
-              borderRadius: "6px",
-              overflow: "hidden",
+              justifyContent: "space-between",
+              alignItems: "center",
+              paddingBottom: "2px",
             }}
-            onFocus={() => {}}
           >
-            <textarea
-              ref={textareaRef}
-              rows={1}
-              placeholder="Gửi tin nhắn hoặc ra lệnh..."
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={isTyping}
+            <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
+              <button
+                type="button"
+                onClick={() => textareaRef.current?.focus()}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "rgba(255, 255, 255, 0.35)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "color 0.2s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)"}
+                title="Focus editor"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCapsOpen(!capsOpen)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: capsOpen ? "#38bdf8" : "rgba(255, 255, 255, 0.35)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "color 0.2s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = capsOpen ? "#38bdf8" : "rgba(255, 255, 255, 0.75)"}
+                onMouseLeave={(e) => e.currentTarget.style.color = capsOpen ? "#38bdf8" : "rgba(255, 255, 255, 0.35)"}
+                title="Config permissions"
+              >
+                <Wrench size={13} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setCapsOpen(!capsOpen)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: 0,
+                  color: "rgba(255, 255, 255, 0.35)",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "color 0.2s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)"}
+                title="Workspace status"
+              >
+                <Box size={13} />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setCapsOpen(!capsOpen)}
               style={{
-                flex: 1,
-                background: "transparent",
+                background: "none",
                 border: "none",
-                color: "var(--text-primary)",
-                padding: "8px 12px",
-                fontSize: "12px",
-                outline: "none",
-                resize: "none",
+                padding: "2px 6px",
+                color: "rgba(255, 255, 255, 0.45)",
+                fontSize: "12.5px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
                 fontFamily: "var(--font-sans)",
-                lineHeight: "1.4",
-                maxHeight: "160px",
-                minHeight: "36px",
-                overflowY: "auto",
+                transition: "color 0.2s",
               }}
-            />
+              onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)"}
+              onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)"}
+            >
+              <span>Local Config</span>
+              <ChevronDown size={11} style={{ opacity: 0.8 }} />
+            </button>
+          </div>
+
+          {/* Capabilities Panel inside the box when expanded */}
+          {capsOpen && (
+            <div
+              className="agent-fade-in"
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "4px",
+                padding: "8px 0 4px",
+                borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
+                borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+              }}
+            >
+              {capList.map((item) => {
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => toggleCapability(item.key)}
+                    className="agent-capsule-btn"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: "4px 8px",
+                      fontSize: "10px",
+                      borderRadius: "4px",
+                      border: item.isActive
+                        ? "1px solid rgba(255, 255, 255, 0.2)"
+                        : "1px solid rgba(255, 255, 255, 0.05)",
+                      background: item.isActive
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : "transparent",
+                      color: item.isActive
+                        ? "var(--text-primary)"
+                        : "var(--text-muted)",
+                      cursor: "pointer",
+                      transition: "all 0.1s",
+                      outline: "none",
+                    }}
+                  >
+                    <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Text Area */}
+          <textarea
+            ref={textareaRef}
+            rows={1}
+            placeholder="Ask anything, '@' to add context"
+            value={inputVal}
+            onChange={(e) => setInputVal(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={isTyping}
+            style={{
+              width: "100%",
+              background: "transparent",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.9)",
+              padding: "6px 0",
+              fontSize: "15px",
+              outline: "none",
+              resize: "none",
+              fontFamily: "var(--font-sans)",
+              lineHeight: "1.5",
+              maxHeight: "160px",
+              minHeight: "36px",
+              overflowY: "auto",
+            }}
+          />
+
+          {/* Bottom Row: Custom Dropdowns (Agent, Model, @) on Left, Blue Send Button on Right */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginTop: "2px",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative" }}>
+              {/* Agent Mode Pill Dropdown */}
+              <div ref={modeDropdownRef} style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "5px 12px",
+                    background: "rgba(255, 255, 255, 0.05)",
+                    border: "1px solid rgba(255, 255, 255, 0.08)",
+                    borderRadius: "20px",
+                    color: "rgba(255, 255, 255, 0.65)",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)";
+                    e.currentTarget.style.color = "#fff";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+                    e.currentTarget.style.color = "rgba(255, 255, 255, 0.65)";
+                  }}
+                >
+                  <Sparkles size={12} style={{ opacity: 0.8 }} />
+                  <span>
+                    {selectedMode === "interactive"
+                      ? "Agent"
+                      : selectedMode === "autonomous"
+                      ? "Autonomous"
+                      : "Copilot"}
+                  </span>
+                  <ChevronDown size={11} style={{ opacity: 0.6 }} />
+                </button>
+
+                {modeDropdownOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "calc(100% + 6px)",
+                      left: 0,
+                      background: "#242424",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                      zIndex: 1000,
+                      padding: "4px",
+                      minWidth: "120px",
+                    }}
+                  >
+                    {[
+                      { value: "interactive", label: "Agent (Interactive)" },
+                      { value: "autonomous", label: "Autonomous" },
+                      { value: "copilot", label: "Copilot" },
+                    ].map((mode) => (
+                      <button
+                        key={mode.value}
+                        type="button"
+                        onClick={() => {
+                          setSelectedMode(mode.value);
+                          setModeDropdownOpen(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "6px 8px",
+                          background: selectedMode === mode.value ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                          border: "none",
+                          borderRadius: "4px",
+                          color: "#fff",
+                          fontSize: "11px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {mode.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Model Dropdown */}
+              <div ref={modelDropdownRef} style={{ position: "relative" }}>
+                <button
+                  type="button"
+                  onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    padding: "4px 8px",
+                    background: "transparent",
+                    border: "none",
+                    color: "rgba(255, 255, 255, 0.45)",
+                    fontSize: "12px",
+                    cursor: "pointer",
+                    transition: "color 0.2s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
+                  onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)"}
+                >
+                  <span>
+                    {availableModels.find((m) => m.id === selectedModel)?.name || selectedModel}
+                  </span>
+                  <ChevronDown size={11} style={{ opacity: 0.6 }} />
+                </button>
+
+                {modelDropdownOpen && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: "calc(100% + 6px)",
+                      left: 0,
+                      background: "#242424",
+                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      borderRadius: "8px",
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                      zIndex: 1000,
+                      padding: "4px",
+                      minWidth: "160px",
+                      maxHeight: "200px",
+                      overflowY: "auto",
+                    }}
+                  >
+                    {availableModels.map((m) => (
+                      <button
+                        key={m.id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedModel(m.id);
+                          setModelDropdownOpen(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "6px 8px",
+                          background: selectedModel === m.id ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                          border: "none",
+                          borderRadius: "4px",
+                          color: "#fff",
+                          fontSize: "11px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Mentions button: @ */}
+              <button
+                type="button"
+                onClick={() => {
+                  setInputVal((prev) => prev + "@");
+                  textareaRef.current?.focus();
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: "4px 8px",
+                  color: "rgba(255, 255, 255, 0.45)",
+                  fontSize: "13px",
+                  cursor: "pointer",
+                  fontFamily: "var(--font-sans)",
+                  transition: "color 0.2s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)"}
+                title="Add context (@)"
+              >
+                @
+              </button>
+            </div>
+
+            {/* Blue Send / Cancel Button */}
             {isTyping ? (
               <button
                 type="button"
                 onClick={handleCancel}
                 style={{
-                  background: "var(--border-strong, #374151)",
+                  background: "#ef4444",
                   border: "none",
-                  color: "#ef4444",
+                  color: "#fff",
                   width: "28px",
                   height: "28px",
-                  margin: "4px",
-                  borderRadius: "4px",
+                  borderRadius: "8px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  transition: "all 0.1s",
                   flexShrink: 0,
                 }}
                 title="Dừng hoạt động"
               >
-                <span style={{ width: "8px", height: "8px", background: "#ef4444", borderRadius: "1px" }} />
+                <span style={{ width: "8px", height: "8px", background: "#fff", borderRadius: "1px" }} />
               </button>
             ) : (
               <button
                 type="submit"
                 disabled={!inputVal.trim()}
                 style={{
-                  background:
-                    inputVal.trim()
-                      ? "var(--border-strong, #374151)"
-                      : "transparent",
-                  border: "none",
-                  color:
-                    inputVal.trim() ? "#fff" : "var(--text-muted)",
+                  background: inputVal.trim() ? "#0078d4" : "rgba(255, 255, 255, 0.05)",
+                  border: inputVal.trim() ? "none" : "1px solid rgba(255, 255, 255, 0.08)",
+                  color: inputVal.trim() ? "#fff" : "rgba(255, 255, 255, 0.25)",
                   width: "28px",
                   height: "28px",
-                  margin: "4px",
-                  borderRadius: "4px",
-                  fontSize: "11px",
+                  borderRadius: "8px",
                   cursor: inputVal.trim() ? "pointer" : "default",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  transition: "all 0.1s",
+                  transition: "all 0.2s",
                   flexShrink: 0,
                 }}
               >
-                <Send size={11} />
+                <CornerDownLeft size={13} strokeWidth={2.5} />
               </button>
             )}
           </div>
         </form>
 
-        {/* Bottom Toolbar: Capabilities toggle, Model & Mode selectors */}
+        {/* Below the box: "Last Session" and Status */}
         <div
           style={{
             display: "flex",
+            justifyContent: "space-between",
             alignItems: "center",
-            gap: "8px",
+            padding: "0 4px",
           }}
         >
-          {/* Capabilities toggle */}
           <button
             type="button"
-            title="Thiết lập quyền và môi trường chạy"
-            onClick={() => setCapsOpen(!capsOpen)}
-            className="agent-capsule-btn"
+            onClick={handleNewChat}
             style={{
+              background: "none",
+              border: "none",
+              color: "rgba(255, 255, 255, 0.4)",
+              fontSize: "12px",
+              cursor: "pointer",
               display: "flex",
               alignItems: "center",
               gap: "4px",
-              padding: "3px 8px",
-              fontSize: "10px",
-              borderRadius: "4px",
-              border: "1px solid var(--border-primary)",
-              background: capsOpen ? "var(--bg-tertiary)" : "transparent",
-              color: capsOpen ? "var(--text-primary)" : "var(--text-muted)",
-              cursor: "pointer",
+              padding: 0,
+              fontFamily: "var(--font-sans)",
             }}
+            onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)"}
+            onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.4)"}
           >
-            <span>Quyền</span>
+            <span>← Last Session</span>
           </button>
-
-
-
-          {/* Model Selector */}
-          <select
-            value={selectedModel}
-            onChange={(e) => setSelectedModel(e.target.value)}
-            className="agent-select"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border-primary)",
-              color: "var(--text-secondary)",
-              fontSize: "10px",
-              padding: "3px 18px 3px 8px",
-              outline: "none",
-              cursor: "pointer",
-              borderRadius: "4px",
-              fontFamily: "var(--font-sans)",
-            }}
-          >
-            {availableModels.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-
-          {/* Mode Selector */}
-          <select
-            value={selectedMode}
-            onChange={(e) => setSelectedMode(e.target.value)}
-            className="agent-select"
-            style={{
-              background: "transparent",
-              border: "1px solid var(--border-primary)",
-              color: "var(--text-secondary)",
-              fontSize: "10px",
-              padding: "3px 18px 3px 8px",
-              outline: "none",
-              cursor: "pointer",
-              borderRadius: "4px",
-              fontFamily: "var(--font-sans)",
-            }}
-          >
-            <option value="interactive">Interactive</option>
-            <option value="autonomous">Autonomous</option>
-            <option value="copilot">Copilot</option>
-          </select>
-
-          {/* Spacer */}
-          <div style={{ flex: 1 }} />
 
           {/* Status indicator */}
           <div
             style={{
               display: "flex",
               alignItems: "center",
-              gap: "4px",
-              fontSize: "9px",
-              color: "var(--text-muted)",
+              gap: "6px",
+              fontSize: "11px",
+              color: "rgba(255, 255, 255, 0.4)",
             }}
           >
             <span
               style={{
-                width: "5px",
-                height: "5px",
+                width: "6px",
+                height: "6px",
                 borderRadius: "50%",
                 background: isTyping ? "#f59e0b" : "#22c55e",
               }}
             />
-            {isTyping ? "Đang xử lý" : "Sẵn sàng"}
+            <span>{isTyping ? "Đang xử lý" : "Sẵn sàng"}</span>
           </div>
         </div>
       </div>
