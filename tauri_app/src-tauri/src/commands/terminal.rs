@@ -1,7 +1,7 @@
 use crate::state::AppState;
+use core_engine::TerminalOutput;
 use serde::Serialize;
 use tauri::State;
-use core_engine::TerminalOutput;
 
 #[derive(Serialize)]
 pub struct TerminalSessionInfo {
@@ -22,88 +22,6 @@ pub async fn spawn_terminal_session(
     Ok(())
 }
 
-fn vietnamese_to_telex(input: &str) -> String {
-    let mut result = String::with_capacity(input.len() * 2);
-    for c in input.chars() {
-        let mapped = match c {
-            'đ' => "dd", 'Đ' => "DD",
-            'â' => "aa", 'Â' => "AA",
-            'ê' => "ee", 'Ê' => "EE",
-            'ô' => "oo", 'Ô' => "OO",
-            'ă' => "aw", 'Ă' => "AW",
-            'ơ' => "ow", 'Ơ' => "OW",
-            'ư' => "uw", 'Ư' => "UW",
-            'á' => "as", 'Á' => "AS",
-            'à' => "af", 'À' => "AF",
-            'ả' => "ar", 'Ả' => "AR",
-            'ã' => "ax", 'Ã' => "AX",
-            'ạ' => "aj", 'Ạ' => "AJ",
-            'é' => "es", 'É' => "ES",
-            'è' => "ef", 'È' => "EF",
-            'ẻ' => "er", 'Ẻ' => "ER",
-            'ẽ' => "ex", 'Ẽ' => "EX",
-            'ẹ' => "ej", 'Ẹ' => "EJ",
-            'í' => "is", 'Í' => "IS",
-            'ì' => "if", 'Ì' => "IF",
-            'ỉ' => "ir", 'Ỉ' => "IR",
-            'ĩ' => "ix", 'Ĩ' => "IX",
-            'ị' => "ij", 'Ị' => "IJ",
-            'ó' => "os", 'Ó' => "OS",
-            'ò' => "of", 'Ò' => "OF",
-            'ỏ' => "or", 'Ỏ' => "OR",
-            'õ' => "ox", 'Õ' => "OX",
-            'ọ' => "oj", 'Ọ' => "OJ",
-            'ú' => "us", 'Ú' => "US",
-            'ù' => "uf", 'Ù' => "UF",
-            'ủ' => "ur", 'Ủ' => "UR",
-            'ũ' => "ux", 'Ũ' => "UX",
-            'ụ' => "uj", 'Ụ' => "UJ",
-            'ý' => "ys", 'Ý' => "YS",
-            'ỳ' => "yf", 'Ỳ' => "YF",
-            'ỷ' => "yr", 'Ỷ' => "YR",
-            'ỹ' => "yx", 'Ỹ' => "YX",
-            'ỵ' => "yj", 'Ỵ' => "YJ",
-            'ấ' => "aas", 'Ấ' => "AAS",
-            'ầ' => "aaf", 'Ầ' => "AAF",
-            'ẩ' => "aar", 'Ẩ' => "AAR",
-            'ẫ' => "aax", 'Ẫ' => "AAX",
-            'ậ' => "aaj", 'Ậ' => "AAJ",
-            'ắ' => "aws", 'Ắ' => "AWS",
-            'ằ' => "awf", 'Ằ' => "AWF",
-            'ẳ' => "awr", 'Ẳ' => "AWR",
-            'ẵ' => "awx", 'Ẵ' => "AWX",
-            'ặ' => "awj", 'Ặ' => "AWJ",
-            'ế' => "ees", 'Ế' => "EES",
-            'ề' => "eef", 'Ề' => "EEF",
-            'ể' => "eer", 'Ể' => "EER",
-            'ễ' => "eex", 'Ễ' => "EEX",
-            'ệ' => "eej", 'Ệ' => "EEJ",
-            'ố' => "oos", 'Ố' => "OOS",
-            'ồ' => "oof", 'Ồ' => "OOF",
-            'ổ' => "oor", 'Ổ' => "OOR",
-            'ỗ' => "oox", 'Ỗ' => "OOX",
-            'ộ' => "ooj", 'Ộ' => "OOJ",
-            'ớ' => "ows", 'Ớ' => "OWS",
-            'ờ' => "owf", 'Ờ' => "OWF",
-            'ở' => "owr", 'Ở' => "OWR",
-            'ỡ' => "owx", 'Ỡ' => "OWX",
-            'ợ' => "owj", 'Ợ' => "OWJ",
-            'ứ' => "uws", 'Ứ' => "UWS",
-            'ừ' => "uwf", 'Ừ' => "UWF",
-            'ử' => "uwr", 'Ử' => "UWR",
-            'ữ' => "uwx", 'Ữ' => "UWX",
-            'ự' => "uwj", 'Ự' => "UWJ",
-            '\u{0300}' | '\u{0301}' | '\u{0309}' | '\u{0303}' | '\u{0323}' | '\u{0302}' | '\u{0306}' | '\u{031b}' => "",
-            other => {
-                result.push(other);
-                continue;
-            }
-        };
-        result.push_str(mapped);
-    }
-    result
-}
-
 #[tauri::command]
 pub async fn sync_terminal_input_buf(
     state: State<'_, AppState>,
@@ -111,8 +29,7 @@ pub async fn sync_terminal_input_buf(
     current_input: String,
 ) -> Result<(), String> {
     let mut pm = state.process_manager.lock().await;
-    let filtered_input = vietnamese_to_telex(&current_input);
-    pm.input_buf.insert(session_id, filtered_input);
+    pm.input_buf.insert(session_id, current_input);
     Ok(())
 }
 
@@ -122,7 +39,7 @@ pub async fn write_to_terminal_session(
     session_id: String,
     input: String,
 ) -> Result<(), String> {
-    let input = vietnamese_to_telex(&input);
+    let input = input;
     eprintln!("[term-input] Received input: {:?}", input);
     // 1. Immediately handle Ctrl+C to interrupt executing commands safely
     if input.contains('\x03') {
@@ -141,8 +58,15 @@ pub async fn write_to_terminal_session(
         let mut pm = state.process_manager.lock().await;
         if let Ok(ctx) = pm.get_terminal_write_context(&session_id) {
             let out_tx = ctx.terminal_sender.clone();
-            let history = pm.terminal_history.entry(session_id.clone()).or_default().clone();
-            let mut idx = *pm.terminal_history_index.entry(session_id.clone()).or_insert(history.len());
+            let history = pm
+                .terminal_history
+                .entry(session_id.clone())
+                .or_default()
+                .clone();
+            let mut idx = *pm
+                .terminal_history_index
+                .entry(session_id.clone())
+                .or_insert(history.len());
 
             if !history.is_empty() {
                 if input == "\x1b[A" {
@@ -181,7 +105,6 @@ pub async fn write_to_terminal_session(
     let is_enter = input.contains('\r') || input.contains('\n');
     let mut allowed_cmd = String::new();
     let mut blocked_reason = String::new();
-    let mut buf_len: usize = 0;
     let out_tx;
     let stdin_tx;
 
@@ -221,7 +144,6 @@ pub async fn write_to_terminal_session(
                 }
                 Ok(Some(reason)) => {
                     blocked_reason = reason;
-                    buf_len = pm.get_input_buf(&session_id).map(|s| s.len()).unwrap_or(0);
                     pm.clear_input_buf(&session_id);
                 }
                 Err(e) => {

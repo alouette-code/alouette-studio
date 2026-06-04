@@ -6556,9 +6556,7 @@ body {
 
 /* Fix for IME composition text hiding behind terminal canvas (sinking text bug) */
 .sandbox-xterm-wrapper .xterm .composition-view {
-    z-index: 999 !important;
-    background-color: var(--terminal-bg) !important;
-    color: var(--color-accent) !important; /* Make IME composition clearly visible */
+    display: none !important;
 }
 
 .sandbox-xterm-wrapper .xterm-selection div {
@@ -6586,7 +6584,6 @@ body {
 .sandbox-xterm-wrapper .xterm-viewport {
     background-color: var(--terminal-bg) !important;
 }
-
 
 /* ── Sidebar ────────────────────────────────────────────────────────── */
 
@@ -6902,8 +6899,8 @@ body {
 /* All fills match the application brand accent color */
 .progress-bar-fill.cpu,
 .progress-bar-fill.ram,
-.progress-bar-fill.gpu { 
-    background-color: var(--color-accent); 
+.progress-bar-fill.gpu {
+    background-color: var(--color-accent);
 }
 
 .stat-card .meta-info {
@@ -7070,4 +7067,3 @@ body {
         transform: scale(1) translateY(0);
     }
 }
-

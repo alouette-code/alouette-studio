@@ -96,7 +96,7 @@ interface XtermInstance {
 
 function LogViewer({ logs }: { logs: LogLine[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  
+
   useEffect(() => {
     if (containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
@@ -104,7 +104,7 @@ function LogViewer({ logs }: { logs: LogLine[] }) {
   }, [logs]);
 
   return (
-    <div 
+    <div
       ref={containerRef}
       style={{
         flex: 1,
@@ -117,7 +117,7 @@ function LogViewer({ logs }: { logs: LogLine[] }) {
         height: "100%",
         display: "flex",
         flexDirection: "column",
-        gap: "6px"
+        gap: "6px",
       }}
     >
       {logs && logs.length > 0 ? (
@@ -129,15 +129,34 @@ function LogViewer({ logs }: { logs: LogLine[] }) {
           else if (isSys) color = "var(--color-setup)";
 
           return (
-            <div key={idx} style={{ display: "flex", gap: "8px", lineBreak: "anywhere" }}>
-              <span style={{ color: "var(--text-muted)", flexShrink: 0, userSelect: "none" }}>[{log.timestamp}]</span>
+            <div
+              key={idx}
+              style={{ display: "flex", gap: "8px", lineBreak: "anywhere" }}
+            >
+              <span
+                style={{
+                  color: "var(--text-muted)",
+                  flexShrink: 0,
+                  userSelect: "none",
+                }}
+              >
+                [{log.timestamp}]
+              </span>
               <span style={{ color, whiteSpace: "pre-wrap" }}>{log.text}</span>
             </div>
           );
         })
       ) : (
-        <div style={{ color: "var(--text-muted)", fontStyle: "italic", textAlign: "center", marginTop: "40px" }}>
-          No active system logs. Click "Start" in the header to execute the application.
+        <div
+          style={{
+            color: "var(--text-muted)",
+            fontStyle: "italic",
+            textAlign: "center",
+            marginTop: "40px",
+          }}
+        >
+          No active system logs. Click "Start" in the header to execute the
+          application.
         </div>
       )}
     </div>
@@ -147,7 +166,7 @@ function LogViewer({ logs }: { logs: LogLine[] }) {
 function SimplePing() {
   const [method, setMethod] = useState("GET");
   const [url, setUrl] = useState("http://localhost:3000");
-  const [reqBody, setReqBody] = useState("{\n  \"key\": \"value\"\n}");
+  const [reqBody, setReqBody] = useState('{\n  "key": "value"\n}');
   const [loading, setLoading] = useState(false);
   const [response, setResponse] = useState<any>(null);
   const [error, setError] = useState<string | null>(null);
@@ -177,7 +196,7 @@ function SimplePing() {
           body: parsedBody,
           body_type: bodyType,
           timeout_ms: 10000,
-        }
+        },
       });
       setResponse(res);
     } catch (err: any) {
@@ -188,17 +207,19 @@ function SimplePing() {
   };
 
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      height: "100%",
-      width: "100%",
-      background: "var(--bg-primary)",
-      color: "var(--text-primary)",
-      padding: "16px",
-      gap: "12px",
-      boxSizing: "border-box"
-    }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        width: "100%",
+        background: "var(--bg-primary)",
+        color: "var(--text-primary)",
+        padding: "16px",
+        gap: "12px",
+        boxSizing: "border-box",
+      }}
+    >
       <div style={{ display: "flex", gap: "8px" }}>
         <select
           value={method}
@@ -210,7 +231,7 @@ function SimplePing() {
             borderRadius: "4px",
             padding: "8px 12px",
             fontSize: "13px",
-            outline: "none"
+            outline: "none",
           }}
         >
           <option value="GET">GET</option>
@@ -233,7 +254,7 @@ function SimplePing() {
             borderRadius: "4px",
             padding: "8px 12px",
             fontSize: "13px",
-            outline: "none"
+            outline: "none",
           }}
         />
 
@@ -248,7 +269,7 @@ function SimplePing() {
             padding: "8px 16px",
             fontSize: "13px",
             fontWeight: "bold",
-            cursor: loading ? "not-allowed" : "pointer"
+            cursor: loading ? "not-allowed" : "pointer",
           }}
         >
           {loading ? "Sending..." : "Send Request"}
@@ -257,7 +278,9 @@ function SimplePing() {
 
       {(method === "POST" || method === "PUT" || method === "PATCH") && (
         <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-          <div style={{ color: "var(--text-secondary)", fontSize: "12px" }}>Request Body (JSON):</div>
+          <div style={{ color: "var(--text-secondary)", fontSize: "12px" }}>
+            Request Body (JSON):
+          </div>
           <textarea
             value={reqBody}
             onChange={(e) => setReqBody(e.target.value)}
@@ -271,26 +294,28 @@ function SimplePing() {
               fontFamily: "'JetBrains Mono', Consolas, monospace",
               outline: "none",
               resize: "vertical",
-              minHeight: "80px"
+              minHeight: "80px",
             }}
             placeholder='{ "key": "value" }'
           />
         </div>
       )}
 
-      <div style={{
-        flex: 1,
-        background: "var(--bg-secondary)",
-        border: "1px solid var(--border-primary)",
-        borderRadius: "6px",
-        padding: "12px",
-        fontFamily: "'JetBrains Mono', Consolas, monospace",
-        fontSize: "12px",
-        overflowY: "auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: "10px"
-      }}>
+      <div
+        style={{
+          flex: 1,
+          background: "var(--bg-secondary)",
+          border: "1px solid var(--border-primary)",
+          borderRadius: "6px",
+          padding: "12px",
+          fontFamily: "'JetBrains Mono', Consolas, monospace",
+          fontSize: "12px",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "10px",
+        }}
+      >
         {error && (
           <div style={{ color: "var(--color-danger)" }}>
             <strong>Error:</strong> {error}
@@ -299,26 +324,55 @@ function SimplePing() {
 
         {response && (
           <>
-            <div style={{ display: "flex", gap: "16px", borderBottom: "1px solid var(--border-primary)", paddingBottom: "8px", flexShrink: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                gap: "16px",
+                borderBottom: "1px solid var(--border-primary)",
+                paddingBottom: "8px",
+                flexShrink: 0,
+              }}
+            >
               <div>
                 <span style={{ color: "var(--text-secondary)" }}>Status:</span>{" "}
-                <strong style={{ color: response.status >= 200 && response.status < 300 ? "var(--color-success)" : "var(--color-danger)" }}>
+                <strong
+                  style={{
+                    color:
+                      response.status >= 200 && response.status < 300
+                        ? "var(--color-success)"
+                        : "var(--color-danger)",
+                  }}
+                >
                   {response.status} {response.status_text}
                 </strong>
               </div>
               <div>
                 <span style={{ color: "var(--text-secondary)" }}>Time:</span>{" "}
-                <strong style={{ color: "var(--text-primary)" }}>{response.elapsed_ms} ms</strong>
+                <strong style={{ color: "var(--text-primary)" }}>
+                  {response.elapsed_ms} ms
+                </strong>
               </div>
               <div>
                 <span style={{ color: "var(--text-secondary)" }}>Size:</span>{" "}
-                <strong style={{ color: "var(--color-warning)" }}>{response.size_bytes} B</strong>
+                <strong style={{ color: "var(--color-warning)" }}>
+                  {response.size_bytes} B
+                </strong>
               </div>
             </div>
 
             <div style={{ flex: 1, overflow: "auto" }}>
-              <div style={{ color: "var(--text-secondary)", marginBottom: "4px" }}>Response Body:</div>
-              <pre style={{ margin: 0, whiteSpace: "pre-wrap", color: "var(--text-primary)" }}>
+              <div
+                style={{ color: "var(--text-secondary)", marginBottom: "4px" }}
+              >
+                Response Body:
+              </div>
+              <pre
+                style={{
+                  margin: 0,
+                  whiteSpace: "pre-wrap",
+                  color: "var(--text-primary)",
+                }}
+              >
                 {response.body}
               </pre>
             </div>
@@ -326,7 +380,14 @@ function SimplePing() {
         )}
 
         {!response && !error && !loading && (
-          <div style={{ color: "var(--text-muted)", textAlign: "center", marginTop: "40px", fontStyle: "italic" }}>
+          <div
+            style={{
+              color: "var(--text-muted)",
+              textAlign: "center",
+              marginTop: "40px",
+              fontStyle: "italic",
+            }}
+          >
             Enter a URL and send request to view API response.
           </div>
         )}
@@ -335,7 +396,8 @@ function SimplePing() {
   );
 }
 
-const CONFIG_PATH = "d:/alouette-server/core_engine/app_data/cloudflare_config.yml";
+const CONFIG_PATH =
+  "d:/alouette-server/core_engine/app_data/cloudflare_config.yml";
 
 const stringToBase64 = (str: string): string => {
   const bytes = new TextEncoder().encode(str);
@@ -364,7 +426,9 @@ export default function TerminalPanel({
   onDeleteAllTerminals,
   onRenameTerminal,
 }: TerminalPanelProps) {
-  const [viewMode, setViewMode] = useState<"terminal" | "post" | "log" | "tunnel">("terminal");
+  const [viewMode, setViewMode] = useState<
+    "terminal" | "post" | "log" | "tunnel"
+  >("terminal");
   // ── Map of xterm instances, one per session ─────────────────────────
   const instancesRef = useRef<{ [sessionId: string]: XtermInstance }>({});
   // Container refs: sessionId → HTMLDivElement
@@ -386,51 +450,81 @@ export default function TerminalPanel({
 
   const loadCloudflareConfig = async () => {
     try {
-      const base64Data = await invoke<string>("read_file_content", { path: CONFIG_PATH });
+      const base64Data = await invoke<string>("read_file_content", {
+        path: CONFIG_PATH,
+      });
       const binaryString = window.atob(base64Data);
       const bytes = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         bytes[i] = binaryString.charCodeAt(i);
       }
       const decodedText = new TextDecoder("utf-8").decode(bytes);
-      
+
       let mode = "default";
       let globalToken = "";
       let tunnelsList: any[] = [];
-      
+
       const lines = decodedText.split("\n");
       let currentTunnel: any = null;
-      
+
       for (let line of lines) {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith("#")) continue;
-        
+
         if (trimmed.startsWith("mode:")) {
           mode = trimmed.replace("mode:", "").replace(/["']/g, "").trim();
         } else if (trimmed.startsWith("tunnel_token:")) {
-          globalToken = trimmed.replace("tunnel_token:", "").replace(/["']/g, "").trim();
-        } else if (trimmed.startsWith("- id:") || (line.startsWith("  -") && trimmed.startsWith("id:"))) {
+          globalToken = trimmed
+            .replace("tunnel_token:", "")
+            .replace(/["']/g, "")
+            .trim();
+        } else if (
+          trimmed.startsWith("- id:") ||
+          (line.startsWith("  -") && trimmed.startsWith("id:"))
+        ) {
           if (currentTunnel) {
             tunnelsList.push(currentTunnel);
           }
-          const idVal = trimmed.replace("- id:", "").replace("id:", "").replace(/["']/g, "").trim();
-          currentTunnel = { id: idVal, project_id: "", name: "", port: 3000, token: "", active: false };
+          const idVal = trimmed
+            .replace("- id:", "")
+            .replace("id:", "")
+            .replace(/["']/g, "")
+            .trim();
+          currentTunnel = {
+            id: idVal,
+            project_id: "",
+            name: "",
+            port: 3000,
+            token: "",
+            active: false,
+          };
         } else if (currentTunnel && trimmed.startsWith("project_id:")) {
-          currentTunnel.project_id = trimmed.replace("project_id:", "").replace(/["']/g, "").trim();
+          currentTunnel.project_id = trimmed
+            .replace("project_id:", "")
+            .replace(/["']/g, "")
+            .trim();
         } else if (currentTunnel && trimmed.startsWith("name:")) {
-          currentTunnel.name = trimmed.replace("name:", "").replace(/["']/g, "").trim();
+          currentTunnel.name = trimmed
+            .replace("name:", "")
+            .replace(/["']/g, "")
+            .trim();
         } else if (currentTunnel && trimmed.startsWith("port:")) {
-          currentTunnel.port = parseInt(trimmed.replace("port:", "").trim(), 10) || 3000;
+          currentTunnel.port =
+            parseInt(trimmed.replace("port:", "").trim(), 10) || 3000;
         } else if (currentTunnel && trimmed.startsWith("token:")) {
-          currentTunnel.token = trimmed.replace("token:", "").replace(/["']/g, "").trim();
+          currentTunnel.token = trimmed
+            .replace("token:", "")
+            .replace(/["']/g, "")
+            .trim();
         } else if (currentTunnel && trimmed.startsWith("active:")) {
-          currentTunnel.active = trimmed.replace("active:", "").trim() === "true";
+          currentTunnel.active =
+            trimmed.replace("active:", "").trim() === "true";
         }
       }
       if (currentTunnel) {
         tunnelsList.push(currentTunnel);
       }
-      
+
       setCloudflareMode(mode);
       setGlobalToken(globalToken);
       setTunnels(tunnelsList);
@@ -452,9 +546,12 @@ export default function TerminalPanel({
         yaml += `    token: "${t.token || ""}"\n`;
         yaml += `    active: ${t.active ? "true" : "false"}\n`;
       });
-      
+
       const base64Content = stringToBase64(yaml);
-      await invoke("write_file_content", { path: CONFIG_PATH, content: base64Content });
+      await invoke("write_file_content", {
+        path: CONFIG_PATH,
+        content: base64Content,
+      });
       setTunnels(updatedTunnels);
     } catch (e) {
       console.error("Failed to save cloudflare config in TerminalPanel:", e);
@@ -473,7 +570,7 @@ export default function TerminalPanel({
       name: `Port ${activeProject.port || 3000}`,
       port: activeProject.port || 3000,
       token: "",
-      active: false
+      active: false,
     };
     const updated = [...tunnels, newTunnel];
     saveCloudflareConfig(updated);
@@ -497,7 +594,7 @@ export default function TerminalPanel({
         // Toggle only the clicked one, turn off others for the same project
         return {
           ...t,
-          active: t.id === id ? !t.active : false
+          active: t.id === id ? !t.active : false,
         };
       }
       return t;
@@ -549,17 +646,18 @@ export default function TerminalPanel({
       console.log("[term] MOUNT xterm for session:", sessionId);
       container.innerHTML = "";
 
-      const activeTheme = theme === "light" ? XTERM_LIGHT_THEME : XTERM_DARK_THEME;
+      const activeTheme =
+        theme === "light" ? XTERM_LIGHT_THEME : XTERM_DARK_THEME;
 
       const term = new Terminal({
         cursorBlink: true,
         cursorStyle: "bar",
         cursorWidth: 2,
         fontSize: 13,
-        lineHeight: 1.2,
+        lineHeight: 1.35,
         letterSpacing: 0,
         fontFamily:
-          "'JetBrains Mono', monospace",
+          "'JetBrains Mono', 'Noto Sans Mono', 'Noto Sans CJK SC', 'Noto Color Emoji', monospace",
         theme: activeTheme,
         convertEol: true,
         rows: 24,
@@ -580,7 +678,67 @@ export default function TerminalPanel({
       term.loadAddon(fit);
       term.open(container);
 
-      // Configure textarea properties
+      // ── IME composition handling ───────────────────────────────────────
+      // Goal: forward composed characters to the PTY immediately so they
+      // appear inline via PTY echo, NOT in an OS-level IME popup.
+      //
+      // Key insight: IMEs like ibus-unikey REPLACE the entire composition
+      // buffer on each keystroke ("a"→"â"→"ấ" → each is ONE precomposed
+      // Unicode char). So we send backspace + full precomposed char to the
+      // PTY on each compositionupdate for inline echo.
+      //
+      // Root-cause fix: compositionupdate sends text via bufferWrite
+      // (immediate display), and compositionend does ONLY flushPty —
+      // it NEVER sends any text via invoke. This guarantees NO duplicates.
+      //
+      // Strategy:
+      //   compositionupdate → buffer: backspace + full precomposed char
+      //   flushed via 2ms timer → 1 IPC call
+      //   compositionend    → flush remaining buffer, NEVER invoke
+      //   onData            → skip while composing
+      let isComposing = false;
+      let lastImeText = "";
+      let ptyBuffer = "";
+
+      // Flush accumulated buffer to the PTY via a single IPC call.
+      const flushPty = () => {
+        flushTimer = null;
+        if (!ptyBuffer) return;
+        const batch = ptyBuffer;
+        ptyBuffer = "";
+        invoke("write_to_terminal_session", {
+          sessionId,
+          input: batch,
+        }).catch((err) => console.warn("[term] IME flush FAILED:", err));
+      };
+
+      // Schedule a flush on the next timer tick.
+      let flushTimer: any = null;
+      const scheduleFlush = () => {
+        if (flushTimer !== null) return;
+        flushTimer = setTimeout(flushPty, 2);
+      };
+
+      // Write text into the buffer and schedule a flush.
+      const bufferWrite = (text: string) => {
+        if (!text) return;
+        ptyBuffer += text;
+        scheduleFlush();
+      };
+
+      // Refresh a few lines around the cursor after each IME step
+      const refreshCursorLine = () => {
+        requestAnimationFrame(() => {
+          try {
+            const cursorY = term.buffer.active.cursorY;
+            const start = Math.max(0, cursorY - 2);
+            const end = Math.min(term.rows - 1, cursorY + 2);
+            term.refresh(start, end);
+          } catch {}
+        });
+      };
+
+      // Configure textarea properties for proper IME/Unicode input handling
       try {
         const textarea = (term as any).textarea as HTMLTextAreaElement;
         if (textarea) {
@@ -588,23 +746,70 @@ export default function TerminalPanel({
           textarea.setAttribute("autocorrect", "off");
           textarea.setAttribute("autocapitalize", "off");
           textarea.setAttribute("spellcheck", "false");
+          textarea.style.fontVariantLigatures = "none";
+          textarea.style.fontFeatureSettings = '"liga" 0, "calt" 0';
 
-          // Force refresh on input/composition to clear any IME overlapping rendering
-          const refreshCursorLine = () => {
-            requestAnimationFrame(() => {
-              try {
-                const cursorY = term.buffer.active.cursorY;
-                const start = Math.max(0, cursorY - 1);
-                const end = Math.min(term.rows - 1, cursorY + 1);
-                term.refresh(start, end);
-              } catch {}
-            });
-          };
+          // ── IME composition start ────────────────────────────────────
+          textarea.addEventListener("compositionstart", () => {
+            isComposing = true;
+            lastImeText = "";
+            ptyBuffer = "";
+            if (flushTimer !== null) {
+              clearTimeout(flushTimer);
+              flushTimer = null;
+            }
+            refreshCursorLine();
+          });
+
+          // ── IME composition update ───────────────────────────────────
+          // Send backspace + full composed text to PTY for inline echo.
+          // The PTY receives the correction and the shell updates the
+          // display in real-time.
+          textarea.addEventListener("compositionupdate", (e) => {
+            const rawText = (e as CompositionEvent).data || "";
+            refreshCursorLine();
+
+            if (!rawText) {
+              lastImeText = "";
+              return;
+            }
+
+            if (!lastImeText) {
+              // First composition → send the full text directly
+              bufferWrite(rawText);
+            } else if (rawText.startsWith(lastImeText)) {
+              // Characters appended (rare for IME but handle it)
+              const suffix = rawText.slice(lastImeText.length);
+              bufferWrite(suffix);
+            } else {
+              // Composition REPLACED previous text (standard IME behavior).
+              // Send backspace(prev_len) + full new text so readline
+              // replaces the old display with the new one.
+              const prevLen = [...lastImeText].length;
+              bufferWrite("\x7f".repeat(prevLen) + rawText);
+            }
+
+            lastImeText = rawText;
+          });
+
+          // ── IME composition end ───────────────────────────────────────
+          // ROOT-CRITICAL: ONLY flush remaining buffer, NEVER invoke.
+          // compositionupdate already sent all text via bufferWrite.
+          // Sending again via invoke would cause DUPLICATE text.
+          textarea.addEventListener("compositionend", (e) => {
+            isComposing = false;
+
+            if (flushTimer !== null) {
+              clearTimeout(flushTimer);
+              flushTimer = null;
+            }
+            flushPty();
+
+            lastImeText = "";
+            refreshCursorLine();
+          });
 
           textarea.addEventListener("input", refreshCursorLine);
-          textarea.addEventListener("compositionstart", refreshCursorLine);
-          textarea.addEventListener("compositionupdate", refreshCursorLine);
-          textarea.addEventListener("compositionend", refreshCursorLine);
         }
       } catch (e) {
         console.warn("[term] Failed to configure textarea attributes", e);
@@ -621,25 +826,42 @@ export default function TerminalPanel({
       requestAnimationFrame(doFit);
       setTimeout(doFit, 80);
 
-      // Replay buffered output
+      // Replay buffered output + force refresh to render initial content
       const buf = terminalBufferRef.current[sessionId];
       if (buf) {
-        term.write(buf);
+        term.write(buf, () => {
+          try {
+            term.refresh(0, term.rows - 1);
+          } catch {}
+        });
+      } else {
+        // Even without buffered data, refresh to ensure blank canvas is ready
+        requestAnimationFrame(() => {
+          try {
+            term.refresh(0, term.rows - 1);
+          } catch {}
+        });
       }
 
       // Keyboard input → PTY
       const dataDisposer = term.onData((data) => {
         // Ignore focus tracking sequences and null/empty signals that could leak during tab focus changes
-        if (!data || data === "\x1b[I" || data === "\x1b[O" || data === "\x00") return;
+        if (!data || data === "\x1b[I" || data === "\x1b[O" || data === "\x00")
+          return;
+
+        // During IME composition, xterm's onData may fire with partial keystrokes.
+        // We skip them here because compositionend will send the final composed text.
+        if (isComposing) return;
 
         const isEnter = data.includes("\r") || data.includes("\n");
         if (isEnter) {
           // Read current line from screen
           const activeBuffer = term.buffer.active;
           const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;
-          const line = activeBuffer.getLine(lineIndex)?.translateToString(true) || "";
-          
-          const promptChars = ['>', '$', '#'];
+          const rawLine = activeBuffer.getLine(lineIndex);
+          const line = rawLine?.translateToString(true) || "";
+
+          const promptChars = [">", "$", "#"];
           let promptCharIndex = -1;
           for (let i = line.length - 1; i >= 0; i--) {
             if (promptChars.includes(line[i])) {
@@ -647,18 +869,26 @@ export default function TerminalPanel({
               break;
             }
           }
-          const command = promptCharIndex !== -1 ? line.substring(promptCharIndex + 2) : line;
+          const command =
+            promptCharIndex !== -1 ? line.substring(promptCharIndex + 2) : line;
 
-          invoke("sync_terminal_input_buf", { sessionId, currentInput: command }).then(() => {
-            invoke("write_to_terminal_session", { sessionId, input: data }).catch(
-              (err) => console.warn("[term] write FAILED:", err),
-            );
-          }).catch((err) => {
-            console.warn("[term] sync FAILED:", err);
-            invoke("write_to_terminal_session", { sessionId, input: data }).catch(
-              (e) => console.warn("[term] write fallback FAILED:", e),
-            );
-          });
+          invoke("sync_terminal_input_buf", {
+            sessionId,
+            currentInput: command,
+          })
+            .then(() => {
+              invoke("write_to_terminal_session", {
+                sessionId,
+                input: data,
+              }).catch((err) => console.warn("[term] write FAILED:", err));
+            })
+            .catch((err) => {
+              console.warn("[term] sync FAILED:", err);
+              invoke("write_to_terminal_session", {
+                sessionId,
+                input: data,
+              }).catch((e) => console.warn("[term] write fallback FAILED:", e));
+            });
         } else {
           invoke("write_to_terminal_session", { sessionId, input: data }).catch(
             (err) => console.warn("[term] write FAILED:", err),
@@ -679,11 +909,20 @@ export default function TerminalPanel({
           if (text) {
             term.write(text, () => {
               try {
-                // Force cursor row to refresh immediately to prevent overlapping/squishing
+                // After writing output, refresh a broader range of rows around cursor
+                // to fix overlapping/squishing artifacts from Unicode or wide characters
                 const cursorY = term.buffer.active.cursorY;
-                term.refresh(cursorY, cursorY);
+                const scrollRegion = Math.max(1, Math.floor(term.rows * 0.3));
+                const start = Math.max(0, cursorY - scrollRegion);
+                const end = Math.min(term.rows - 1, cursorY + 2);
+                term.refresh(start, end);
               } catch {}
             });
+          } else {
+            // Heartbeat with empty text: force full refresh to ensure canvas is painted
+            try {
+              term.refresh(0, term.rows - 1);
+            } catch {}
           }
         }
       }).then((u) => {
@@ -729,24 +968,31 @@ export default function TerminalPanel({
       ro.observe(container);
       inst.disposers.push(() => ro.disconnect());
 
-      // Focus on mount
-      term.focus();
+      // Focus on mount + force initial paint
+      requestAnimationFrame(() => {
+        try {
+          term.focus();
+          term.refresh(0, term.rows - 1);
+        } catch {}
+      });
 
       // Key handler: copy/paste
       term.attachCustomKeyEventHandler((e) => {
-
-        // Force refresh of the cursor row on key down to guarantee correct rendering of characters
-        if (e.type === "keydown") {
-          setTimeout(() => {
-            try {
-              const cursorY = term.buffer.active.cursorY;
-              term.refresh(cursorY, cursorY);
-            } catch {}
-          }, 0);
-        }
-
         // Prevent terminal keystrokes from bubbling up to parent window/document listeners
         e.stopPropagation();
+
+        // Force full grid refresh on any key interaction to guarantee rendering
+        if (e.type === "keydown") {
+          requestAnimationFrame(() => {
+            try {
+              // Refresh broader range to ensure PTY echo is rendered properly
+              const cursorY = term.buffer.active.cursorY;
+              const start = Math.max(0, cursorY - 3);
+              const end = Math.min(term.rows - 1, cursorY + 1);
+              term.refresh(start, end);
+            } catch {}
+          });
+        }
 
         if (e.key === "ArrowUp" && e.type === "keydown") {
           invoke("write_to_terminal_session", {
@@ -767,8 +1013,8 @@ export default function TerminalPanel({
           const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;
           const line =
             activeBuffer.getLine(lineIndex)?.translateToString(true) || "";
-          
-          const promptChars = ['>', '$', '#'];
+
+          const promptChars = [">", "$", "#"];
           let promptCharIndex = -1;
           for (let i = line.length - 1; i >= 0; i--) {
             if (promptChars.includes(line[i])) {
@@ -779,7 +1025,10 @@ export default function TerminalPanel({
 
           // Guard: If the line doesn't contain prompt char yet (e.g. still replaying/loading),
           // or if the cursor is at or before the prompt boundary (CWD$ ), block Backspace!
-          if (promptCharIndex === -1 || activeBuffer.cursorX <= promptCharIndex + 2) {
+          if (
+            promptCharIndex === -1 ||
+            activeBuffer.cursorX <= promptCharIndex + 2
+          ) {
             return false;
           }
         }
@@ -833,7 +1082,8 @@ export default function TerminalPanel({
 
   // ── Sync terminal theme dynamically when light/dark theme changes ──
   useEffect(() => {
-    const activeTheme = theme === "light" ? XTERM_LIGHT_THEME : XTERM_DARK_THEME;
+    const activeTheme =
+      theme === "light" ? XTERM_LIGHT_THEME : XTERM_DARK_THEME;
     Object.keys(instancesRef.current).forEach((sid) => {
       try {
         instancesRef.current[sid].term.options.theme = activeTheme;
@@ -872,21 +1122,27 @@ export default function TerminalPanel({
     });
   }, [terminals, mountXterm]);
 
-  // ── When activeTerminalId changes, focus the active one ────────────
+  // ── When activeTerminalId changes, focus + full refresh the active one ──
   useEffect(() => {
     if (activeTerminalId && instancesRef.current[activeTerminalId]) {
       const inst = instancesRef.current[activeTerminalId];
-      inst.term.focus();
-      try {
-        // Redraw terminal grid without triggering a PTY resize
-        inst.term.refresh(0, inst.term.rows - 1);
-      } catch {}
+      requestAnimationFrame(() => {
+        try {
+          inst.term.focus();
+          // Force full redraw of the terminal grid
+          inst.term.refresh(0, inst.term.rows - 1);
+        } catch {}
+      });
     }
   }, [activeTerminalId]);
 
   // ── Refit and focus when switching back to terminal view ──────────
   useEffect(() => {
-    if (viewMode === "terminal" && activeTerminalId && instancesRef.current[activeTerminalId]) {
+    if (
+      viewMode === "terminal" &&
+      activeTerminalId &&
+      instancesRef.current[activeTerminalId]
+    ) {
       const inst = instancesRef.current[activeTerminalId];
       setTimeout(() => {
         try {
@@ -906,7 +1162,8 @@ export default function TerminalPanel({
           try {
             const term = instancesRef.current[sid].term;
             // Force re-measurement of characters by toggling fontFamily to clear the metrics cache
-            const font = term.options.fontFamily || "'JetBrains Mono', monospace";
+            const font =
+              term.options.fontFamily || "'JetBrains Mono', monospace";
             term.options.fontFamily = "monospace";
             term.options.fontFamily = font;
 
@@ -952,7 +1209,10 @@ export default function TerminalPanel({
   return (
     <div className="sandbox-terminal">
       <header className="sandbox-terminal-header">
-        <div className="sandbox-terminal-header-left" style={{ display: "flex", gap: "4px" }}>
+        <div
+          className="sandbox-terminal-header-left"
+          style={{ display: "flex", gap: "4px" }}
+        >
           <button
             className={`sandbox-btn ${viewMode === "terminal" ? "active" : ""}`}
             onClick={() => setViewMode("terminal")}
@@ -999,7 +1259,17 @@ export default function TerminalPanel({
       </header>
 
       <div className="sandbox-terminal-body">
-        <div style={{ display: (viewMode === "terminal" || viewMode === "tunnel") ? "flex" : "none", flex: 1, width: "100%", height: "100%" }}>
+        <div
+          style={{
+            display:
+              viewMode === "terminal" || viewMode === "tunnel"
+                ? "flex"
+                : "none",
+            flex: 1,
+            width: "100%",
+            height: "100%",
+          }}
+        >
           <div className="sandbox-terminal-main">
             {viewMode === "terminal" && (
               <>
@@ -1018,7 +1288,10 @@ export default function TerminalPanel({
                     )}
                     {activeStatus === "error" && (
                       <>
-                        <AlertTriangle size={32} className="sandbox-error-icon" />
+                        <AlertTriangle
+                          size={32}
+                          className="sandbox-error-icon"
+                        />
                         <span className="sandbox-overlay-title sandbox-error-text">
                           Connection failed
                         </span>
@@ -1043,7 +1316,7 @@ export default function TerminalPanel({
 
                 {/* Render a separate xterm container for each terminal session.
                     Only the active one is visible; others are hidden offscreen/via opacity to preserve layout measurements. */}
-                <div 
+                <div
                   className="sandbox-xterm-wrapper"
                   onScroll={(e) => {
                     // Prevent browser from scrolling this container due to xterm textarea focus (fixes sinking bug)
@@ -1080,7 +1353,7 @@ export default function TerminalPanel({
                         (log) =>
                           log.text.toLowerCase().includes("watchdog") ||
                           log.text.toLowerCase().includes("cloudflare") ||
-                          log.text.toLowerCase().includes("tunnel")
+                          log.text.toLowerCase().includes("tunnel"),
                       )
                     : []
                 }
@@ -1199,25 +1472,47 @@ export default function TerminalPanel({
                               ref={tunnelRenameRef}
                               className="sandbox-rename-input"
                               value={tunnelRenameValue}
-                              onChange={(e) => setTunnelRenameValue(e.target.value)}
+                              onChange={(e) =>
+                                setTunnelRenameValue(e.target.value)
+                              }
                               onBlur={submitTunnelRename}
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") submitTunnelRename();
-                                if (e.key === "Escape") setTunnelEditingId(null);
+                                if (e.key === "Escape")
+                                  setTunnelEditingId(null);
                               }}
                               onClick={(e) => e.stopPropagation()}
                             />
                           ) : (
                             <>
-                              <div className="sandbox-terminal-item-left" style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                              <div
+                                className="sandbox-terminal-item-left"
+                                style={{
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "6px",
+                                }}
+                              >
                                 <input
                                   type="checkbox"
                                   checked={isActive}
-                                  onChange={() => handleToggleTunnelProfile(t.id)}
+                                  onChange={() =>
+                                    handleToggleTunnelProfile(t.id)
+                                  }
                                   onClick={(e) => e.stopPropagation()}
-                                  style={{ width: "12px", height: "12px", cursor: "pointer" }}
+                                  style={{
+                                    width: "12px",
+                                    height: "12px",
+                                    cursor: "pointer",
+                                  }}
                                 />
-                                <span className="sandbox-terminal-name" style={{ fontSize: "11px", fontWeight: isActive ? "bold" : "normal" }}>
+                                <span
+                                  className="sandbox-terminal-name"
+                                  style={{
+                                    fontSize: "11px",
+                                    fontWeight: isActive ? "bold" : "normal",
+                                  }}
+                                >
                                   {t.name}
                                 </span>
                               </div>
@@ -1235,8 +1530,17 @@ export default function TerminalPanel({
                         </div>
                       );
                     })}
-                  {tunnels.filter((t) => t.project_id === activeProject?.id).length === 0 && (
-                    <div style={{ padding: "8px", fontSize: "10px", color: "var(--text-muted)", fontStyle: "italic", textAlign: "center" }}>
+                  {tunnels.filter((t) => t.project_id === activeProject?.id)
+                    .length === 0 && (
+                    <div
+                      style={{
+                        padding: "8px",
+                        fontSize: "10px",
+                        color: "var(--text-muted)",
+                        fontStyle: "italic",
+                        textAlign: "center",
+                      }}
+                    >
                       Chưa có Tunnel. Nhấp "+" để thêm!
                     </div>
                   )}
@@ -1246,18 +1550,32 @@ export default function TerminalPanel({
 
             <div className="sandbox-sidebar-footer">
               <div className="sandbox-status-row">
-                <span className="sandbox-status-label">{viewMode === "tunnel" ? "Mode" : "Shell"}</span>
-                <span className={`sandbox-status-value ${viewMode === "terminal" ? activeStatus : "connected"}`}>
-                  {viewMode === "tunnel" 
-                    ? cloudflareMode.toUpperCase() 
-                    : (activeStatus === "connected" ? "Active" : (activeStatus === "connecting" ? "Spawning..." : (activeStatus === "error" ? "Error" : "Off")))}
+                <span className="sandbox-status-label">
+                  {viewMode === "tunnel" ? "Mode" : "Shell"}
+                </span>
+                <span
+                  className={`sandbox-status-value ${viewMode === "terminal" ? activeStatus : "connected"}`}
+                >
+                  {viewMode === "tunnel"
+                    ? cloudflareMode.toUpperCase()
+                    : activeStatus === "connected"
+                      ? "Active"
+                      : activeStatus === "connecting"
+                        ? "Spawning..."
+                        : activeStatus === "error"
+                          ? "Error"
+                          : "Off"}
                 </span>
               </div>
               <div className="sandbox-status-row">
-                <span className="sandbox-status-label">{viewMode === "tunnel" ? "Active Tunnels" : "PID"}</span>
+                <span className="sandbox-status-label">
+                  {viewMode === "tunnel" ? "Active Tunnels" : "PID"}
+                </span>
                 <span className="sandbox-status-value mono">
-                  {viewMode === "tunnel" 
-                    ? tunnels.filter((t) => t.project_id === activeProject?.id && t.active).length 
+                  {viewMode === "tunnel"
+                    ? tunnels.filter(
+                        (t) => t.project_id === activeProject?.id && t.active,
+                      ).length
                     : "\u2014"}
                 </span>
               </div>
@@ -1267,7 +1585,9 @@ export default function TerminalPanel({
 
         {viewMode === "log" && (
           <div style={{ flex: 1, height: "100%", display: "flex" }}>
-            <LogViewer logs={activeProject ? (projectLogs?.[activeProject.id] || []) : []} />
+            <LogViewer
+              logs={activeProject ? projectLogs?.[activeProject.id] || [] : []}
+            />
           </div>
         )}
         {viewMode === "post" && (

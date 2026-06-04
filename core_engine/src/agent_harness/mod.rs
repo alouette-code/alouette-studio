@@ -47,6 +47,38 @@ pub struct AgentLoopIteration {
 
 // (CompletionPhase removed — simplified loop: stops when AI returns plain text with no tool calls)
 
+/// Structured response from LLM — preserves native tool_calls to avoid text parsing
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmResponse {
+    pub text: Option<String>,
+    pub tool_calls: Vec<parser::ToolCall>,
+    pub raw_text: String,
+}
+
+impl LlmResponse {
+    /// Create from a plain text response (backward compat / fallback)
+    pub fn from_text(text: String) -> Self {
+        Self {
+            text: Some(text.clone()),
+            tool_calls: vec![],
+            raw_text: text,
+        }
+    }
+
+    /// Create from parsed tool calls and optional text
+    pub fn from_parsed(
+        text: Option<String>,
+        tool_calls: Vec<parser::ToolCall>,
+        raw_text: String,
+    ) -> Self {
+        Self {
+            text,
+            tool_calls,
+            raw_text,
+        }
+    }
+}
+
 /// Cấu hình cho vòng lặp agent
 #[derive(Debug, Clone)]
 pub struct AgentLoopConfig {
@@ -961,23 +993,52 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             .as_str()
             .ok_or_else(|| "Missing 'query' argument".to_string())?;
 
-        let results = self.memory_manager.search_memories(query);
-        if results.is_empty() {
-            return Ok("No memories found matching query.".to_string());
+        // Use ranked search for better relevance
+        let scored_results = self.memory_manager.search_memories_ranked(query, 0.0);
+        if scored_results.is_empty() {
+            return Ok(format!("No memories found matching '{}'.", query));
         }
 
-        let mut output = format!("Found {} memory results for '{}':\n", results.len(), query);
-        for mem in &results {
+        let total = scored_results.len();
+        // Show top 10 most relevant results
+        let display_limit = 10usize;
+        let shown = scored_results.len().min(display_limit);
+
+        let mut output = format!(
+            "Found {} memories for '{}' (showing top {} by relevance):\n",
+            total, query, shown
+        );
+        for (i, (mem, score)) in scored_results.iter().take(display_limit).enumerate() {
+            let relevance = if *score >= 5.0 {
+                "HIGH"
+            } else if *score >= 2.0 {
+                "MEDIUM"
+            } else {
+                "LOW"
+            };
             output.push_str(&format!(
-                "\n---\n**{}** ({:?})\n",
-                mem.name, mem.metadata.mem_type
+                "\n{}. **{}** [{:?}] [relevance: {:.1} — {}]\n   _{}\n",
+                i + 1,
+                mem.name,
+                mem.metadata.mem_type,
+                score,
+                relevance,
+                mem.description
             ));
-            output.push_str(&format!("_{}_\n", mem.description));
+            // Show first 3 lines of content
+            let preview: String = mem.content.lines().take(3).collect::<Vec<_>>().join("\n");
+            if !preview.is_empty() {
+                output.push_str(&format!("   {}\n", preview));
+            }
+        }
+
+        if total > display_limit {
             output.push_str(&format!(
-                "{}\n",
-                mem.content.lines().take(3).collect::<Vec<_>>().join("\n")
+                "\n... and {} more results. Refine your query for precision.\n",
+                total - display_limit
             ));
         }
+
         Ok(output)
     }
 
@@ -1227,7 +1288,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     /// # Arguments
     /// * `session` - Session chứa history, state, config
     /// * `system_prompt` - System prompt
-    /// * `llm_call_fn` - Closure gọi LLM API, nhận (system_prompt, history) → trả về string
+    /// * `llm_call_fn` - Closure gọi LLM API, nhận (system_prompt, history) → trả về LlmResponse
     ///
     /// # Returns
     /// `TickResult` cho biết bước tiếp theo là gì
@@ -1239,7 +1300,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     ) -> TickResult
     where
         F1: Fn(String, Vec<ChatMessage>) -> Fut,
-        Fut: Future<Output = Result<String, String>>,
+        Fut: Future<Output = Result<LlmResponse, String>>,
     {
         // Kiểm tra max iterations
         if session.iteration_count >= session.max_iterations {
@@ -1269,7 +1330,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                 let max_msgs = if session.history.len() > 80 { 40 } else { 80 };
                 Self::compact_history(&mut session.history, max_msgs);
 
-                // Gọi LLM
+                // Gọi LLM — nhận LlmResponse có cấu trúc (native tool_calls)
                 let iteration = session.iteration_count + 1;
                 let llm_reply =
                     match llm_call_fn(system_prompt.to_string(), session.history.clone()).await {
@@ -1285,16 +1346,19 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
                 session.iteration_count = iteration;
 
-                // Parse response
-                let parsed = parser::parse_model_response(&llm_reply);
-
-                // Lấy tất cả tool calls
-                let all_tools = if !parsed.tool_calls.is_empty() {
-                    parsed.tool_calls.clone()
-                } else if let Some(ref tc) = parsed.tool_call {
-                    vec![tc.clone()]
+                // Use native tool_calls from LlmResponse directly
+                // Fallback: parse raw_text only if no native tool_calls
+                let all_tools = if !llm_reply.tool_calls.is_empty() {
+                    llm_reply.tool_calls.clone()
                 } else {
-                    vec![]
+                    let parsed = parser::parse_model_response(&llm_reply.raw_text);
+                    if !parsed.tool_calls.is_empty() {
+                        parsed.tool_calls.clone()
+                    } else if let Some(ref tc) = parsed.tool_call {
+                        vec![tc.clone()]
+                    } else {
+                        vec![]
+                    }
                 };
 
                 if !all_tools.is_empty() {
@@ -1328,9 +1392,9 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                         Box::pin(self.tick(session, system_prompt, llm_call_fn)).await
                     }
                 } else {
-                    // Text response — hoàn thành
-                    let text = parsed
-                        .plain_text
+                    // Text response — hoan thanh
+                    let text = llm_reply
+                        .text
                         .unwrap_or_else(|| "Task completed.".to_string());
 
                     session.history.push(ChatMessage {

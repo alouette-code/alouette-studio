@@ -300,7 +300,7 @@ pub async fn agent_send_message(
                         temperature,
                         top_p,
                         &sys_prompt,
-                        &history
+                        &history,
                     )
                     .await
                 }
@@ -461,7 +461,7 @@ pub async fn agent_approve_tool(
                     temperature,
                     top_p,
                     &sys_prompt,
-                    &history
+                    &history,
                 )
                 .await
             }
@@ -606,7 +606,7 @@ pub async fn agent_approve_tool(
                         temperature,
                         top_p,
                         &sys_prompt,
-                        &history
+                        &history,
                     )
                     .await
                 }
@@ -1143,4 +1143,3 @@ fn load_custom_ai_config() -> CustomAiConfig {
         providers,
     }
 }
-

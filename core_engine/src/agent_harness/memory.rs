@@ -131,13 +131,23 @@ impl MemoryManager {
     }
 
     /// Save a new memory entry or update an existing one
-    pub fn save_memory(&self, name: &str, description: &str, mem_type: MemoryType, content: &str) -> Result<PathBuf, String> {
-        let slug_name = name.to_lowercase().replace(' ', "-").replace(|c: char| !c.is_alphanumeric() && c != '-', "");
+    pub fn save_memory(
+        &self,
+        name: &str,
+        description: &str,
+        mem_type: MemoryType,
+        content: &str,
+    ) -> Result<PathBuf, String> {
+        let slug_name = name
+            .to_lowercase()
+            .replace(' ', "-")
+            .replace(|c: char| !c.is_alphanumeric() && c != '-', "");
         let file_path = self.memory_dir.join(format!("{}.md", slug_name));
 
         let mem_content = format!(
             "---\nname: {}\ndescription: {}\nmetadata:\n  type: {}\n---\n\n{}",
-            name, description,
+            name,
+            description,
             match mem_type {
                 MemoryType::User => "user",
                 MemoryType::Feedback => "feedback",
@@ -172,7 +182,12 @@ impl MemoryManager {
         // Group by similar descriptions and merge
         let mut seen: HashMap<String, Vec<MemoryEntry>> = HashMap::new();
         for mem in &memories {
-            let key = mem.description.split('.').next().unwrap_or(&mem.description).to_string();
+            let key = mem
+                .description
+                .split('.')
+                .next()
+                .unwrap_or(&mem.description)
+                .to_string();
             seen.entry(key).or_default().push(mem.clone());
         }
 
@@ -182,7 +197,8 @@ impl MemoryManager {
                 let keep = &group[0];
                 for duplicate in &group[1..] {
                     // Append content
-                    let mut merged_content = fs::read_to_string(&keep.file_path).unwrap_or_default();
+                    let mut merged_content =
+                        fs::read_to_string(&keep.file_path).unwrap_or_default();
                     let dup_content = fs::read_to_string(&duplicate.file_path).unwrap_or_default();
                     if !dup_content.is_empty() {
                         merged_content.push_str("\n\n---\n\n");
@@ -225,18 +241,102 @@ impl MemoryManager {
     }
 
     /// Search memories by keyword across name, description, and content
+    /// Uses relevance scoring: name matches > description matches > content matches
     pub fn search_memories(&self, query: &str) -> Vec<MemoryEntry> {
+        self.search_memories_ranked(query, 0.0)
+            .into_iter()
+            .map(|(entry, _score)| entry)
+            .collect()
+    }
+
+    /// Search memories with relevance scoring (TF-IDF inspired).
+    /// Returns entries sorted by relevance score descending.
+    /// `min_score` filters out entries below threshold (0.0 = include all matches).
+    pub fn search_memories_ranked(&self, query: &str, min_score: f64) -> Vec<(MemoryEntry, f64)> {
         let memories = self.load_all_memories();
         let query_lower = query.to_lowercase();
 
-        memories
+        // Split query into tokens for word-level matching
+        let query_tokens: Vec<&str> = query_lower.split_whitespace().collect();
+
+        let mut scored: Vec<(MemoryEntry, f64)> = memories
             .into_iter()
-            .filter(|m| {
-                m.name.to_lowercase().contains(&query_lower)
-                    || m.description.to_lowercase().contains(&query_lower)
-                    || m.content.to_lowercase().contains(&query_lower)
+            .filter_map(|m| {
+                let score = Self::calculate_relevance(&m, &query_lower, &query_tokens);
+                if score > min_score {
+                    Some((m, score))
+                } else {
+                    None
+                }
             })
-            .collect()
+            .collect();
+
+        // Sort by score descending, then by name for determinism
+        scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.name.cmp(&b.0.name))
+        });
+
+        scored
+    }
+
+    /// Calculate relevance score for a memory entry against a query.
+    /// Scoring:
+    /// - Exact phrase match in name: +3.0 per occurrence
+    /// - Token match in name: +2.0 per token
+    /// - Exact phrase match in description: +2.0
+    /// - Token match in description: +1.0 per token
+    /// - Exact phrase match in content: +1.0
+    /// - Token match in content: +0.3 per token (capped at 3.0)
+    /// - Recent/project type bonus: +0.5
+    fn calculate_relevance(entry: &MemoryEntry, query_lower: &str, query_tokens: &[&str]) -> f64 {
+        let mut score: f64 = 0.0;
+
+        let name_lower = entry.name.to_lowercase();
+        let desc_lower = entry.description.to_lowercase();
+        let content_lower = entry.content.to_lowercase();
+
+        // ── Name field (heaviest weight) ──
+        if name_lower.contains(query_lower) {
+            score += 3.0;
+        }
+        for token in query_tokens {
+            if !token.is_empty() && name_lower.contains(token) {
+                score += 2.0;
+            }
+        }
+
+        // ── Description field ──
+        if desc_lower.contains(query_lower) {
+            score += 2.0;
+        }
+        for token in query_tokens {
+            if !token.is_empty() && desc_lower.contains(token) {
+                score += 1.0;
+            }
+        }
+
+        // ── Content field (lightest weight) ──
+        if content_lower.contains(query_lower) {
+            score += 1.0;
+        }
+        let mut token_matches: f64 = 0.0;
+        for token in query_tokens {
+            if !token.is_empty() && content_lower.contains(token) {
+                token_matches += 0.3;
+            }
+        }
+        score += token_matches.min(3.0); // Cap content token score
+
+        // ── Type bonus: recent user/feedback memories are more relevant ──
+        match entry.metadata.mem_type {
+            MemoryType::User | MemoryType::Feedback => score += 0.5,
+            MemoryType::Project => score += 0.3,
+            MemoryType::Reference => {} // No bonus
+        }
+
+        score
     }
 }
 

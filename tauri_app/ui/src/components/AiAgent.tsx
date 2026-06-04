@@ -32,12 +32,23 @@ import { listen } from "@tauri-apps/api/event";
 
 interface ChatItem {
   id: string;
-  type: "text" | "tool_request" | "agent_activity" | "alouette_error" | "skill_call";
+  type:
+    | "text"
+    | "tool_request"
+    | "agent_activity"
+    | "alouette_error"
+    | "skill_call";
   sender: "user" | "agent";
   text?: string;
   toolName?: string;
   args?: string;
-  toolStatus?: "waiting" | "approved" | "rejected" | "running" | "success" | "failed";
+  toolStatus?:
+    | "waiting"
+    | "approved"
+    | "rejected"
+    | "running"
+    | "success"
+    | "failed";
   toolResult?: string;
   timestamp: string;
   projectName?: string;
@@ -77,7 +88,9 @@ export default function AiAgent({
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("Agent Active Session #1");
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>({});
+  const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
+    {},
+  );
 
   const handleCopy = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -132,6 +145,10 @@ export default function AiAgent({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  // Track active session to scope iteration events correctly
+  const activeSessionId = useRef<string>("");
+  // Track processed iteration IDs to prevent duplicates from event race
+  const processedIters = useRef<Set<string>>(new Set());
 
   // Dynamically load active models from localStorage
   useEffect(() => {
@@ -234,23 +251,35 @@ export default function AiAgent({
     const setupIterationListener = async () => {
       unlistenFn = await listen("agent-iteration", (event: any) => {
         const data = event.payload;
+
+        // Skip if iteration IDs already processed (prevent duplicates)
+        const iterKey = `iter_${data.iteration}`;
+        if (processedIters.current.has(iterKey)) return;
+        processedIters.current.add(iterKey);
+
         setActiveThought(data.thought || null);
         setLoopIterations(data.iteration || 0);
 
         if (data.tool_name) {
-          const status = data.tool_result ? (data.tool_success ? "success" : "failed") : "running";
+          const status = data.tool_result
+            ? data.tool_success
+              ? "success"
+              : "failed"
+            : "running";
           const newSkill: ChatItem = {
-            id: `iter_${data.iteration}`,
+            id: iterKey,
             type: "skill_call",
             sender: "agent",
             toolName: data.tool_name,
             args: data.tool_args || "",
             toolStatus: status,
             toolResult: data.tool_result || undefined,
-            timestamp: data.timestamp || new Date().toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
+            timestamp:
+              data.timestamp ||
+              new Date().toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
           };
 
           setChatHistory((prev) => {
@@ -353,6 +382,10 @@ export default function AiAgent({
     setChatHistory((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
+    // Reset iteration tracking for new message
+    processedIters.current = new Set();
+    setLoopIterations(0);
+
     // Map custom model ID to its actual name before sending to backend
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {
@@ -427,7 +460,9 @@ export default function AiAgent({
                     timestamp: iter.timestamp,
                   };
 
-                  const idx = nextHistory.findIndex((item) => item.id === skillItem.id);
+                  const idx = nextHistory.findIndex(
+                    (item) => item.id === skillItem.id,
+                  );
                   if (idx >= 0) {
                     nextHistory[idx] = skillItem;
                   } else {
@@ -617,7 +652,7 @@ export default function AiAgent({
               };
             }
             return item;
-          })
+          }),
         );
       }
 
@@ -644,7 +679,9 @@ export default function AiAgent({
                 timestamp: iter.timestamp,
               };
 
-              const idx = nextHistory.findIndex((item) => item.id === skillItem.id);
+              const idx = nextHistory.findIndex(
+                (item) => item.id === skillItem.id,
+              );
               if (idx >= 0) {
                 nextHistory[idx] = skillItem;
               } else {
@@ -1097,7 +1134,7 @@ export default function AiAgent({
 
           if (item.type === "skill_call") {
             const isExpanded = !!expandedSkills[item.id];
-            
+
             const getFriendlyToolName = (name: string) => {
               switch (name) {
                 case "read_file":
@@ -1127,7 +1164,7 @@ export default function AiAgent({
             };
 
             const friendlyName = getFriendlyToolName(item.toolName || "");
-            
+
             return (
               <div
                 key={item.id}
@@ -1155,20 +1192,53 @@ export default function AiAgent({
                     padding: "8px 12px",
                     cursor: "pointer",
                     userSelect: "none",
-                    backgroundColor: isExpanded ? "rgba(255, 255, 255, 0.02)" : "transparent",
+                    backgroundColor: isExpanded
+                      ? "rgba(255, 255, 255, 0.02)"
+                      : "transparent",
                     transition: "background-color 0.2s",
                   }}
                 >
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                    {isExpanded ? <ChevronDown size={12} style={{ color: "var(--text-secondary)" }} /> : <ChevronRight size={12} style={{ color: "var(--text-secondary)" }} />}
-                    <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown
+                        size={12}
+                        style={{ color: "var(--text-secondary)" }}
+                      />
+                    ) : (
+                      <ChevronRight
+                        size={12}
+                        style={{ color: "var(--text-secondary)" }}
+                      />
+                    )}
+                    <span
+                      style={{ fontWeight: 600, color: "var(--text-primary)" }}
+                    >
                       {friendlyName}
                     </span>
                   </div>
 
-                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}
+                  >
                     {item.toolStatus === "running" && (
-                      <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "4px" }}>
+                      <span
+                        style={{
+                          color: "var(--text-secondary)",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}
+                      >
                         <RefreshCw size={10} className="animate-spin" />
                         <span>Đang chạy...</span>
                       </span>
@@ -1179,11 +1249,19 @@ export default function AiAgent({
                       </span>
                     )}
                     {item.toolStatus === "failed" && (
-                      <span style={{ color: "var(--text-muted)", fontWeight: 500 }}>
+                      <span
+                        style={{ color: "var(--text-muted)", fontWeight: 500 }}
+                      >
                         ✕ Thất bại
                       </span>
                     )}
-                    <span style={{ fontSize: "9px", color: "var(--text-muted)", marginLeft: "4px" }}>
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        color: "var(--text-muted)",
+                        marginLeft: "4px",
+                      }}
+                    >
                       {item.timestamp}
                     </span>
                   </div>
@@ -1203,7 +1281,15 @@ export default function AiAgent({
                   >
                     {/* Arguments */}
                     <div>
-                      <div style={{ fontSize: "9px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: "4px" }}>
+                      <div
+                        style={{
+                          fontSize: "9px",
+                          color: "var(--text-muted)",
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                          marginBottom: "4px",
+                        }}
+                      >
                         Tham số đầu vào:
                       </div>
                       <pre
@@ -1226,7 +1312,15 @@ export default function AiAgent({
                     {/* Result */}
                     {item.toolResult && (
                       <div>
-                        <div style={{ fontSize: "9px", color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: "4px" }}>
+                        <div
+                          style={{
+                            fontSize: "9px",
+                            color: "var(--text-muted)",
+                            textTransform: "uppercase",
+                            fontWeight: 700,
+                            marginBottom: "4px",
+                          }}
+                        >
                           Kết quả trả về:
                         </div>
                         <pre
@@ -1459,7 +1553,14 @@ export default function AiAgent({
         {isTyping && (
           <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
             {activeThought && (
-              <div style={{ fontSize: "10px", color: "var(--text-secondary)", fontStyle: "italic", padding: "2px 8px" }}>
+              <div
+                style={{
+                  fontSize: "10px",
+                  color: "var(--text-secondary)",
+                  fontStyle: "italic",
+                  padding: "2px 8px",
+                }}
+              >
                 💭 {activeThought}
               </div>
             )}
@@ -1508,7 +1609,12 @@ export default function AiAgent({
                   color: "var(--text-muted)",
                 }}
               >
-                <span>Agent đang xử lý... {loopIterations > 0 ? `(${loopIterations}/${totalIterations})` : ""}</span>
+                <span>
+                  Agent đang xử lý...{" "}
+                  {loopIterations > 0
+                    ? `(${loopIterations}/${totalIterations})`
+                    : ""}
+                </span>
               </div>
             )}
           </div>
