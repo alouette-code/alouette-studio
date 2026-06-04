@@ -617,9 +617,25 @@ export default function AiAgent({
     let unlistenText: any;
     let unlistenThought: any;
     let unlistenThoughtFinal: any;
+    let unlistenStreamComplete: any;
+
+    // Watchdog timer: nếu không có event nào trong 120s, tự động reset isTyping
+    let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
+    const resetWatchdog = () => {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
+      watchdogTimer = setTimeout(() => {
+        console.warn(
+          "[ALOUETTE UI WATCHDOG] Không nhận được event stream trong 120s, tự động reset.",
+        );
+        setIsTyping(false);
+        setActiveThought(null);
+        activeStreamMessageIdRef.current = null;
+      }, 120_000);
+    };
 
     const setupStreamListeners = async () => {
       unlistenText = await listen("agent-text-chunk", (event: any) => {
+        resetWatchdog();
         const chunk = event.payload;
         const streamId = activeStreamMessageIdRef.current;
         if (!streamId) {
@@ -627,29 +643,50 @@ export default function AiAgent({
         } else {
           setChatHistory((prev) =>
             prev.map((msg) =>
-              msg.id === streamId ? { ...msg, text: (msg.text || "") + chunk } : msg
-            )
+              msg.id === streamId
+                ? { ...msg, text: (msg.text || "") + chunk }
+                : msg,
+            ),
           );
         }
       });
 
       unlistenThought = await listen("agent-thought-chunk", (event: any) => {
+        resetWatchdog();
         const chunk = event.payload;
         setActiveThought((prev) => (prev || "") + chunk);
       });
 
-      unlistenThoughtFinal = await listen("agent-thought-final", (event: any) => {
-        const finalThought = event.payload;
-        setActiveThought(finalThought);
-      });
+      unlistenThoughtFinal = await listen(
+        "agent-thought-final",
+        (event: any) => {
+          resetWatchdog();
+          const finalThought = event.payload;
+          setActiveThought(finalThought);
+        },
+      );
+
+      unlistenStreamComplete = await listen(
+        "agent-stream-complete",
+        (event: any) => {
+          console.log(
+            "[ALOUETTE UI] Received stream-complete event:",
+            event.payload,
+          );
+          if (watchdogTimer) clearTimeout(watchdogTimer);
+          setIsTyping(false);
+        },
+      );
     };
 
     setupStreamListeners();
 
     return () => {
+      if (watchdogTimer) clearTimeout(watchdogTimer);
       if (unlistenText) unlistenText();
       if (unlistenThought) unlistenThought();
       if (unlistenThoughtFinal) unlistenThoughtFinal();
+      if (unlistenStreamComplete) unlistenStreamComplete();
     };
   }, []);
 
@@ -894,6 +931,16 @@ export default function AiAgent({
     document.addEventListener("mousedown", handleOutsideClick);
     return () => document.removeEventListener("mousedown", handleOutsideClick);
   }, []);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && isTyping) {
+        handleCancel();
+      }
+    };
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [isTyping]);
 
   const triggerSendMessage = async (messageText: string) => {
     if (!messageText.trim()) return;
@@ -1195,7 +1242,7 @@ export default function AiAgent({
 
       setIsTyping(false);
       setActiveThought(null);
-      removeStreamPlaceholder(streamId);
+      removeStreamPlaceholder();
 
       // Batch response: cập nhật tool result và hiển thị tools còn lại
       if (response.reply_type === "tool_batch_request" && response.tools) {
@@ -1398,6 +1445,9 @@ export default function AiAgent({
   };
 
   const handleCancel = async () => {
+    setIsTyping(false);
+    setActiveThought(null);
+    activeStreamMessageIdRef.current = null;
     try {
       await invoke("agent_cancel");
     } catch (err: any) {
@@ -1409,6 +1459,9 @@ export default function AiAgent({
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend(e);
+    } else if (e.key === "Escape" && isTyping) {
+      e.preventDefault();
+      handleCancel();
     }
   };
 
@@ -2613,12 +2666,17 @@ export default function AiAgent({
             <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
               <button
                 type="button"
-                onClick={() => setThinkingMode((prev) => (prev === "high" ? "low" : "high"))}
+                onClick={() =>
+                  setThinkingMode((prev) => (prev === "high" ? "low" : "high"))
+                }
                 style={{
                   background: "none",
                   border: "none",
                   padding: 0,
-                  color: thinkingMode === "high" ? "#a855f7" : "rgba(255, 255, 255, 0.35)",
+                  color:
+                    thinkingMode === "high"
+                      ? "#a855f7"
+                      : "rgba(255, 255, 255, 0.35)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -2626,12 +2684,22 @@ export default function AiAgent({
                   transition: "color 0.2s",
                 }}
                 onMouseEnter={(e) =>
-                  (e.currentTarget.style.color = thinkingMode === "high" ? "#c084fc" : "rgba(255, 255, 255, 0.75)")
+                  (e.currentTarget.style.color =
+                    thinkingMode === "high"
+                      ? "#c084fc"
+                      : "rgba(255, 255, 255, 0.75)")
                 }
                 onMouseLeave={(e) =>
-                  (e.currentTarget.style.color = thinkingMode === "high" ? "#a855f7" : "rgba(255, 255, 255, 0.35)")
+                  (e.currentTarget.style.color =
+                    thinkingMode === "high"
+                      ? "#a855f7"
+                      : "rgba(255, 255, 255, 0.35)")
                 }
-                title={thinkingMode === "high" ? "Thinking Mode: High (Force reasoning)" : "Thinking Mode: Low (Automatic)"}
+                title={
+                  thinkingMode === "high"
+                    ? "Thinking Mode: High (Force reasoning)"
+                    : "Thinking Mode: Low (Automatic)"
+                }
               >
                 <Brain size={13} />
               </button>

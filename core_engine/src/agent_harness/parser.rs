@@ -78,8 +78,19 @@ pub fn parse_model_response(response: &str) -> ParsedResponse {
         thought = Some(t.trim().to_string());
     }
 
+    // Strip thought blocks before parsing tool calls to prevent executing reasoning
+    let mut content_for_tools = response.to_string();
+    if let Some(start_idx) = response.find("<thought>") {
+        if let Some(end_idx) = response[start_idx..].find("</thought>") {
+            let abs_end = start_idx + end_idx + "</thought>".len();
+            content_for_tools = format!("{}{}", &response[..start_idx], &response[abs_end..]);
+        } else {
+            content_for_tools = response[..start_idx].to_string();
+        }
+    }
+
     // ─── STRATEGY 1: OpenAI-style native tool_calls array ─────────
-    let tc = parse_openai_tool_calls(response);
+    let tc = parse_openai_tool_calls(&content_for_tools);
     if !tc.is_empty() {
         diagnostics.push(format!("Parsed {} OpenAI-style tool calls", tc.len()));
         tool_calls = tc;
@@ -87,7 +98,7 @@ pub fn parse_model_response(response: &str) -> ParsedResponse {
 
     // ─── STRATEGY 2: XML <call:tool_name> format ─────────────────
     if tool_calls.is_empty() {
-        let xml_tc = parse_xml_call_tags(response);
+        let xml_tc = parse_xml_call_tags(&content_for_tools);
         if !xml_tc.is_empty() {
             diagnostics.push(format!("Parsed {} XML tool calls", xml_tc.len()));
             tool_calls = xml_tc;
@@ -96,7 +107,7 @@ pub fn parse_model_response(response: &str) -> ParsedResponse {
 
     // ─── STRATEGY 2b: Raw <tool_name> tags (no call: prefix) ────
     if tool_calls.is_empty() {
-        let raw_tc = parse_raw_tool_tags(response);
+        let raw_tc = parse_raw_tool_tags(&content_for_tools);
         if !raw_tc.is_empty() {
             diagnostics.push(format!("Parsed {} raw tool tag calls", raw_tc.len()));
             tool_calls = raw_tc;
@@ -105,7 +116,7 @@ pub fn parse_model_response(response: &str) -> ParsedResponse {
 
     // ─── STRATEGY 3: JSON action block (ReAct/LangChain) ─────────
     if tool_calls.is_empty() {
-        let json_tc = parse_json_action_block(response);
+        let json_tc = parse_json_action_block(&content_for_tools);
         if !json_tc.is_empty() {
             diagnostics.push(format!(
                 "Parsed {} JSON action block tool calls",
@@ -117,7 +128,7 @@ pub fn parse_model_response(response: &str) -> ParsedResponse {
 
     // ─── STRATEGY 4: Isolated JSON object with tool name ─────────
     if tool_calls.is_empty() {
-        let iso_tc = parse_isolated_json_tool(response);
+        let iso_tc = parse_isolated_json_tool(&content_for_tools);
         if !iso_tc.is_empty() {
             diagnostics.push(format!("Parsed {} isolated JSON tool calls", iso_tc.len()));
             tool_calls = iso_tc;

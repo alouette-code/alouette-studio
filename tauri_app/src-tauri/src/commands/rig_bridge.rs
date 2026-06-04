@@ -144,7 +144,11 @@ async fn call_openai_compatible(
     thinking_mode: Option<&str>,
     window: Option<&tauri::WebviewWindow>,
 ) -> Result<LlmResponse, String> {
-    let client = reqwest::Client::new();
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300)) // total request timeout
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
     let base_url = if api_url.is_empty() {
         "https://api.openai.com/v1".to_string()
     } else {
@@ -172,7 +176,13 @@ async fn call_openai_compatible(
         body["tool_choice"] = json!("auto");
     }
 
-    agent_log(window, &format!("[ALOUETTE LLM] Đang gửi HTTP Request tới: {}/chat/completions (model = '{}')", base_url, model));
+    agent_log(
+        window,
+        &format!(
+            "[ALOUETTE LLM] Đang gửi HTTP Request tới: {}/chat/completions (model = '{}')",
+            base_url, model
+        ),
+    );
 
     let response = client
         .post(format!("{}/chat/completions", base_url))
@@ -182,18 +192,24 @@ async fn call_openai_compatible(
         .send()
         .await
         .map_err(|e| {
-            agent_log(window, &format!("[ALOUETTE LLM ERROR] HTTP Request failed: {}", e));
+            agent_log(
+                window,
+                &format!("[ALOUETTE LLM ERROR] HTTP Request failed: {}", e),
+            );
             format!("HTTP request failed: {}", e)
         })?;
 
     let status = response.status();
     if !status.is_success() {
         let response_text = response.text().await.unwrap_or_default();
-        agent_log(window, &format!(
-            "[ALOUETTE LLM ERROR] API trả về lỗi (status {}): {}",
-            status,
-            &response_text[..response_text.len().min(500)]
-        ));
+        agent_log(
+            window,
+            &format!(
+                "[ALOUETTE LLM ERROR] API trả về lỗi (status {}): {}",
+                status,
+                &response_text[..response_text.len().min(500)]
+            ),
+        );
         return Err(format!(
             "API error ({}): {}",
             status,
@@ -201,7 +217,10 @@ async fn call_openai_compatible(
         ));
     }
 
-    agent_log(window, &format!("[ALOUETTE LLM] Nhận phản hồi thành công từ: {}", base_url));
+    agent_log(
+        window,
+        &format!("[ALOUETTE LLM] Nhận phản hồi thành công từ: {}", base_url),
+    );
 
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
@@ -217,17 +236,63 @@ async fn call_openai_compatible(
     let mut current_text_chunk = String::new();
     let mut last_emit_time = std::time::Instant::now();
 
-    while let Some(chunk_result) = stream.next().await {
-        if stream_ended {
+    // Total stream duration safeguard (5 minutes max for entire streaming)
+    let stream_start = std::time::Instant::now();
+    const MAX_STREAM_DURATION: std::time::Duration = std::time::Duration::from_secs(300);
+
+    let mut stream_error: Option<String> = None;
+
+    loop {
+        if stream_ended || stream_error.is_some() {
             break;
         }
-        let chunk = chunk_result.map_err(|e| {
-            agent_log(window, &format!("[ALOUETTE LLM ERROR] Stream chunk error: {}", e));
-            format!("Stream error: {}", e)
-        })?;
+
+        // Check total stream duration
+        if stream_start.elapsed() > MAX_STREAM_DURATION {
+            agent_log(
+                window,
+                "[ALOUETTE LLM WARNING] Total stream duration exceeded 5 minutes, ending stream.",
+            );
+            stream_ended = true;
+            break;
+        }
+
+        // ── Đọc chunk với timeout ──
+        let chunk_opt =
+            match tokio::time::timeout(std::time::Duration::from_secs(30), stream.next()).await {
+                Ok(Some(chunk_res)) => match chunk_res {
+                    Ok(bytes) => Some(bytes),
+                    Err(e) => {
+                        // ⚠️ KHÔNG dùng ? ở đây! Log lỗi và vẫn trả về dữ liệu đã accumulate
+                        let err_msg = format!("Stream chunk error: {}", e);
+                        agent_log(window, &format!("[ALOUETTE LLM ERROR] {}", err_msg));
+                        stream_error = Some(err_msg);
+                        None
+                    }
+                },
+                Ok(None) => {
+                    agent_log(window, "[ALOUETTE LLM DEBUG] Stream ended naturally (EOF).");
+                    None
+                }
+                Err(_) => {
+                    agent_log(
+                        window,
+                        "[ALOUETTE LLM WARNING] Stream read timeout (30 seconds), ending stream.",
+                    );
+                    None
+                }
+            };
+
+        let chunk = match chunk_opt {
+            Some(bytes) => bytes,
+            None => {
+                stream_ended = true;
+                break;
+            }
+        };
         buffer.extend_from_slice(&chunk);
 
-        // Process lines in buffer
+        // ── Xử lý các dòng trong buffer ──
         while let Some(newline_idx) = buffer.iter().position(|&b| b == b'\n') {
             let line_bytes = buffer.drain(..=newline_idx).collect::<Vec<u8>>();
             let line = String::from_utf8_lossy(&line_bytes);
@@ -246,10 +311,14 @@ async fn call_openai_compatible(
                             let delta = &choices[0]["delta"];
 
                             // 1. Check for thinking content
-                            if let Some(reasoning) = delta.get("reasoning_content").and_then(|r| r.as_str()) {
+                            if let Some(reasoning) =
+                                delta.get("reasoning_content").and_then(|r| r.as_str())
+                            {
                                 current_thought_chunk.push_str(reasoning);
                                 accumulated_thought.push_str(reasoning);
-                            } else if let Some(reasoning) = delta.get("reasoning").and_then(|r| r.as_str()) {
+                            } else if let Some(reasoning) =
+                                delta.get("reasoning").and_then(|r| r.as_str())
+                            {
                                 current_thought_chunk.push_str(reasoning);
                                 accumulated_thought.push_str(reasoning);
                             }
@@ -261,7 +330,9 @@ async fn call_openai_compatible(
                             }
 
                             // 3. Check for tool calls
-                            if let Some(tc_array) = delta.get("tool_calls").and_then(|tc| tc.as_array()) {
+                            if let Some(tc_array) =
+                                delta.get("tool_calls").and_then(|tc| tc.as_array())
+                            {
                                 for tc in tc_array {
                                     if let Some(idx) = tc.get("index").and_then(|i| i.as_u64()) {
                                         let idx = idx as usize;
@@ -272,11 +343,17 @@ async fn call_openai_compatible(
                                         if let Some(id) = tc.get("id").and_then(|i| i.as_str()) {
                                             stc.id = id.to_string();
                                         }
-                                        if let Some(func) = tc.get("function").and_then(|f| f.as_object()) {
-                                            if let Some(name) = func.get("name").and_then(|n| n.as_str()) {
+                                        if let Some(func) =
+                                            tc.get("function").and_then(|f| f.as_object())
+                                        {
+                                            if let Some(name) =
+                                                func.get("name").and_then(|n| n.as_str())
+                                            {
                                                 stc.name.push_str(name);
                                             }
-                                            if let Some(args) = func.get("arguments").and_then(|a| a.as_str()) {
+                                            if let Some(args) =
+                                                func.get("arguments").and_then(|a| a.as_str())
+                                            {
                                                 stc.arguments.push_str(args);
                                             }
                                         }
@@ -289,7 +366,7 @@ async fn call_openai_compatible(
             }
         }
 
-        if stream_ended {
+        if stream_ended || stream_error.is_some() {
             break;
         }
 
@@ -311,7 +388,78 @@ async fn call_openai_compatible(
         }
     }
 
-    // Flush any remaining buffers
+    // ── Xử lý dữ liệu còn sót trong buffer ──
+    if !buffer.is_empty() {
+        let remaining = String::from_utf8_lossy(&buffer);
+        let trimmed = remaining.trim();
+        if trimmed.starts_with("data: ") {
+            let data = &trimmed["data: ".len()..];
+            if data != "[DONE]" {
+                agent_log(
+                    window,
+                    "[ALOUETTE LLM DEBUG] Processing remaining buffer data as final line.",
+                );
+                raw_response_chunks.push(data.to_string());
+                if let Ok(val) = serde_json::from_str::<Value>(data) {
+                    if let Some(choices) = val["choices"].as_array() {
+                        if !choices.is_empty() {
+                            let delta = &choices[0]["delta"];
+
+                            if let Some(reasoning) =
+                                delta.get("reasoning_content").and_then(|r| r.as_str())
+                            {
+                                current_thought_chunk.push_str(reasoning);
+                                accumulated_thought.push_str(reasoning);
+                            } else if let Some(reasoning) =
+                                delta.get("reasoning").and_then(|r| r.as_str())
+                            {
+                                current_thought_chunk.push_str(reasoning);
+                                accumulated_thought.push_str(reasoning);
+                            }
+
+                            if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                current_text_chunk.push_str(content);
+                                accumulated_text.push_str(content);
+                            }
+
+                            if let Some(tc_array) =
+                                delta.get("tool_calls").and_then(|tc| tc.as_array())
+                            {
+                                for tc in tc_array {
+                                    if let Some(idx) = tc.get("index").and_then(|i| i.as_u64()) {
+                                        let idx = idx as usize;
+                                        while streamed_tool_calls.len() <= idx {
+                                            streamed_tool_calls.push(StreamToolCall::default());
+                                        }
+                                        let stc = &mut streamed_tool_calls[idx];
+                                        if let Some(id) = tc.get("id").and_then(|i| i.as_str()) {
+                                            stc.id = id.to_string();
+                                        }
+                                        if let Some(func) =
+                                            tc.get("function").and_then(|f| f.as_object())
+                                        {
+                                            if let Some(name) =
+                                                func.get("name").and_then(|n| n.as_str())
+                                            {
+                                                stc.name.push_str(name);
+                                            }
+                                            if let Some(args) =
+                                                func.get("arguments").and_then(|a| a.as_str())
+                                            {
+                                                stc.arguments.push_str(args);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Flush buffer emit còn lại ──
     if !current_thought_chunk.is_empty() {
         if let Some(w) = window {
             let _ = w.emit("agent-thought-chunk", &current_thought_chunk);
@@ -323,29 +471,68 @@ async fn call_openai_compatible(
         }
     }
 
-    // Reconstruct tool calls
+    // ── Reconstruct tool calls ──
     let mut tool_calls = Vec::new();
     for stc in streamed_tool_calls {
         if stc.name.is_empty() {
             continue;
         }
-        let args_val: Value = serde_json::from_str(&stc.arguments)
-            .unwrap_or(Value::Object(Default::default()));
+        let args_val: Value =
+            serde_json::from_str(&stc.arguments).unwrap_or(Value::Object(Default::default()));
         tool_calls.push(ToolCall {
             name: stc.name,
             arguments: args_val,
             raw_arguments: stc.arguments,
-            call_id: Some(if stc.id.is_empty() { "call_0".to_string() } else { stc.id }),
+            call_id: Some(if stc.id.is_empty() {
+                "call_0".to_string()
+            } else {
+                stc.id
+            }),
         });
     }
 
-    let text = if accumulated_text.is_empty() { None } else { Some(accumulated_text) };
+    let has_text = !accumulated_text.is_empty();
+    let accumulated_text_len = accumulated_text.len();
+    let text = if has_text {
+        Some(accumulated_text)
+    } else {
+        None
+    };
     let raw_text = raw_response_chunks.join("\n");
 
     if !accumulated_thought.is_empty() {
         if let Some(w) = window {
             let _ = w.emit("agent-thought-final", &accumulated_thought);
         }
+    }
+
+    // 🔥 EMIT STREAM COMPLETE EVENT để frontend biết stream đã kết thúc
+    if let Some(w) = window {
+        let _ = w.emit(
+            "agent-stream-complete",
+            serde_json::json!({
+                "has_error": stream_error.is_some(),
+                "error": stream_error,
+                "has_text": has_text,
+            }),
+        );
+    }
+
+    // Nếu có lỗi stream nhưng đã accumulate được dữ liệu, vẫn trả về Ok
+    // Chỉ return Err nếu KHÔNG có dữ liệu nào được accumulate
+    if let Some(err) = stream_error {
+        if !has_text && accumulated_thought.is_empty() && tool_calls.is_empty() {
+            return Err(err);
+        }
+        agent_log(
+            window,
+            &format!(
+                "[ALOUETTE LLM WARNING] Stream có lỗi nhưng đã accumulate được {} bytes text, {} bytes thought, {} tool calls. Vẫn trả về Ok.",
+                accumulated_text_len,
+                accumulated_thought.len(),
+                tool_calls.len()
+            ),
+        );
     }
 
     Ok(LlmResponse {
@@ -382,15 +569,25 @@ pub async fn call_rig(
         model
     };
 
-    agent_log(window, &format!(
-        "\n[ALOUETTE AGENT LOOP] === Bắt đầu gọi LLM ({}) ===",
-        model_name
-    ));
-    agent_log(window, &format!(
-        "[ALOUETTE AGENT LOOP] API Standard: '{}' | Endpoint: '{}'",
-        api_standard,
-        if api_url.is_empty() { "mặc định" } else { api_url }
-    ));
+    agent_log(
+        window,
+        &format!(
+            "\n[ALOUETTE AGENT LOOP] === Bắt đầu gọi LLM ({}) ===",
+            model_name
+        ),
+    );
+    agent_log(
+        window,
+        &format!(
+            "[ALOUETTE AGENT LOOP] API Standard: '{}' | Endpoint: '{}'",
+            api_standard,
+            if api_url.is_empty() {
+                "mặc định"
+            } else {
+                api_url
+            }
+        ),
+    );
 
     let mut final_system_prompt = system_prompt.to_string();
     if thinking_mode == Some("high") {
@@ -426,14 +623,17 @@ pub async fn call_rig(
             let m = client.completion_model(model_name);
             let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
             agent_log(window, &format!("[ALOUETTE LLM] Đang gửi yêu cầu tới Anthropic/Claude qua Rig Agent (model = '{}')...", model_name));
-            let response_text = agent
-                .prompt(&conversation)
-                .await
-                .map_err(|e| {
-                    agent_log(window, &format!("[ALOUETTE LLM ERROR] Rig Claude failed: {}", e));
-                    format!("Rig Claude: {}", e)
-                })?;
-            agent_log(window, "[ALOUETTE LLM] Đã nhận phản hồi thành công từ Anthropic/Claude.");
+            let response_text = agent.prompt(&conversation).await.map_err(|e| {
+                agent_log(
+                    window,
+                    &format!("[ALOUETTE LLM ERROR] Rig Claude failed: {}", e),
+                );
+                format!("Rig Claude: {}", e)
+            })?;
+            agent_log(
+                window,
+                "[ALOUETTE LLM] Đã nhận phản hồi thành công từ Anthropic/Claude.",
+            );
 
             let tool_calls = parse_tool_calls_from_text(&response_text);
             let text =
@@ -453,14 +653,17 @@ pub async fn call_rig(
             let m = client.completion_model(model_name);
             let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
             agent_log(window, &format!("[ALOUETTE LLM] Đang gửi yêu cầu tới Google/Gemini qua Rig Agent (model = '{}')...", model_name));
-            let response_text = agent
-                .prompt(&conversation)
-                .await
-                .map_err(|e| {
-                    agent_log(window, &format!("[ALOUETTE LLM ERROR] Rig Gemini failed: {}", e));
-                    format!("Rig Gemini: {}", e)
-                })?;
-            agent_log(window, "[ALOUETTE LLM] Đã nhận phản hồi thành công từ Google/Gemini.");
+            let response_text = agent.prompt(&conversation).await.map_err(|e| {
+                agent_log(
+                    window,
+                    &format!("[ALOUETTE LLM ERROR] Rig Gemini failed: {}", e),
+                );
+                format!("Rig Gemini: {}", e)
+            })?;
+            agent_log(
+                window,
+                "[ALOUETTE LLM] Đã nhận phản hồi thành công từ Google/Gemini.",
+            );
 
             let tool_calls = parse_tool_calls_from_text(&response_text);
             let text =

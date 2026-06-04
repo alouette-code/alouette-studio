@@ -230,6 +230,7 @@ pub async fn agent_send_message(
     // Load model config
     let ai_cfg = load_custom_ai_config();
     let model_config = resolve_model_config(&ai_cfg, &model);
+    log_debug(&format!("Resolved model config: provider={}, api_standard={:?}, api_url={}", model_config.provider, model_config.api_standard, model_config.api_url));
     let api_key = resolve_api_key(&model_config)?;
 
     // Determine approval policy based on mode
@@ -365,7 +366,21 @@ pub async fn agent_send_message(
             }
         };
 
-        match run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await {
+        log_debug(&format!("Running tick... Current iteration: {}, State: {:?}", session.iteration_count, session.state));
+        let tick_res_val = run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await;
+        let tick_res_type = match &tick_res_val {
+            TickExecutionResult::Completed(tr) => match tr {
+                TickResult::Continue { .. } => "Continue",
+                TickResult::WaitForApproval { .. } => "WaitForApproval",
+                TickResult::Finished { .. } => "Finished",
+                TickResult::Error { .. } => "Error",
+            },
+            TickExecutionResult::Cancelled => "Cancelled",
+            TickExecutionResult::Timeout => "Timeout",
+        };
+        log_debug(&format!("Tick completed. Result type: {}", tick_res_type));
+
+        match tick_res_val {
             TickExecutionResult::Completed(tick_res) => match tick_res {
                 TickResult::Continue {
                     thought,
@@ -1666,5 +1681,22 @@ fn load_custom_ai_config() -> CustomAiConfig {
     CustomAiConfig {
         active_model: "gemini-3.5-flash".to_string(),
         providers,
+    }
+}
+
+fn log_debug(msg: &str) {
+    let log_file = std::env::current_dir()
+        .unwrap_or_default()
+        .join("logs/debug_agent.log");
+    if let Some(parent) = log_file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_file)
+    {
+        use std::io::Write;
+        let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f"), msg);
     }
 }
