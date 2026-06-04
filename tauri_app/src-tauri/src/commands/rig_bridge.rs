@@ -123,6 +123,15 @@ fn parse_tool_calls_from_text(text: &str) -> Vec<ToolCall> {
     vec![]
 }
 
+use futures_util::StreamExt;
+
+#[derive(Default, Clone)]
+struct StreamToolCall {
+    id: String,
+    name: String,
+    arguments: String,
+}
+
 /// Call OpenAI-compatible API with native tool calling support
 async fn call_openai_compatible(
     api_key: &str,
@@ -132,6 +141,7 @@ async fn call_openai_compatible(
     top_p: f32,
     messages: &[Value],
     tools: &[Value],
+    thinking_mode: Option<&str>,
     window: Option<&tauri::WebviewWindow>,
 ) -> Result<LlmResponse, String> {
     let client = reqwest::Client::new();
@@ -146,8 +156,16 @@ async fn call_openai_compatible(
         "messages": messages,
         "temperature": temperature,
         "top_p": top_p,
-        "max_tokens": 32000
+        "max_tokens": 32000,
+        "stream": true
     });
+
+    if thinking_mode == Some("high") && model.to_lowercase().contains("gemini") {
+        body["temperature"] = json!(1.0);
+        body["thinking_config"] = json!({
+            "thinking_budget": 2048
+        });
+    }
 
     if !tools.is_empty() {
         body["tools"] = json!(tools);
@@ -169,15 +187,8 @@ async fn call_openai_compatible(
         })?;
 
     let status = response.status();
-    let response_text = response
-        .text()
-        .await
-        .map_err(|e| {
-            agent_log(window, &format!("[ALOUETTE LLM ERROR] Failed to read response text: {}", e));
-            format!("Failed to read response: {}", e)
-        })?;
-
     if !status.is_success() {
+        let response_text = response.text().await.unwrap_or_default();
         agent_log(window, &format!(
             "[ALOUETTE LLM ERROR] API trả về lỗi (status {}): {}",
             status,
@@ -192,47 +203,150 @@ async fn call_openai_compatible(
 
     agent_log(window, &format!("[ALOUETTE LLM] Nhận phản hồi thành công từ: {}", base_url));
 
-    let response_json: Value = serde_json::from_str(&response_text).map_err(|e| {
-        format!(
-            "Failed to parse JSON: {} — raw: {}",
-            e,
-            &response_text[..response_text.len().min(200)]
-        )
-    })?;
+    let mut stream = response.bytes_stream();
+    let mut buffer = Vec::new();
 
-    let choices = response_json["choices"]
-        .as_array()
-        .ok_or_else(|| format!("No choices in response: {}", &response_text[..200]))?;
+    let mut accumulated_text = String::new();
+    let mut accumulated_thought = String::new();
+    let mut streamed_tool_calls: Vec<StreamToolCall> = Vec::new();
+    let mut raw_response_chunks = Vec::new();
+    let mut stream_ended = false;
 
-    if choices.is_empty() {
-        return Err("Empty choices array in response".to_string());
-    }
+    // Buffering variables for throttling
+    let mut current_thought_chunk = String::new();
+    let mut current_text_chunk = String::new();
+    let mut last_emit_time = std::time::Instant::now();
 
-    let message = &choices[0]["message"];
-    let raw_text = serde_json::to_string(&response_json).unwrap_or_default();
+    while let Some(chunk_result) = stream.next().await {
+        if stream_ended {
+            break;
+        }
+        let chunk = chunk_result.map_err(|e| {
+            agent_log(window, &format!("[ALOUETTE LLM ERROR] Stream chunk error: {}", e));
+            format!("Stream error: {}", e)
+        })?;
+        buffer.extend_from_slice(&chunk);
 
-    // Extract native tool_calls
-    let mut tool_calls: Vec<ToolCall> = Vec::new();
-    if let Some(tc_array) = message["tool_calls"].as_array() {
-        for tc in tc_array {
-            let func = &tc["function"];
-            let name = func["name"].as_str().unwrap_or("").to_string();
-            let args_str = func["arguments"].as_str().unwrap_or("{}").to_string();
-            if name.is_empty() {
-                continue;
+        // Process lines in buffer
+        while let Some(newline_idx) = buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes = buffer.drain(..=newline_idx).collect::<Vec<u8>>();
+            let line = String::from_utf8_lossy(&line_bytes);
+            let line_trimmed = line.trim();
+
+            if line_trimmed.starts_with("data: ") {
+                let data = &line_trimmed["data: ".len()..];
+                if data == "[DONE]" {
+                    stream_ended = true;
+                    break;
+                }
+                raw_response_chunks.push(data.to_string());
+                if let Ok(val) = serde_json::from_str::<Value>(data) {
+                    if let Some(choices) = val["choices"].as_array() {
+                        if !choices.is_empty() {
+                            let delta = &choices[0]["delta"];
+
+                            // 1. Check for thinking content
+                            if let Some(reasoning) = delta.get("reasoning_content").and_then(|r| r.as_str()) {
+                                current_thought_chunk.push_str(reasoning);
+                                accumulated_thought.push_str(reasoning);
+                            } else if let Some(reasoning) = delta.get("reasoning").and_then(|r| r.as_str()) {
+                                current_thought_chunk.push_str(reasoning);
+                                accumulated_thought.push_str(reasoning);
+                            }
+
+                            // 2. Check for normal text content
+                            if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                                current_text_chunk.push_str(content);
+                                accumulated_text.push_str(content);
+                            }
+
+                            // 3. Check for tool calls
+                            if let Some(tc_array) = delta.get("tool_calls").and_then(|tc| tc.as_array()) {
+                                for tc in tc_array {
+                                    if let Some(idx) = tc.get("index").and_then(|i| i.as_u64()) {
+                                        let idx = idx as usize;
+                                        while streamed_tool_calls.len() <= idx {
+                                            streamed_tool_calls.push(StreamToolCall::default());
+                                        }
+                                        let stc = &mut streamed_tool_calls[idx];
+                                        if let Some(id) = tc.get("id").and_then(|i| i.as_str()) {
+                                            stc.id = id.to_string();
+                                        }
+                                        if let Some(func) = tc.get("function").and_then(|f| f.as_object()) {
+                                            if let Some(name) = func.get("name").and_then(|n| n.as_str()) {
+                                                stc.name.push_str(name);
+                                            }
+                                            if let Some(args) = func.get("arguments").and_then(|a| a.as_str()) {
+                                                stc.arguments.push_str(args);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            let args_val: Value =
-                serde_json::from_str(&args_str).unwrap_or(Value::Object(Default::default()));
-            tool_calls.push(ToolCall {
-                name,
-                arguments: args_val,
-                raw_arguments: args_str,
-                call_id: Some(tc["id"].as_str().unwrap_or("call_0").to_string()),
-            });
+        }
+
+        if stream_ended {
+            break;
+        }
+
+        // Throttled emit: if 100ms elapsed, flush both buffers
+        if last_emit_time.elapsed() >= std::time::Duration::from_millis(100) {
+            if !current_thought_chunk.is_empty() {
+                if let Some(w) = window {
+                    let _ = w.emit("agent-thought-chunk", &current_thought_chunk);
+                }
+                current_thought_chunk.clear();
+            }
+            if !current_text_chunk.is_empty() {
+                if let Some(w) = window {
+                    let _ = w.emit("agent-text-chunk", &current_text_chunk);
+                }
+                current_text_chunk.clear();
+            }
+            last_emit_time = std::time::Instant::now();
         }
     }
 
-    let text = message["content"].as_str().map(|s| s.to_string());
+    // Flush any remaining buffers
+    if !current_thought_chunk.is_empty() {
+        if let Some(w) = window {
+            let _ = w.emit("agent-thought-chunk", &current_thought_chunk);
+        }
+    }
+    if !current_text_chunk.is_empty() {
+        if let Some(w) = window {
+            let _ = w.emit("agent-text-chunk", &current_text_chunk);
+        }
+    }
+
+    // Reconstruct tool calls
+    let mut tool_calls = Vec::new();
+    for stc in streamed_tool_calls {
+        if stc.name.is_empty() {
+            continue;
+        }
+        let args_val: Value = serde_json::from_str(&stc.arguments)
+            .unwrap_or(Value::Object(Default::default()));
+        tool_calls.push(ToolCall {
+            name: stc.name,
+            arguments: args_val,
+            raw_arguments: stc.arguments,
+            call_id: Some(if stc.id.is_empty() { "call_0".to_string() } else { stc.id }),
+        });
+    }
+
+    let text = if accumulated_text.is_empty() { None } else { Some(accumulated_text) };
+    let raw_text = raw_response_chunks.join("\n");
+
+    if !accumulated_thought.is_empty() {
+        if let Some(w) = window {
+            let _ = w.emit("agent-thought-final", &accumulated_thought);
+        }
+    }
 
     Ok(LlmResponse {
         text,
@@ -254,6 +368,7 @@ pub async fn call_rig(
     top_p: f32,
     system_prompt: &str,
     history: &[ChatMessage],
+    thinking_mode: Option<&str>,
     window: Option<&tauri::WebviewWindow>,
 ) -> Result<LlmResponse, String> {
     let model_name = if model.is_empty() {
@@ -277,7 +392,14 @@ pub async fn call_rig(
         if api_url.is_empty() { "mặc định" } else { api_url }
     ));
 
-    let messages = build_messages_json(system_prompt, history);
+    let mut final_system_prompt = system_prompt.to_string();
+    if thinking_mode == Some("high") {
+        final_system_prompt.push_str("\n\nIMPORTANT: You MUST use deep thinking/reasoning before answering. Think step-by-step in detail and output your thought process.");
+    } else if thinking_mode == Some("low") {
+        final_system_prompt.push_str("\n\nIMPORTANT: You do not need to use deep thinking/reasoning if the request is simple. Answer directly and concisely.");
+    }
+
+    let messages = build_messages_json(&final_system_prompt, history);
     let tools_json = tool_definitions::tools_json_for_api();
     let tools_array = tools_json.as_array().cloned().unwrap_or_default();
 
@@ -291,17 +413,18 @@ pub async fn call_rig(
                 top_p,
                 &messages,
                 &tools_array,
+                thinking_mode,
                 window,
             )
             .await
         }
         "claude" => {
             // Anthropic via Rig Agent — fallback to text parsing
-            let conversation = build_conversation_text(system_prompt, history);
+            let conversation = build_conversation_text(&final_system_prompt, history);
             let client = providers::anthropic::Client::new(api_key)
                 .map_err(|e| format!("Anthropic client: {}", e))?;
             let m = client.completion_model(model_name);
-            let agent = AgentBuilder::new(m).preamble(system_prompt).build();
+            let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
             agent_log(window, &format!("[ALOUETTE LLM] Đang gửi yêu cầu tới Anthropic/Claude qua Rig Agent (model = '{}')...", model_name));
             let response_text = agent
                 .prompt(&conversation)
@@ -324,11 +447,11 @@ pub async fn call_rig(
         }
         "gemini" => {
             // Gemini via Rig Agent — fallback to text parsing
-            let conversation = build_conversation_text(system_prompt, history);
+            let conversation = build_conversation_text(&final_system_prompt, history);
             let client = providers::gemini::Client::new(api_key)
                 .map_err(|e| format!("Gemini client: {}", e))?;
             let m = client.completion_model(model_name);
-            let agent = AgentBuilder::new(m).preamble(system_prompt).build();
+            let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
             agent_log(window, &format!("[ALOUETTE LLM] Đang gửi yêu cầu tới Google/Gemini qua Rig Agent (model = '{}')...", model_name));
             let response_text = agent
                 .prompt(&conversation)
@@ -351,13 +474,13 @@ pub async fn call_rig(
         }
         _ => {
             // Fallback: any other provider via Rig Agent with text prompt
-            let conversation = build_conversation_text(system_prompt, history);
+            let conversation = build_conversation_text(&final_system_prompt, history);
 
             let response_text = if api_standard == "deepseek" {
                 let client = providers::deepseek::Client::new(api_key)
                     .map_err(|e| format!("DeepSeek client: {}", e))?;
                 let m = client.completion_model(model_name);
-                let agent = AgentBuilder::new(m).preamble(system_prompt).build();
+                let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
                 agent
                     .prompt(&conversation)
                     .await
@@ -366,7 +489,7 @@ pub async fn call_rig(
                 let client = providers::openai::Client::new(api_key)
                     .map_err(|e| format!("OpenAI client: {}", e))?;
                 let m = client.completion_model(model_name);
-                let agent = AgentBuilder::new(m).preamble(system_prompt).build();
+                let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
                 agent
                     .prompt(&conversation)
                     .await

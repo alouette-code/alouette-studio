@@ -23,6 +23,7 @@ quick-xml = "0.31"
 jsonschema = "0.18"
 tract-onnx = "0.21.3"
 rig-core = { version = "0.37", features = ["derive"] }
+futures-util = "0.3"
 
 
 

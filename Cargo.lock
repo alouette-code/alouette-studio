@@ -5459,6 +5459,7 @@ dependencies = [
  "base64 0.21.7",
  "chrono",
  "core_engine",
+ "futures-util",
  "jsonschema",
  "md5",
  "quick-xml 0.31.0",

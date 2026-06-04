@@ -523,6 +523,7 @@ export default function AiAgent({
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("Agent Active Session #1");
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [thinkingMode, setThinkingMode] = useState<"high" | "low">("low");
   const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
     {},
   );
@@ -577,12 +578,80 @@ export default function AiAgent({
 
   const [capsOpen, setCapsOpen] = useState(false);
 
+  const activeStreamMessageIdRef = useRef<string | null>(null);
+
+  const createStreamPlaceholder = (initialText: string) => {
+    const streamId = "stream_" + Date.now();
+    activeStreamMessageIdRef.current = streamId;
+    setActiveThought("");
+    const streamMsg: ChatItem = {
+      id: streamId,
+      type: "text",
+      sender: "agent",
+      text: initialText,
+      timestamp: new Date().toLocaleTimeString([], {
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    };
+    setChatHistory((prev) => [...prev, streamMsg]);
+    return streamId;
+  };
+
+  const removeStreamPlaceholder = () => {
+    const streamId = activeStreamMessageIdRef.current;
+    if (streamId) {
+      activeStreamMessageIdRef.current = null;
+      setChatHistory((prev) => prev.filter((msg) => msg.id !== streamId));
+    }
+  };
+
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const processedIters = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    let unlistenText: any;
+    let unlistenThought: any;
+    let unlistenThoughtFinal: any;
+
+    const setupStreamListeners = async () => {
+      unlistenText = await listen("agent-text-chunk", (event: any) => {
+        const chunk = event.payload;
+        const streamId = activeStreamMessageIdRef.current;
+        if (!streamId) {
+          createStreamPlaceholder(chunk);
+        } else {
+          setChatHistory((prev) =>
+            prev.map((msg) =>
+              msg.id === streamId ? { ...msg, text: (msg.text || "") + chunk } : msg
+            )
+          );
+        }
+      });
+
+      unlistenThought = await listen("agent-thought-chunk", (event: any) => {
+        const chunk = event.payload;
+        setActiveThought((prev) => (prev || "") + chunk);
+      });
+
+      unlistenThoughtFinal = await listen("agent-thought-final", (event: any) => {
+        const finalThought = event.payload;
+        setActiveThought(finalThought);
+      });
+    };
+
+    setupStreamListeners();
+
+    return () => {
+      if (unlistenText) unlistenText();
+      if (unlistenThought) unlistenThought();
+      if (unlistenThoughtFinal) unlistenThoughtFinal();
+    };
+  }, []);
 
   useEffect(() => {
     const loadActiveModels = async () => {
@@ -889,11 +958,14 @@ export default function AiAgent({
         model: backendModelName,
         mode: selectedMode,
         activeCwd: activeProjectCwd,
+        thinkingMode: thinkingMode,
       });
 
       setIsTyping(false);
       setActiveThought(null);
       setLoopIterations(0);
+
+      removeStreamPlaceholder();
 
       if (response.total_iterations) {
         setTotalIterations(response.total_iterations);
@@ -1118,10 +1190,12 @@ export default function AiAgent({
         model: backendModelName,
         activeCwd: activeProjectCwd,
         toolIndex: toolIndex ?? null,
+        thinkingMode: thinkingMode,
       });
 
       setIsTyping(false);
       setActiveThought(null);
+      removeStreamPlaceholder(streamId);
 
       // Batch response: cập nhật tool result và hiển thị tools còn lại
       if (response.reply_type === "tool_batch_request" && response.tools) {
@@ -1226,6 +1300,7 @@ export default function AiAgent({
         }
       }
     } catch (err: any) {
+      removeStreamPlaceholder();
       setIsTyping(false);
       alert(`Lỗi khi phê duyệt tool: ${err?.message || err}`);
     }
@@ -1264,10 +1339,12 @@ export default function AiAgent({
         model: backendModelName,
         activeCwd: activeProjectCwd,
         toolIndex: toolIndex ?? null,
+        thinkingMode: thinkingMode,
       });
 
       setIsTyping(false);
       setActiveThought(null);
+      removeStreamPlaceholder();
 
       // Batch response: cập nhật danh sách tools còn lại
       if (response.reply_type === "tool_batch_request" && response.tools) {
@@ -1301,6 +1378,7 @@ export default function AiAgent({
       };
       setChatHistory((prev) => [...prev, rejectMsg]);
     } catch (err: any) {
+      removeStreamPlaceholder();
       setIsTyping(false);
       alert(`Lỗi khi từ chối tool: ${err?.message || err}`);
     }
@@ -2535,12 +2613,12 @@ export default function AiAgent({
             <div style={{ display: "flex", alignItems: "center", gap: "14px" }}>
               <button
                 type="button"
-                onClick={() => textareaRef.current?.focus()}
+                onClick={() => setThinkingMode((prev) => (prev === "high" ? "low" : "high"))}
                 style={{
                   background: "none",
                   border: "none",
                   padding: 0,
-                  color: "rgba(255, 255, 255, 0.35)",
+                  color: thinkingMode === "high" ? "#a855f7" : "rgba(255, 255, 255, 0.35)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -2548,14 +2626,14 @@ export default function AiAgent({
                   transition: "color 0.2s",
                 }}
                 onMouseEnter={(e) =>
-                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                  (e.currentTarget.style.color = thinkingMode === "high" ? "#c084fc" : "rgba(255, 255, 255, 0.75)")
                 }
                 onMouseLeave={(e) =>
-                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)")
+                  (e.currentTarget.style.color = thinkingMode === "high" ? "#a855f7" : "rgba(255, 255, 255, 0.35)")
                 }
-                title="Focus editor"
+                title={thinkingMode === "high" ? "Thinking Mode: High (Force reasoning)" : "Thinking Mode: Low (Automatic)"}
               >
-                <Pencil size={13} />
+                <Brain size={13} />
               </button>
               <button
                 type="button"

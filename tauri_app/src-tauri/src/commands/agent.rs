@@ -218,6 +218,7 @@ pub async fn agent_send_message(
     model: String,
     mode: String,
     active_cwd: Option<String>,
+    thinking_mode: Option<String>,
     window: WebviewWindow,
     _app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
@@ -338,12 +339,14 @@ pub async fn agent_send_message(
             let url = api_url.clone();
             let std = api_standard.clone();
             let window_clone = window.clone();
+            let thinking_mode_clone = thinking_mode.clone();
             move |sys_prompt: String, history: Vec<ChatMessage>| {
                 let api_key = api_key.clone();
                 let model = model.clone();
                 let url = url.clone();
                 let std = std.clone();
                 let w = window_clone.clone();
+                let thinking_mode = thinking_mode_clone.clone();
                 async move {
                     rig_bridge::call_rig(
                         &std,
@@ -354,6 +357,7 @@ pub async fn agent_send_message(
                         top_p,
                         &sys_prompt,
                         &history,
+                        thinking_mode.as_deref(),
                         Some(&w),
                     )
                     .await
@@ -546,6 +550,7 @@ pub async fn agent_approve_tool(
     model: String,
     active_cwd: Option<String>,
     tool_index: Option<usize>,
+    thinking_mode: Option<String>,
     window: WebviewWindow,
     _app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
@@ -682,12 +687,14 @@ pub async fn agent_approve_tool(
 
         // Một tick để phản hồi
         let window_clone = window.clone();
+        let thinking_mode_clone = thinking_mode.clone();
         let llm_closure = move |sys_prompt: String, history: Vec<ChatMessage>| {
             let api_key = api_key.clone();
             let model = model_to_use.clone();
             let url = api_url.clone();
             let std = api_standard.clone();
             let w = window_clone.clone();
+            let thinking_mode = thinking_mode_clone.clone();
             async move {
                 rig_bridge::call_rig(
                     &std,
@@ -698,6 +705,7 @@ pub async fn agent_approve_tool(
                     top_p,
                     &sys_prompt,
                     &history,
+                    thinking_mode.as_deref(),
                     Some(&w),
                 )
                 .await
@@ -988,12 +996,14 @@ pub async fn agent_approve_tool(
             let url = api_url.clone();
             let std = api_standard.clone();
             let window_clone = window.clone();
+            let thinking_mode_clone = thinking_mode.clone();
             move |sys_prompt: String, history: Vec<ChatMessage>| {
                 let api_key = api_key.clone();
                 let model = model.clone();
                 let url = url.clone();
                 let std = std.clone();
                 let w = window_clone.clone();
+                let thinking_mode = thinking_mode_clone.clone();
                 async move {
                     rig_bridge::call_rig(
                         &std,
@@ -1004,6 +1014,7 @@ pub async fn agent_approve_tool(
                         top_p,
                         &sys_prompt,
                         &history,
+                        thinking_mode.as_deref(),
                         Some(&w),
                     )
                     .await
