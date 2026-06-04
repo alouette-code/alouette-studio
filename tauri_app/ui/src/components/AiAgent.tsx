@@ -78,9 +78,7 @@ export default function AiAgent({
   const [loopIterations, setLoopIterations] = useState<number>(0);
   const [totalIterations, setTotalIterations] = useState<number>(25);
   const [activeThought, setActiveThought] = useState<string | null>(null);
-  const [consoleLogs, setConsoleLogs] = useState<Array<{ message: string; timestamp: string }>>([]);
-  const [logsExpanded, setLogsExpanded] = useState(false);
-  const logsEndRef = useRef<HTMLDivElement>(null);
+
 
   const [inputVal, setInputVal] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -244,25 +242,7 @@ export default function AiAgent({
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, isTyping]);
 
-  useEffect(() => {
-    if (logsExpanded) {
-      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [consoleLogs, logsExpanded]);
 
-  useEffect(() => {
-    let unlistenFn: any;
-    const setupConsoleListener = async () => {
-      unlistenFn = await listen("agent-console-log", (event: any) => {
-        const payload = event.payload as { message: string; timestamp: string };
-        setConsoleLogs((prev) => [...prev, payload]);
-      });
-    };
-    setupConsoleListener();
-    return () => {
-      if (unlistenFn) unlistenFn();
-    };
-  }, []);
 
   useEffect(() => {
     let unlistenFn: any;
@@ -1899,108 +1879,7 @@ export default function AiAgent({
         <div ref={chatEndRef} />
       </div>
 
-      {/* ===== REAL-TIME EXECUTION LOGS DRAWER ===== */}
-      {logsExpanded && (
-        <div
-          style={{
-            height: "180px",
-            borderTop: "1px solid var(--border-primary)",
-            background: "var(--bg-secondary)",
-            display: "flex",
-            flexDirection: "column",
-            flexShrink: 0,
-          }}
-        >
-          {/* Logs Header */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "4px 12px",
-              background: "var(--bg-tertiary)",
-              borderBottom: "1px solid var(--border-primary)",
-            }}
-          >
-            <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
-              CONSOLE LOGS (NHẬT KÝ CHẠY THỰC TẾ)
-            </span>
-            <div style={{ display: "flex", gap: "8px" }}>
-              <button
-                onClick={() => setConsoleLogs([])}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: "9px",
-                  cursor: "pointer",
-                  padding: "2px 6px",
-                  borderRadius: "3px",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-primary)"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
-              >
-                Xóa logs
-              </button>
-              <button
-                onClick={() => setLogsExpanded(false)}
-                style={{
-                  background: "none",
-                  border: "none",
-                  color: "var(--text-muted)",
-                  fontSize: "9px",
-                  cursor: "pointer",
-                  padding: "2px 6px",
-                  borderRadius: "3px",
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-primary)"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
-              >
-                Đóng
-              </button>
-            </div>
-          </div>
 
-          {/* Logs Content */}
-          <div
-            className="agent-scroll"
-            style={{
-              flex: 1,
-              overflowY: "auto",
-              padding: "8px 12px",
-              fontFamily: "var(--font-mono)",
-              fontSize: "10px",
-              lineHeight: "1.4",
-              color: "#a7f3d0", // Light green terminal text
-              background: "#090d16", // Deep space dark background for terminal log look
-              display: "flex",
-              flexDirection: "column",
-              gap: "4px",
-            }}
-          >
-            {consoleLogs.length === 0 ? (
-              <div style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: "10px", padding: "8px 0" }}>
-                Chưa có nhật ký hoạt động nào. Hãy gửi tin nhắn cho Agent để bắt đầu ghi log.
-              </div>
-            ) : (
-              consoleLogs.map((log, idx) => {
-                const timeStr = new Date(log.timestamp).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                  second: "2-digit",
-                });
-                return (
-                  <div key={idx} style={{ display: "flex", gap: "6px", alignItems: "flex-start", wordBreak: "break-all" }}>
-                    <span style={{ color: "#6b7280", flexShrink: 0 }}>[{timeStr}]</span>
-                    <span style={{ whiteSpace: "pre-wrap" }}>{log.message}</span>
-                  </div>
-                );
-              })
-            )}
-            <div ref={logsEndRef} />
-          </div>
-        </div>
-      )}
 
       {/* ===== BOTTOM INPUT BAR ===== */}
       <div
@@ -2323,27 +2202,7 @@ export default function AiAgent({
             <span>Quyền</span>
           </button>
 
-          {/* Logs toggle */}
-          <button
-            type="button"
-            title="Xem nhật ký chạy thực tế (Console Logs)"
-            onClick={() => setLogsExpanded(!logsExpanded)}
-            className="agent-capsule-btn"
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              padding: "3px 8px",
-              fontSize: "10px",
-              borderRadius: "4px",
-              border: "1px solid var(--border-primary)",
-              background: logsExpanded ? "var(--bg-tertiary)" : "transparent",
-              color: logsExpanded ? "var(--text-primary)" : "var(--text-muted)",
-              cursor: "pointer",
-            }}
-          >
-            <span>Bản ghi {consoleLogs.length > 0 ? `(${consoleLogs.length})` : ""}</span>
-          </button>
+
 
           {/* Model Selector */}
           <select
