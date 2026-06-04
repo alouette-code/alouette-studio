@@ -835,28 +835,32 @@ fn fix_unquoted_keys(s: &str) -> String {
 
 fn find_key_start(s: &str) -> usize {
     let mut i = s.len();
-    let chars: Vec<char> = s.chars().collect();
     if i == 0 {
         return 0;
     }
+    let bytes = s.as_bytes();
     i -= 1;
-    // Walk backwards through whitespace
-    while i > 0 && (chars[i] == ' ' || chars[i] == '\t' || chars[i] == '\n' || chars[i] == '\r') {
-        i = i.saturating_sub(1);
+    // Walk backwards through whitespace (all are ASCII)
+    while i > 0 && (bytes[i] == b' ' || bytes[i] == b'\t' || bytes[i] == b'\n' || bytes[i] == b'\r') {
+        i -= 1;
     }
-    // Walk backwards through key characters (stop at boundary chars)
-    while i > 0 && chars[i] != ',' && chars[i] != '{' && chars[i] != '[' && chars[i] != '\n' {
-        i = i.saturating_sub(1);
+    // Walk backwards through key characters (stop at boundary chars which are all ASCII)
+    while i > 0 && bytes[i] != b',' && bytes[i] != b'{' && bytes[i] != b'[' && bytes[i] != b'\n' {
+        i -= 1;
     }
-    // If we stopped at i=0, check if chars[0] is a boundary
-    if i == 0 && (chars[0] == '{' || chars[0] == '[') {
+    // If we stopped at i=0, check if bytes[0] is a boundary
+    if i == 0 && (bytes[0] == b'{' || bytes[0] == b'[') {
         // Key starts right after the opening bracket
         i = 1;
-    } else if i > 0 && (chars[i] == ',' || chars[i] == '{' || chars[i] == '[') {
+    } else if i > 0 && (bytes[i] == b',' || bytes[i] == b'{' || bytes[i] == b'[') {
         i += 1;
     }
-    // Skip leading whitespace within the key
-    while i < s.len() && (chars.get(i) == Some(&' ') || chars.get(i) == Some(&'\t')) {
+    // Skip leading whitespace within the key (all are ASCII)
+    while i < s.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+        i += 1;
+    }
+    // Ensure we slice at a valid char boundary
+    while i < s.len() && !s.is_char_boundary(i) {
         i += 1;
     }
     i

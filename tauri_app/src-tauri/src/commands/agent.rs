@@ -2,7 +2,8 @@ use crate::commands::rig_bridge;
 use crate::state::AppState;
 use chrono::Local;
 use core_engine::agent_harness::{
-    AgentHarness, AgentSession, AgentState, ChatMessage, HarnessMode, MessageContent, TickResult,
+    AgentHarness, AgentSession, AgentState, ChatMessage, HarnessMode, LlmResponse, MessageContent,
+    TickResult,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -83,7 +84,46 @@ fn check_and_reset_cancel() -> bool {
 #[tauri::command]
 pub async fn agent_cancel() -> Result<String, String> {
     CANCEL_FLAG.store(true, Ordering::SeqCst);
-    Ok("✓ Đã gửi tín hiệu ngắt. Agent sẽ dừng sau bước hiện tại.".to_string())
+    Ok("✓ Đã gửi tín hiệu ngắt. Agent sẽ dừng ngay lập tức.".to_string())
+}
+
+async fn wait_for_cancel() {
+    loop {
+        if CANCEL_FLAG.load(Ordering::SeqCst) {
+            break;
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    }
+}
+
+enum TickExecutionResult {
+    Completed(TickResult),
+    Cancelled,
+    Timeout,
+}
+
+async fn run_tick<F, Fut>(
+    harness: &mut AgentHarness,
+    session: &mut AgentSession,
+    system_prompt: &str,
+    llm_closure: F,
+) -> TickExecutionResult
+where
+    F: Fn(String, Vec<ChatMessage>) -> Fut + Send + Sync + 'static,
+    Fut: std::future::Future<Output = Result<LlmResponse, String>> + Send + 'static,
+{
+    tokio::select! {
+        res = harness.tick(session, system_prompt, llm_closure) => {
+            TickExecutionResult::Completed(res)
+        }
+        _ = wait_for_cancel() => {
+            CANCEL_FLAG.store(false, Ordering::SeqCst);
+            TickExecutionResult::Cancelled
+        }
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(90)) => {
+            TickExecutionResult::Timeout
+        }
+    }
 }
 
 /// Trả về trạng thái hiện tại của agent (cho frontend poll)
@@ -286,11 +326,13 @@ pub async fn agent_send_message(
             let model = model_to_use.clone();
             let url = api_url.clone();
             let std = api_standard.clone();
+            let window_clone = window.clone();
             move |sys_prompt: String, history: Vec<ChatMessage>| {
                 let api_key = api_key.clone();
                 let model = model.clone();
                 let url = url.clone();
                 let std = std.clone();
+                let w = window_clone.clone();
                 async move {
                     rig_bridge::call_rig(
                         &std,
@@ -301,71 +343,116 @@ pub async fn agent_send_message(
                         top_p,
                         &sys_prompt,
                         &history,
+                        Some(&w),
                     )
                     .await
                 }
             }
         };
 
-        match harness
-            .tick(&mut session, &system_prompt, llm_closure)
-            .await
-        {
-            TickResult::Continue {
-                thought,
-                tool_name,
-                tool_result,
-                iteration,
-            } => {
+        match run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await {
+            TickExecutionResult::Completed(tick_res) => match tick_res {
+                TickResult::Continue {
+                    thought,
+                    tool_name,
+                    tool_result,
+                    iteration,
+                } => {
+                    let _ = window.emit(
+                        "agent-iteration",
+                        serde_json::json!({
+                            "iteration": iteration,
+                            "thought": thought.clone(),
+                            "tool_name": tool_name.clone(),
+                            "tool_result": tool_result.clone(),
+                        }),
+                    );
+                    let mut log_msgs = Vec::new();
+                    if let Some(ref t) = thought {
+                        log_msgs.push(format!("[Suy nghĩ - Vòng {}] {}", iteration, t));
+                    }
+                    if let Some(ref tn) = tool_name {
+                        log_msgs.push(format!("[Gọi Công cụ] Đang thực thi công cụ: {}", tn));
+                    }
+                    if let Some(ref tr) = tool_result {
+                        let short_res = if tr.len() > 1000 { format!("{}... (cắt bớt)", &tr[..1000]) } else { tr.clone() };
+                        log_msgs.push(format!("[Kết quả Công cụ] Phản hồi: {}", short_res));
+                    }
+                    for msg in log_msgs {
+                        rig_bridge::agent_log(Some(&window), &msg);
+                    }
+                    continue;
+                }
+                TickResult::WaitForApproval { tools, iteration } => {
+                    let tool = tools.first().cloned();
+                    let tool_name = tool.as_ref().map(|t| t.name.clone());
+                    let args = tool.as_ref().map(|t| t.arguments.to_string());
+                    let mut sg = session_store.lock().unwrap();
+                    *sg = Some(session);
+                    rig_bridge::agent_log(Some(&window), &format!("[Chờ phê duyệt] Yêu cầu cấp quyền chạy công cụ: {:?}", tool_name));
+                    break Ok(AgentResponse {
+                        session_id: format!("pending_{}", Local::now().timestamp()),
+                        reply_type: "tool_request".to_string(),
+                        text: None,
+                        tool_name,
+                        args,
+                        pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
+                        iteration: Some(iteration),
+                        total_iterations: Some(max_iterations),
+                        tool_result: None,
+                    });
+                }
+                TickResult::Finished {
+                    text,
+                    total_iterations,
+                } => {
+                    let mut sg = session_store.lock().unwrap();
+                    *sg = Some(session);
+                    rig_bridge::agent_log(Some(&window), &format!("[Hoàn thành] Agent kết thúc vòng lặp sau {} bước.", total_iterations));
+                    break Ok(AgentResponse {
+                        session_id: saved_session_id.clone(),
+                        reply_type: "loop_result".to_string(),
+                        text: Some(text.clone()),
+                        tool_name: None,
+                        args: None,
+                        pending_id: None,
+                        iteration: Some(total_iterations),
+                        total_iterations: Some(max_iterations),
+                        tool_result: None,
+                    });
+                }
+                TickResult::Error { message, iteration } => {
+                    rig_bridge::agent_log(Some(&window), &format!("[Lỗi Agent] Lỗi ở vòng {}: {}", iteration, message));
+                    break Err(format!("Agent error (iter {}): {}", iteration, message));
+                }
+            },
+            TickExecutionResult::Cancelled => {
                 let _ = window.emit(
-                    "agent-iteration",
+                    "agent-cancelled",
                     serde_json::json!({
-                        "iteration": iteration,
-                        "thought": thought,
-                        "tool_name": tool_name,
-                        "tool_result": tool_result,
+                        "reason": "user_cancelled",
                     }),
                 );
-                continue;
-            }
-            TickResult::WaitForApproval { tools, iteration } => {
-                let tool = tools.first().cloned();
-                let tool_name = tool.as_ref().map(|t| t.name.clone());
-                let args = tool.as_ref().map(|t| t.arguments.to_string());
                 let mut sg = session_store.lock().unwrap();
                 *sg = Some(session);
-                break Ok(AgentResponse {
-                    session_id: format!("pending_{}", Local::now().timestamp()),
-                    reply_type: "tool_request".to_string(),
-                    text: None,
-                    tool_name,
-                    args,
-                    pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
-                    iteration: Some(iteration),
-                    total_iterations: Some(max_iterations),
-                    tool_result: None,
-                });
-            }
-            TickResult::Finished {
-                text,
-                total_iterations,
-            } => {
-                let mut sg = session_store.lock().unwrap();
-                *sg = Some(session);
+                rig_bridge::agent_log(Some(&window), "[Dừng] Agent đã bị dừng bởi người dùng.");
                 break Ok(AgentResponse {
                     session_id: saved_session_id,
-                    reply_type: "loop_result".to_string(),
-                    text: Some(text.clone()),
+                    reply_type: "cancelled".to_string(),
+                    text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                     tool_name: None,
                     args: None,
                     pending_id: None,
-                    iteration: Some(total_iterations),
-                    total_iterations: Some(max_iterations),
+                    iteration: None,
+                    total_iterations: None,
                     tool_result: None,
                 });
             }
-            TickResult::Error { message, iteration } => {
-                break Err(format!("Agent error (iter {}): {}", iteration, message));
+            TickExecutionResult::Timeout => {
+                let mut sg = session_store.lock().unwrap();
+                *sg = Some(session);
+                rig_bridge::agent_log(Some(&window), "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.");
+                break Err("Đã hết thời gian chờ phản hồi từ Agent (Timeout 90 giây).".to_string());
             }
         }
     };
@@ -447,11 +534,13 @@ pub async fn agent_approve_tool(
         let saved_session_id = session.session_id.clone();
 
         // Một tick để phản hồi
+        let window_clone = window.clone();
         let llm_closure = move |sys_prompt: String, history: Vec<ChatMessage>| {
             let api_key = api_key.clone();
             let model = model_to_use.clone();
             let url = api_url.clone();
             let std = api_standard.clone();
+            let w = window_clone.clone();
             async move {
                 rig_bridge::call_rig(
                     &std,
@@ -462,22 +551,80 @@ pub async fn agent_approve_tool(
                     top_p,
                     &sys_prompt,
                     &history,
+                    Some(&w),
                 )
                 .await
             }
         };
 
-        match harness
-            .tick(&mut session, &system_prompt, llm_closure)
-            .await
-        {
-            TickResult::Finished { text, .. } => {
+        match run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await {
+            TickExecutionResult::Completed(tick_res) => match tick_res {
+                TickResult::Finished { text, .. } => {
+                    let mut session_guard = session_store.lock().unwrap();
+                    *session_guard = Some(session);
+                    rig_bridge::agent_log(Some(&window), "[Từ chối công cụ] Agent phản hồi sau khi công cụ bị từ chối.");
+                    return Ok(AgentResponse {
+                        session_id: saved_session_id,
+                        reply_type: "loop_result".to_string(),
+                        text: Some(text),
+                        tool_name: None,
+                        args: None,
+                        pending_id: None,
+                        iteration: None,
+                        total_iterations: None,
+                        tool_result: None,
+                    });
+                }
+                TickResult::WaitForApproval { tools, iteration } => {
+                    let tool = tools.first().cloned();
+                    let tool_name = tool.as_ref().map(|t| t.name.clone());
+                    let args = tool.as_ref().map(|t| t.arguments.to_string());
+                    let mut session_guard = session_store.lock().unwrap();
+                    *session_guard = Some(session);
+                    rig_bridge::agent_log(Some(&window), &format!("[Từ chối công cụ] Agent lại yêu cầu công cụ mới: {:?}", tool_name));
+                    return Ok(AgentResponse {
+                        session_id: format!("pending_{}", Local::now().timestamp()),
+                        reply_type: "tool_request".to_string(),
+                        text: None,
+                        tool_name,
+                        args,
+                        pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
+                        iteration: Some(iteration),
+                        total_iterations: Some(25),
+                        tool_result: None,
+                    });
+                }
+                TickResult::Error { message, .. } => {
+                    let mut session_guard = session_store.lock().unwrap();
+                    *session_guard = Some(session);
+                    rig_bridge::agent_log(Some(&window), &format!("[Từ chối công cụ] Agent gặp lỗi: {}", message));
+                    return Err(format!("Agent error after rejection: {}", message));
+                }
+                TickResult::Continue { thought, tool_name, tool_result, iteration } => {
+                    let mut session_guard = session_store.lock().unwrap();
+                    *session_guard = Some(session);
+                    rig_bridge::agent_log(Some(&window), &format!("[Từ chối công cụ] Agent tiếp tục suy nghĩ (vòng {}).", iteration));
+                    return Ok(AgentResponse {
+                        session_id: saved_session_id,
+                        reply_type: "text".to_string(),
+                        text: Some("Tool rejected. What would you like to do instead?".to_string()),
+                        tool_name: None,
+                        args: None,
+                        pending_id: None,
+                        iteration: None,
+                        total_iterations: None,
+                        tool_result: None,
+                    });
+                }
+            },
+            TickExecutionResult::Cancelled => {
                 let mut session_guard = session_store.lock().unwrap();
                 *session_guard = Some(session);
+                rig_bridge::agent_log(Some(&window), "[Dừng] Agent đã bị dừng bởi người dùng.");
                 return Ok(AgentResponse {
                     session_id: saved_session_id,
-                    reply_type: "loop_result".to_string(),
-                    text: Some(text),
+                    reply_type: "cancelled".to_string(),
+                    text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                     tool_name: None,
                     args: None,
                     pending_id: None,
@@ -486,45 +633,11 @@ pub async fn agent_approve_tool(
                     tool_result: None,
                 });
             }
-            TickResult::WaitForApproval { tools, iteration } => {
-                // Lại cần approve nữa
-                let tool = tools.first().cloned();
-                let tool_name = tool.as_ref().map(|t| t.name.clone());
-                let args = tool.as_ref().map(|t| t.arguments.to_string());
+            TickExecutionResult::Timeout => {
                 let mut session_guard = session_store.lock().unwrap();
                 *session_guard = Some(session);
-                return Ok(AgentResponse {
-                    session_id: format!("pending_{}", Local::now().timestamp()),
-                    reply_type: "tool_request".to_string(),
-                    text: None,
-                    tool_name,
-                    args,
-                    pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
-                    iteration: Some(iteration),
-                    total_iterations: Some(25),
-                    tool_result: None,
-                });
-            }
-            TickResult::Error { message, .. } => {
-                let mut session_guard = session_store.lock().unwrap();
-                *session_guard = Some(session);
-                return Err(format!("Agent error after rejection: {}", message));
-            }
-            TickResult::Continue { .. } => {
-                // Rejection shouldn't produce Continue, but handle gracefully
-                let mut session_guard = session_store.lock().unwrap();
-                *session_guard = Some(session);
-                return Ok(AgentResponse {
-                    session_id: saved_session_id,
-                    reply_type: "text".to_string(),
-                    text: Some("Tool rejected. What would you like to do instead?".to_string()),
-                    tool_name: None,
-                    args: None,
-                    pending_id: None,
-                    iteration: None,
-                    total_iterations: None,
-                    tool_result: None,
-                });
+                rig_bridge::agent_log(Some(&window), "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.");
+                return Err("Đã hết thời gian chờ phản hồi từ Agent (Timeout 90 giây).".to_string());
             }
         }
     }
@@ -592,11 +705,13 @@ pub async fn agent_approve_tool(
             let model = model_to_use.clone();
             let url = api_url.clone();
             let std = api_standard.clone();
+            let window_clone = window.clone();
             move |sys_prompt: String, history: Vec<ChatMessage>| {
                 let api_key = api_key.clone();
                 let model = model.clone();
                 let url = url.clone();
                 let std = std.clone();
+                let w = window_clone.clone();
                 async move {
                     rig_bridge::call_rig(
                         &std,
@@ -607,83 +722,134 @@ pub async fn agent_approve_tool(
                         top_p,
                         &sys_prompt,
                         &history,
+                        Some(&w),
                     )
                     .await
                 }
             }
         };
 
-        match harness
-            .tick(&mut session, &system_prompt, llm_closure)
-            .await
-        {
-            TickResult::Continue {
-                thought,
-                tool_name,
-                tool_result,
-                iteration,
-            } => {
-                let _ = window.emit(
-                    "agent-iteration",
-                    serde_json::json!({
-                        "iteration": iteration,
-                        "thought": thought,
-                        "tool_name": tool_name,
-                        "tool_result": tool_result,
-                    }),
-                );
-                continue;
-            }
-            TickResult::WaitForApproval { tools, iteration } => {
-                let tool = tools.first().cloned();
-                let tool_name = tool.as_ref().map(|t| t.name.clone());
-                let args = tool.as_ref().map(|t| t.arguments.to_string());
-                let mut sg = session_store.lock().unwrap();
-                *sg = Some(session);
-                return Ok(AgentResponse {
-                    session_id: format!("pending_{}", Local::now().timestamp()),
-                    reply_type: "tool_request".to_string(),
-                    text: None,
+        match run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await {
+            TickExecutionResult::Completed(tick_res) => match tick_res {
+                TickResult::Continue {
+                    thought,
                     tool_name,
-                    args,
-                    pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
-                    iteration: Some(iteration),
-                    total_iterations: Some(max_iterations),
-                    tool_result: None,
-                });
-            }
-            TickResult::Finished {
-                text,
-                total_iterations,
-            } => {
+                    tool_result,
+                    iteration,
+                } => {
+                    let _ = window.emit(
+                        "agent-iteration",
+                        serde_json::json!({
+                            "iteration": iteration,
+                            "thought": thought.clone(),
+                            "tool_name": tool_name.clone(),
+                            "tool_result": tool_result.clone(),
+                        }),
+                    );
+                    let mut log_msgs = Vec::new();
+                    if let Some(ref t) = thought {
+                        log_msgs.push(format!("[Suy nghĩ - Vòng {}] {}", iteration, t));
+                    }
+                    if let Some(ref tn) = tool_name {
+                        log_msgs.push(format!("[Gọi Công cụ] Đang thực thi công cụ: {}", tn));
+                    }
+                    if let Some(ref tr) = tool_result {
+                        let short_res = if tr.len() > 1000 { format!("{}... (cắt bớt)", &tr[..1000]) } else { tr.clone() };
+                        log_msgs.push(format!("[Kết quả Công cụ] Phản hồi: {}", short_res));
+                    }
+                    for msg in log_msgs {
+                        rig_bridge::agent_log(Some(&window), &msg);
+                    }
+                    continue;
+                }
+                TickResult::WaitForApproval { tools, iteration } => {
+                    let tool = tools.first().cloned();
+                    let tool_name = tool.as_ref().map(|t| t.name.clone());
+                    let args = tool.as_ref().map(|t| t.arguments.to_string());
+                    let mut sg = session_store.lock().unwrap();
+                    *sg = Some(session);
+                    rig_bridge::agent_log(Some(&window), &format!("[Chờ phê duyệt] Yêu cầu cấp quyền chạy công cụ: {:?}", tool_name));
+                    return Ok(AgentResponse {
+                        session_id: format!("pending_{}", Local::now().timestamp()),
+                        reply_type: "tool_request".to_string(),
+                        text: None,
+                        tool_name,
+                        args,
+                        pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
+                        iteration: Some(iteration),
+                        total_iterations: Some(max_iterations),
+                        tool_result: None,
+                    });
+                }
+                TickResult::Finished {
+                    text,
+                    total_iterations,
+                } => {
+                    let _ = window.emit(
+                        "agent-activity",
+                        serde_json::json!({
+                            "status": "idle",
+                        }),
+                    );
+                    let mut sg = session_store.lock().unwrap();
+                    *sg = Some(session);
+                    rig_bridge::agent_log(Some(&window), &format!("[Hoàn thành] Agent kết thúc vòng lặp sau {} bước.", total_iterations));
+                    return Ok(AgentResponse {
+                        session_id: saved_session_id,
+                        reply_type: "loop_result".to_string(),
+                        text: Some(text),
+                        tool_name: None,
+                        args: None,
+                        pending_id: None,
+                        iteration: Some(total_iterations),
+                        total_iterations: Some(max_iterations),
+                        tool_result: None,
+                    });
+                }
+                TickResult::Error { message, iteration } => {
+                    let _ = window.emit(
+                        "agent-activity",
+                        serde_json::json!({
+                            "status": "error",
+                        }),
+                    );
+                    rig_bridge::agent_log(Some(&window), &format!("[Lỗi Agent] Lỗi ở vòng {}: {}", iteration, message));
+                    return Err(format!("Agent error (iter {}): {}", iteration, message));
+                }
+            },
+            TickExecutionResult::Cancelled => {
                 let _ = window.emit(
-                    "agent-activity",
+                    "agent-cancelled",
                     serde_json::json!({
-                        "status": "idle",
+                        "reason": "user_cancelled",
                     }),
                 );
                 let mut sg = session_store.lock().unwrap();
                 *sg = Some(session);
+                rig_bridge::agent_log(Some(&window), "[Dừng] Agent đã bị dừng bởi người dùng.");
                 return Ok(AgentResponse {
                     session_id: saved_session_id,
-                    reply_type: "loop_result".to_string(),
-                    text: Some(text),
+                    reply_type: "cancelled".to_string(),
+                    text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                     tool_name: None,
                     args: None,
                     pending_id: None,
-                    iteration: Some(total_iterations),
-                    total_iterations: Some(max_iterations),
+                    iteration: None,
+                    total_iterations: None,
                     tool_result: None,
                 });
             }
-            TickResult::Error { message, iteration } => {
+            TickExecutionResult::Timeout => {
                 let _ = window.emit(
                     "agent-activity",
                     serde_json::json!({
                         "status": "error",
                     }),
                 );
-                return Err(format!("Agent error (iter {}): {}", iteration, message));
+                let mut sg = session_store.lock().unwrap();
+                *sg = Some(session);
+                rig_bridge::agent_log(Some(&window), "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.");
+                return Err("Đã hết thời gian chờ phản hồi từ Agent (Timeout 90 giây).".to_string());
             }
         }
     }

@@ -18,14 +18,12 @@ import {
   Unlock,
   Zap,
   GitBranch,
-  Sliders,
-  Bot,
   X,
-  Search,
   Copy,
   Check,
   ChevronDown,
   ChevronRight,
+  AlertCircle,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -80,10 +78,13 @@ export default function AiAgent({
   const [loopIterations, setLoopIterations] = useState<number>(0);
   const [totalIterations, setTotalIterations] = useState<number>(25);
   const [activeThought, setActiveThought] = useState<string | null>(null);
+  const [consoleLogs, setConsoleLogs] = useState<Array<{ message: string; timestamp: string }>>([]);
+  const [logsExpanded, setLogsExpanded] = useState(false);
+  const logsEndRef = useRef<HTMLDivElement>(null);
 
   const [inputVal, setInputVal] = useState("");
   const [isTyping, setIsTyping] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("deepseek");
+  const [selectedModel, setSelectedModel] = useState("gemini-3.5-flash");
   const [selectedMode, setSelectedMode] = useState("interactive");
   const [menuOpen, setMenuOpen] = useState(false);
   const [sessionTitle, setSessionTitle] = useState("Agent Active Session #1");
@@ -103,9 +104,9 @@ export default function AiAgent({
   const [availableModels, setAvailableModels] = useState<
     { id: string; name: string }[]
   >([
-    { id: "deepseek", name: "DeepSeek" },
-    { id: "claude", name: "Claude" },
-    { id: "gemini", name: "Gemini" },
+    { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
+    { id: "claude-opus-4.7", name: "Claude Opus 4.7" },
+    { id: "deepseek-v4-pro", name: "DeepSeek-V4 Pro" },
   ]);
 
   const [capabilities, setCapabilities] = useState(() => {
@@ -121,7 +122,7 @@ export default function AiAgent({
           logSystem: true,
           build: true,
           browser: false,
-          interaction: "full", // "readonly" or "full"
+          interaction: "full",
           postMini: false,
           git: true,
         };
@@ -145,51 +146,63 @@ export default function AiAgent({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
-  // Track active session to scope iteration events correctly
-  const activeSessionId = useRef<string>("");
-  // Track processed iteration IDs to prevent duplicates from event race
   const processedIters = useRef<Set<string>>(new Set());
 
-  // Dynamically load active models from localStorage
   useEffect(() => {
-    const loadActiveModels = () => {
+    const loadActiveModels = async () => {
+      let activeIds: string[] = ["deepseek-v4-pro", "claude-opus-4.7", "gemini-3.5-flash"];
+      let activeModelBackend = "";
+      try {
+        const config = await invoke<any>("get_custom_ai_config");
+        if (config) {
+          activeModelBackend = config.active_model;
+        }
+      } catch (e) {
+        console.error("Failed to fetch custom AI config:", e);
+      }
+
       const savedActive = localStorage.getItem("alouette_active_models");
-      const activeIds: string[] = savedActive
-        ? JSON.parse(savedActive)
-        : ["deepseek", "claude", "gemini"];
+      if (savedActive) {
+        try {
+          activeIds = JSON.parse(savedActive);
+        } catch (_) {}
+      } else if (activeModelBackend) {
+        activeIds = [activeModelBackend];
+      }
 
       const savedCustom = localStorage.getItem("alouette_custom_models");
       const customs: any[] = savedCustom ? JSON.parse(savedCustom) : [];
 
       const list: { id: string; name: string }[] = [];
 
-      // Full lists of the strongest 2026 models mapped to active providers
       const providerModelsMapping: {
         [providerId: string]: { id: string; name: string }[];
       } = {
         deepseek: [
-          { id: "deepseek-v4-pro", name: "DeepSeek-V4 Pro (2026)" },
+          { id: "deepseek-v4-pro", name: "DeepSeek-V4 Pro" },
           { id: "deepseek-v4", name: "DeepSeek-V4" },
-          { id: "deepseek-r1", name: "DeepSeek-R1 (Reasoning)" },
+          { id: "deepseek-v4-flash", name: "DeepSeek-V4 Flash" },
+          { id: "deepseek-r1", name: "DeepSeek-R1" },
         ],
         "gpt-chatgpt": [
-          { id: "gpt-5.5", name: "GPT-5.5 (2026)" },
+          { id: "gpt-5.5", name: "GPT-5.5" },
           { id: "o1-pro", name: "o1-Pro (Reasoning)" },
           { id: "o3-mini", name: "o3-Mini (Coding)" },
           { id: "gpt-4o", name: "GPT-4o (Vision)" },
         ],
         gemini: [
-          { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash (2026)" },
+          { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
           { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro" },
+          { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
+          { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
         ],
         claude: [
-          { id: "claude-opus-4.7", name: "Claude Opus 4.7 (2026)" },
+          { id: "claude-opus-4.7", name: "Claude Opus 4.7" },
           { id: "claude-sonnet-5", name: "Claude Sonnet 5" },
         ],
-        qwen: [{ id: "qwen-3.7-max", name: "Qwen 3.7 Max (2026)" }],
+        qwen: [{ id: "qwen-3.7-max", name: "Qwen 3.7 Max" }],
       };
 
-      // Populate predefined models if the specific model ID is active in activeIds
       Object.keys(providerModelsMapping).forEach((provId) => {
         providerModelsMapping[provId].forEach((m) => {
           if (activeIds.includes(m.id)) {
@@ -198,7 +211,6 @@ export default function AiAgent({
         });
       });
 
-      // Populate custom models
       customs.forEach((c) => {
         if (activeIds.includes(c.id)) {
           list.push({ id: c.id, name: `${c.provider} - ${c.name}` });
@@ -209,6 +221,9 @@ export default function AiAgent({
         setAvailableModels(list);
         setSelectedModel((prev) => {
           if (list.some((m) => m.id === prev)) return prev;
+          if (activeModelBackend && list.some((m) => m.id === activeModelBackend)) {
+            return activeModelBackend;
+          }
           return list[0].id;
         });
       }
@@ -216,9 +231,8 @@ export default function AiAgent({
 
     loadActiveModels();
 
-    // Listening for instant saves from Admin panel
     window.addEventListener("storage", loadActiveModels);
-    const interval = setInterval(loadActiveModels, 1000);
+    const interval = setInterval(loadActiveModels, 2000);
 
     return () => {
       window.removeEventListener("storage", loadActiveModels);
@@ -226,12 +240,30 @@ export default function AiAgent({
     };
   }, []);
 
-  // Auto scroll
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, isTyping]);
 
-  // Listen to agent tool execution activity
+  useEffect(() => {
+    if (logsExpanded) {
+      logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [consoleLogs, logsExpanded]);
+
+  useEffect(() => {
+    let unlistenFn: any;
+    const setupConsoleListener = async () => {
+      unlistenFn = await listen("agent-console-log", (event: any) => {
+        const payload = event.payload as { message: string; timestamp: string };
+        setConsoleLogs((prev) => [...prev, payload]);
+      });
+    };
+    setupConsoleListener();
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
+
   useEffect(() => {
     let unlistenFn: any;
     const setupListener = async () => {
@@ -245,14 +277,12 @@ export default function AiAgent({
     };
   }, []);
 
-  // Listen for agent loop iteration real-time events
   useEffect(() => {
     let unlistenFn: any;
     const setupIterationListener = async () => {
       unlistenFn = await listen("agent-iteration", (event: any) => {
         const data = event.payload;
 
-        // Skip if iteration IDs already processed (prevent duplicates)
         const iterKey = `iter_${data.iteration}`;
         if (processedIters.current.has(iterKey)) return;
         processedIters.current.add(iterKey);
@@ -301,7 +331,6 @@ export default function AiAgent({
     };
   }, []);
 
-  // Listen for Alouette Open background error event
   useEffect(() => {
     let unlistenFn: any;
     const setupErrorListener = async () => {
@@ -313,7 +342,6 @@ export default function AiAgent({
           let clean = p.replace(/\\/g, "/").toLowerCase();
           if (clean.startsWith("//?/")) clean = clean.substring(4);
           if (clean.startsWith("\\\\?\\")) clean = clean.substring(4);
-          // Strip UNC prefix specifically
           clean = clean.replace(/^\/\/\?\//, "");
           return clean;
         };
@@ -343,7 +371,6 @@ export default function AiAgent({
     };
   }, [activeProjectCwd, activeProjectId]);
 
-  // Auto-resize textarea height
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -351,7 +378,6 @@ export default function AiAgent({
     }
   }, [inputVal]);
 
-  // Click outside to close dropdown menu
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent) => {
       if (
@@ -382,11 +408,9 @@ export default function AiAgent({
     setChatHistory((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
-    // Reset iteration tracking for new message
     processedIters.current = new Set();
     setLoopIterations(0);
 
-    // Map custom model ID to its actual name before sending to backend
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {
       const savedCustom = localStorage.getItem("alouette_custom_models");
@@ -439,10 +463,8 @@ export default function AiAgent({
       }
 
       if (response.reply_type === "loop_result") {
-        // Loop result từ autonomous execution
         const loopResult = response.loop_result;
         if (loopResult) {
-          // Show each iteration as skill_call
           if (loopResult.iterations) {
             setChatHistory((prev) => {
               let nextHistory = [...prev];
@@ -473,7 +495,6 @@ export default function AiAgent({
               return nextHistory;
             });
           }
-          // Show final text
           if (loopResult.final_text) {
             setChatHistory((prev) => [
               ...prev,
@@ -599,7 +620,6 @@ export default function AiAgent({
 
     setIsTyping(true);
 
-    // Map custom model ID to its actual name before sending to backend
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {
       const savedCustom = localStorage.getItem("alouette_custom_models");
@@ -662,7 +682,6 @@ export default function AiAgent({
         loopResult.iterations &&
         loopResult.iterations.length > 1
       ) {
-        // Show each iteration as skill_call
         setChatHistory((prev) => {
           let nextHistory = [...prev];
           for (const iter of loopResult.iterations) {
@@ -736,7 +755,6 @@ export default function AiAgent({
 
     setIsTyping(true);
 
-    // Map custom model ID to its actual name before sending to backend
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {
       const savedCustom = localStorage.getItem("alouette_custom_models");
@@ -786,6 +804,14 @@ export default function AiAgent({
       setMenuOpen(false);
     } catch (err: any) {
       alert(`Lỗi khi reset session: ${err?.message || err}`);
+    }
+  };
+
+  const handleCancel = async () => {
+    try {
+      await invoke("agent_cancel");
+    } catch (err: any) {
+      console.error("Failed to cancel agent:", err);
     }
   };
 
@@ -860,118 +886,247 @@ export default function AiAgent({
     { key: "git", label: "Git", icon: GitBranch, isActive: capabilities.git },
   ];
 
+  const getToolStatusIcon = (status?: string) => {
+    switch (status) {
+      case "running":
+        return <RefreshCw size={11} className="agent-spin" />;
+      case "success":
+        return <Check size={11} style={{ color: "#22c55e" }} />;
+      case "failed":
+        return <X size={11} style={{ color: "#ef4444" }} />;
+      case "waiting":
+        return <AlertCircle size={11} style={{ color: "#f59e0b" }} />;
+      default:
+        return null;
+    }
+  };
+
+  const getToolStatusText = (status?: string) => {
+    switch (status) {
+      case "running":
+        return "Đang chạy";
+      case "success":
+        return "Hoàn thành";
+      case "failed":
+        return "Thất bại";
+      case "waiting":
+        return "Chờ duyệt";
+      case "approved":
+        return "Đã duyệt";
+      case "rejected":
+        return "Đã từ chối";
+      default:
+        return "";
+    }
+  };
+
+  const getFriendlyToolName = (name: string) => {
+    switch (name) {
+      case "read_file":
+      case "read_file_range":
+        return "📄 Đọc tệp tin";
+      case "write_file":
+        return "✍️ Ghi tệp tin";
+      case "execute_command":
+        return "💻 Chạy lệnh terminal";
+      case "search_files":
+        return "🔍 Tìm kiếm tệp";
+      case "scan_directory_tree":
+      case "scan_subdirectory":
+        return "📁 Quét thư mục";
+      case "extract_symbol":
+      case "search_symbol":
+        return "🏷️ Truy xuất mã nguồn";
+      case "save_memory":
+        return "💾 Lưu ký ức";
+      case "search_memory":
+        return "🧠 Tìm kiếm ký ức";
+      case "check_port":
+        return "🔌 Kiểm tra cổng mạng";
+      default:
+        return `⚙️ Công cụ: ${name}`;
+    }
+  };
+
   return (
     <div
       style={{
         display: "flex",
         flexDirection: "column",
         height: "100%",
-        backgroundColor: "var(--bg-secondary)",
+        background: "var(--bg-primary)",
         color: "var(--text-primary)",
         overflow: "hidden",
+        fontFamily: "var(--font-sans)",
       }}
     >
       <style>{`
         .message-container:hover .copy-button-hover {
           opacity: 1 !important;
         }
+        @keyframes agentSlideUp {
+          from { opacity: 0; transform: translateY(4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .agent-fade-in {
+          animation: agentSlideUp 0.15s ease-out;
+        }
+        .agent-spin {
+          animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        @keyframes agentTyping {
+          0%, 100% { opacity: 0.4; transform: translateY(0); }
+          50% { opacity: 1; transform: translateY(-1.5px); }
+        }
+        .agent-typing-dot:nth-child(1) { animation: agentTyping 1.2s ease-in-out 0s infinite; }
+        .agent-typing-dot:nth-child(2) { animation: agentTyping 1.2s ease-in-out 0.2s infinite; }
+        .agent-typing-dot:nth-child(3) { animation: agentTyping 1.2s ease-in-out 0.4s infinite; }
+        .agent-capsule-btn {
+          transition: all 0.1s ease;
+        }
+        .agent-capsule-btn:hover {
+          background: var(--bg-secondary) !important;
+        }
+        .agent-select {
+          appearance: none;
+          background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+          background-repeat: no-repeat;
+          background-position: right 6px center;
+          padding-right: 20px !important;
+        }
+        .agent-scroll::-webkit-scrollbar {
+          width: 4px;
+        }
+        .agent-scroll::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        .agent-scroll::-webkit-scrollbar-thumb {
+          background: var(--border-primary);
+          border-radius: 4px;
+        }
+        .agent-scroll::-webkit-scrollbar-thumb:hover {
+          background: var(--text-muted);
+        }
+        .agent-dropdown-item {
+          transition: background 0.1s ease;
+        }
+        .agent-dropdown-item:hover {
+          background: var(--bg-tertiary) !important;
+        }
+        .agent-header-btn {
+          transition: all 0.1s ease;
+          cursor: pointer;
+        }
+        .agent-header-btn:hover {
+          background: var(--bg-secondary) !important;
+        }
       `}</style>
-      {/* Monochromatic Header */}
+
+      {/* ===== HEADER ===== */}
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          justifyContent: "space-between", // Space between title and actions dropdown
-          padding: "10px 14px",
+          justifyContent: "space-between",
+          padding: "0 12px",
+          height: "36px",
           borderBottom: "1px solid var(--border-primary)",
-          backgroundColor: "var(--bg-secondary)",
-          height: "41px",
+          background: "var(--bg-primary)",
+          flexShrink: 0,
           position: "relative",
         }}
       >
-        {/* Chat Session Title (Left side) */}
-        <span
-          style={{
-            fontSize: "12px",
-            fontWeight: 600,
-            color: "var(--text-primary)",
-            fontFamily: "var(--font-sans)",
-            letterSpacing: "-0.01em",
-          }}
-        >
-          {sessionTitle}
-        </span>
+        {/* Left: Brand + Session */}
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0px" }}>
+            <span
+              style={{
+                fontSize: "11.5px",
+                fontWeight: 600,
+                color: "var(--text-primary)",
+                lineHeight: 1.2,
+              }}
+            >
+              {sessionTitle}
+            </span>
+            <span
+              style={{
+                fontSize: "9px",
+                color: "var(--text-muted)",
+                lineHeight: 1,
+              }}
+            >
+              {chatHistory.length} tin nhắn · {selectedMode}
+            </span>
+          </div>
+        </div>
 
-        {/* Top Right "+" Actions Dropdown container */}
-        <div
-          ref={dropdownRef}
-          style={{
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-          }}
-        >
+        {/* Right: Actions */}
+        <div ref={dropdownRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
           <button
             onClick={() => setMenuOpen(!menuOpen)}
+            className="agent-header-btn"
             style={{
-              background: "var(--bg-tertiary)",
-              border: "1px solid var(--border-primary)",
-              color: "var(--text-primary)",
               width: "28px",
               height: "28px",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
-              cursor: "pointer",
-              boxShadow: "0 1px 3px rgba(0, 0, 0, 0.4)",
-              transition: "all var(--transition-fast)",
+              background: menuOpen ? "var(--bg-tertiary)" : "transparent",
+              border: menuOpen
+                ? "1px solid var(--border-primary)"
+                : "1px solid transparent",
+              color: "var(--text-secondary)",
+              borderRadius: "6px",
               padding: 0,
-              boxSizing: "border-box",
             }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--border-primary)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--bg-tertiary)")
-            }
           >
-            <Plus size={16} />
+            <Plus size={15} />
           </button>
 
           {menuOpen && (
             <div
               style={{
                 position: "absolute",
-                top: "100%",
+                top: "calc(100% + 6px)",
                 right: 0,
-                marginTop: "6px",
-                backgroundColor: "var(--bg-secondary)",
+                minWidth: "180px",
+                background: "var(--bg-secondary)",
                 border: "1px solid var(--border-primary)",
-                boxShadow: "0 8px 16px rgba(0, 0, 0, 0.4)",
-                padding: "2px",
-                minWidth: "160px",
+                borderRadius: "8px",
+                boxShadow:
+                  "0 12px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2)",
+                padding: "4px",
                 zIndex: 100,
               }}
             >
               <button
                 onClick={handleNewChat}
+                className="agent-dropdown-item"
                 style={{
                   width: "100%",
-                  padding: "6px 8px",
+                  padding: "7px 10px",
                   textAlign: "left",
                   background: "none",
                   border: "none",
                   color: "var(--text-primary)",
-                  fontSize: "11px",
+                  fontSize: "11.5px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "6px",
+                  gap: "8px",
+                  borderRadius: "6px",
                 }}
-                className="dropdown-item"
               >
-                <Plus size={11} />
-                <span>Chat new</span>
+                <Plus
+                  size={13}
+                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
+                />
+                <span>New Chat</span>
               </button>
 
               <button
@@ -979,22 +1134,26 @@ export default function AiAgent({
                   alert("Chức năng thêm model đang được phát triển.");
                   setMenuOpen(false);
                 }}
+                className="agent-dropdown-item"
                 style={{
                   width: "100%",
-                  padding: "6px 8px",
+                  padding: "7px 10px",
                   textAlign: "left",
                   background: "none",
                   border: "none",
                   color: "var(--text-primary)",
-                  fontSize: "11px",
+                  fontSize: "11.5px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "6px",
+                  gap: "8px",
+                  borderRadius: "6px",
                 }}
-                className="dropdown-item"
               >
-                <Layers size={11} />
+                <Layers
+                  size={13}
+                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
+                />
                 <span>Thêm model</span>
               </button>
 
@@ -1003,30 +1162,34 @@ export default function AiAgent({
                   alert("Chức năng xem lịch sử chat đang được phát triển.");
                   setMenuOpen(false);
                 }}
+                className="agent-dropdown-item"
                 style={{
                   width: "100%",
-                  padding: "6px 8px",
+                  padding: "7px 10px",
                   textAlign: "left",
                   background: "none",
                   border: "none",
                   color: "var(--text-primary)",
-                  fontSize: "11px",
+                  fontSize: "11.5px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "6px",
+                  gap: "8px",
+                  borderRadius: "6px",
                 }}
-                className="dropdown-item"
               >
-                <History size={11} />
+                <History
+                  size={13}
+                  style={{ color: "var(--text-muted)", flexShrink: 0 }}
+                />
                 <span>Lịch sử chat</span>
               </button>
 
               <div
                 style={{
                   height: "1px",
-                  backgroundColor: "var(--border-primary)",
-                  margin: "2px 0",
+                  background: "var(--border-primary)",
+                  margin: "4px 8px",
                 }}
               />
 
@@ -1035,22 +1198,23 @@ export default function AiAgent({
                   onBack();
                   setMenuOpen(false);
                 }}
+                className="agent-dropdown-item"
                 style={{
                   width: "100%",
-                  padding: "6px 8px",
+                  padding: "7px 10px",
                   textAlign: "left",
                   background: "none",
                   border: "none",
-                  color: "var(--text-secondary)",
-                  fontSize: "11px",
+                  color: "var(--text-muted)",
+                  fontSize: "11.5px",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
-                  gap: "6px",
+                  gap: "8px",
+                  borderRadius: "6px",
                 }}
-                className="dropdown-item"
               >
-                <ArrowLeft size={11} />
+                <ArrowLeft size={13} style={{ flexShrink: 0 }} />
                 <span>Quay lại Quản lý</span>
               </button>
             </div>
@@ -1058,126 +1222,160 @@ export default function AiAgent({
         </div>
       </div>
 
-      {/* Seamless Chat Timeline */}
+      {/* ===== CHAT TIMELINE ===== */}
       <div
+        className="agent-scroll"
         style={{
           flex: 1,
           overflowY: "auto",
-          padding: "14px",
+          padding: "16px",
           display: "flex",
           flexDirection: "column",
-          gap: "12px",
+          gap: "10px",
         }}
       >
+        {chatHistory.length === 0 && !isTyping && (
+          <div
+            style={{
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: "8px",
+              padding: "40px 20px",
+              opacity: 0.7,
+            }}
+          >
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                  marginBottom: "4px",
+                }}
+              >
+                Alouette AI Agent
+              </div>
+              <div
+                style={{
+                  fontSize: "11px",
+                  color: "var(--text-muted)",
+                  maxWidth: "280px",
+                  lineHeight: "1.5",
+                }}
+              >
+                Gửi tin nhắn để bắt đầu. Có thể giúp bạn đọc/ghi tệp, chạy terminal, tìm kiếm mã nguồn.
+              </div>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: "6px",
+                marginTop: "8px",
+                flexWrap: "wrap",
+                justifyContent: "center",
+              }}
+            >
+              {["DeepSeek-V4", "Claude Opus", "Gemini 3.5"].map((m) => (
+                <span
+                  key={m}
+                  style={{
+                    padding: "3px 8px",
+                    fontSize: "9.5px",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-primary)",
+                    color: "var(--text-muted)",
+                    borderRadius: "4px",
+                  }}
+                >
+                  {m}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {chatHistory.map((item) => {
           const isUser = item.sender === "user";
-
           if (item.type === "agent_activity") {
             return (
               <div
                 key={item.id}
-                className="message-container"
+                className="message-container agent-fade-in"
                 style={{
-                  padding: "8px 10px",
-                  backgroundColor: "var(--bg-primary)",
+                  padding: "8px 12px",
+                  background: "var(--bg-secondary)",
                   border: "1px solid var(--border-primary)",
+                  borderRadius: "6px",
                   fontSize: "11px",
                   fontFamily: "var(--font-mono)",
                   color: "var(--text-secondary)",
-                  lineHeight: "1.4",
+                  lineHeight: "1.5",
                   whiteSpace: "pre-wrap",
                   position: "relative",
                 }}
               >
-                {item.text}
-                {item.text && (
-                  <button
-                    onClick={() => handleCopy(item.id, item.text || "")}
-                    className="copy-button-hover"
-                    title="Sao chép nội dung"
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    marginBottom: "4px",
+                  }}
+                >
+                  <span
                     style={{
-                      position: "absolute",
-                      right: "6px",
-                      top: "6px",
-                      background: "var(--bg-tertiary)",
-                      border: "1px solid var(--border-primary)",
-                      color: "var(--text-primary)",
-                      borderRadius: "3px",
-                      width: "24px",
-                      height: "24px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      opacity: 0,
-                      transition: "opacity 0.2s, background-color 0.2s",
+                      fontSize: "9px",
+                      fontWeight: 600,
+                      color: "var(--text-secondary)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.05em",
                     }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.backgroundColor =
-                        "var(--border-primary)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.backgroundColor =
-                        "var(--bg-tertiary)")
-                    }
                   >
-                    {copiedId === item.id ? (
-                      <Check size={12} style={{ color: "#22c55e" }} />
-                    ) : (
-                      <Copy size={12} />
-                    )}
-                  </button>
-                )}
+                    Hoạt động
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "9px",
+                      color: "var(--text-muted)",
+                      marginLeft: "auto",
+                    }}
+                  >
+                    {item.timestamp}
+                  </span>
+                </div>
+                <div style={{ color: "var(--text-primary)", fontSize: "11px" }}>
+                  {item.text}
+                </div>
               </div>
             );
           }
 
           if (item.type === "skill_call") {
             const isExpanded = !!expandedSkills[item.id];
-
-            const getFriendlyToolName = (name: string) => {
-              switch (name) {
-                case "read_file":
-                case "read_file_range":
-                  return "📄 Đọc tệp tin";
-                case "write_file":
-                  return "✍️ Ghi tệp tin";
-                case "execute_command":
-                  return "💻 Chạy lệnh terminal";
-                case "search_files":
-                  return "🔍 Tìm kiếm tệp";
-                case "scan_directory_tree":
-                case "scan_subdirectory":
-                  return "📁 Quét thư mục";
-                case "extract_symbol":
-                case "search_symbol":
-                  return "🏷️ Truy xuất mã nguồn";
-                case "save_memory":
-                  return "💾 Lưu ký ức";
-                case "search_memory":
-                  return "🧠 Tìm kiếm ký ức";
-                case "check_port":
-                  return "🔌 Kiểm tra cổng mạng";
-                default:
-                  return `⚙️ Công cụ: ${name}`;
-              }
-            };
-
-            const friendlyName = getFriendlyToolName(item.toolName || "");
+            const statusColor =
+              item.toolStatus === "success"
+                ? "#22c55e"
+                : item.toolStatus === "failed"
+                  ? "#ef4444"
+                  : item.toolStatus === "running"
+                    ? "#6366f1"
+                    : "var(--text-muted)";
 
             return (
               <div
                 key={item.id}
+                className="message-container agent-fade-in"
                 style={{
                   border: "1px solid var(--border-primary)",
-                  backgroundColor: "var(--bg-primary)",
-                  display: "flex",
-                  flexDirection: "column",
-                  fontSize: "11px",
-                  fontFamily: "var(--font-sans)",
+                  borderRadius: "8px",
+                  background: "var(--bg-primary)",
+                  overflow: "hidden",
                 }}
               >
-                {/* Header Toggle */}
+                {/* Header */}
                 <div
                   onClick={() => {
                     setExpandedSkills((prev) => ({
@@ -1192,10 +1390,19 @@ export default function AiAgent({
                     padding: "8px 12px",
                     cursor: "pointer",
                     userSelect: "none",
-                    backgroundColor: isExpanded
-                      ? "rgba(255, 255, 255, 0.02)"
+                    background: isExpanded
+                      ? "rgba(255,255,255,0.015)"
                       : "transparent",
-                    transition: "background-color 0.2s",
+                    transition: "background 0.15s",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isExpanded)
+                      e.currentTarget.style.background =
+                        "rgba(255,255,255,0.02)";
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isExpanded)
+                      e.currentTarget.style.background = "transparent";
                   }}
                 >
                   <div
@@ -1207,19 +1414,23 @@ export default function AiAgent({
                   >
                     {isExpanded ? (
                       <ChevronDown
-                        size={12}
-                        style={{ color: "var(--text-secondary)" }}
+                        size={11}
+                        style={{ color: "var(--text-muted)", flexShrink: 0 }}
                       />
                     ) : (
                       <ChevronRight
-                        size={12}
-                        style={{ color: "var(--text-secondary)" }}
+                        size={11}
+                        style={{ color: "var(--text-muted)", flexShrink: 0 }}
                       />
                     )}
                     <span
-                      style={{ fontWeight: 600, color: "var(--text-primary)" }}
+                      style={{
+                        fontSize: "11px",
+                        fontWeight: 600,
+                        color: "var(--text-primary)",
+                      }}
                     >
-                      {friendlyName}
+                      {getFriendlyToolName(item.toolName || "")}
                     </span>
                   </div>
 
@@ -1230,37 +1441,21 @@ export default function AiAgent({
                       gap: "8px",
                     }}
                   >
-                    {item.toolStatus === "running" && (
-                      <span
-                        style={{
-                          color: "var(--text-secondary)",
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "4px",
-                        }}
-                      >
-                        <RefreshCw size={10} className="animate-spin" />
-                        <span>Đang chạy...</span>
-                      </span>
-                    )}
-                    {item.toolStatus === "success" && (
-                      <span style={{ color: "var(--text-secondary)" }}>
-                        ✓ Hoàn thành
-                      </span>
-                    )}
-                    {item.toolStatus === "failed" && (
-                      <span
-                        style={{ color: "var(--text-muted)", fontWeight: 500 }}
-                      >
-                        ✕ Thất bại
-                      </span>
-                    )}
                     <span
                       style={{
                         fontSize: "9px",
-                        color: "var(--text-muted)",
-                        marginLeft: "4px",
+                        color: statusColor,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "3px",
+                        fontWeight: 500,
                       }}
+                    >
+                      {getToolStatusIcon(item.toolStatus)}
+                      {getToolStatusText(item.toolStatus)}
+                    </span>
+                    <span
+                      style={{ fontSize: "9px", color: "var(--text-muted)" }}
                     >
                       {item.timestamp}
                     </span>
@@ -1272,44 +1467,47 @@ export default function AiAgent({
                   <div
                     style={{
                       borderTop: "1px solid var(--border-primary)",
-                      backgroundColor: "var(--bg-secondary)",
-                      padding: "10px",
+                      background: "var(--bg-secondary)",
+                      padding: "10px 12px",
                       display: "flex",
                       flexDirection: "column",
                       gap: "8px",
                     }}
                   >
-                    {/* Arguments */}
-                    <div>
-                      <div
-                        style={{
-                          fontSize: "9px",
-                          color: "var(--text-muted)",
-                          textTransform: "uppercase",
-                          fontWeight: 700,
-                          marginBottom: "4px",
-                        }}
-                      >
-                        Tham số đầu vào:
+                    {item.args && (
+                      <div>
+                        <div
+                          style={{
+                            fontSize: "9px",
+                            color: "var(--text-muted)",
+                            textTransform: "uppercase",
+                            fontWeight: 700,
+                            marginBottom: "4px",
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          Tham số đầu vào
+                        </div>
+                        <pre
+                          style={{
+                            margin: 0,
+                            padding: "6px 8px",
+                            background: "var(--bg-primary)",
+                            border: "1px solid var(--border-primary)",
+                            borderRadius: "6px",
+                            fontFamily: "var(--font-mono)",
+                            fontSize: "10px",
+                            color: "var(--text-primary)",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-all",
+                            lineHeight: "1.4",
+                          }}
+                        >
+                          {item.args}
+                        </pre>
                       </div>
-                      <pre
-                        style={{
-                          margin: 0,
-                          padding: "6px 8px",
-                          backgroundColor: "var(--bg-primary)",
-                          border: "1px solid var(--border-primary)",
-                          fontFamily: "var(--font-mono)",
-                          fontSize: "10px",
-                          color: "var(--text-primary)",
-                          whiteSpace: "pre-wrap",
-                          wordBreak: "break-all",
-                        }}
-                      >
-                        {item.args}
-                      </pre>
-                    </div>
+                    )}
 
-                    {/* Result */}
                     {item.toolResult && (
                       <div>
                         <div
@@ -1319,16 +1517,18 @@ export default function AiAgent({
                             textTransform: "uppercase",
                             fontWeight: 700,
                             marginBottom: "4px",
+                            letterSpacing: "0.04em",
                           }}
                         >
-                          Kết quả trả về:
+                          Kết quả trả về
                         </div>
                         <pre
                           style={{
                             margin: 0,
                             padding: "6px 8px",
-                            backgroundColor: "var(--bg-primary)",
+                            background: "var(--bg-primary)",
                             border: "1px solid var(--border-primary)",
+                            borderRadius: "6px",
                             fontFamily: "var(--font-mono)",
                             fontSize: "10px",
                             color: "var(--text-secondary)",
@@ -1336,6 +1536,7 @@ export default function AiAgent({
                             wordBreak: "break-all",
                             maxHeight: "180px",
                             overflowY: "auto",
+                            lineHeight: "1.4",
                           }}
                         >
                           {item.toolResult}
@@ -1352,10 +1553,12 @@ export default function AiAgent({
             return (
               <div
                 key={item.id}
+                className="message-container agent-fade-in"
                 style={{
-                  padding: "10px",
-                  backgroundColor: "var(--bg-primary)",
+                  borderRadius: "6px",
                   border: "1px solid var(--border-primary)",
+                  background: "var(--bg-secondary)",
+                  padding: "10px 12px",
                   display: "flex",
                   flexDirection: "column",
                   gap: "8px",
@@ -1368,32 +1571,47 @@ export default function AiAgent({
                     alignItems: "center",
                   }}
                 >
-                  <span
+                  <div
                     style={{
-                      fontSize: "9.5px",
-                      textTransform: "uppercase",
-                      fontWeight: 700,
-                      color: "var(--text-secondary)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
                     }}
                   >
-                    ⚙️ Yêu cầu chạy công cụ
-                  </span>
+                    <span
+                      style={{
+                        fontSize: "10px",
+                        fontWeight: 700,
+                        color: "var(--text-secondary)",
+                        textTransform: "uppercase",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      Yêu cầu chạy công cụ
+                    </span>
+                  </div>
                   <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
                     {item.timestamp}
                   </span>
                 </div>
+
                 <div
                   style={{
                     fontFamily: "var(--font-mono)",
-                    fontSize: "10.5px",
+                    fontSize: "11px",
                     color: "var(--text-primary)",
-                    backgroundColor: "var(--bg-secondary)",
-                    padding: "6px 8px",
+                    background: "var(--bg-primary)",
+                    padding: "6px 10px",
                     border: "1px solid var(--border-primary)",
+                    borderRadius: "6px",
                     wordBreak: "break-all",
+                    lineHeight: "1.4",
                   }}
                 >
-                  <strong>{item.toolName}</strong> {item.args}
+                  <strong style={{ color: "var(--text-primary)" }}>{item.toolName}</strong>{" "}
+                  <span style={{ color: "var(--text-secondary)" }}>
+                    {item.args}
+                  </span>
                 </div>
 
                 {item.toolStatus === "waiting" && (
@@ -1406,27 +1624,32 @@ export default function AiAgent({
                   >
                     <button
                       onClick={() => handleRejectTool(item.id)}
+                      className="agent-capsule-btn"
                       style={{
-                        padding: "4px 8px",
+                        padding: "5px 12px",
                         fontSize: "10.5px",
-                        backgroundColor: "transparent",
+                        background: "transparent",
                         border: "1px solid var(--border-primary)",
                         color: "var(--text-secondary)",
                         cursor: "pointer",
+                        borderRadius: "4px",
+                        fontWeight: 500,
                       }}
                     >
                       Từ chối
                     </button>
                     <button
                       onClick={() => handleApproveTool(item.id)}
+                      className="agent-capsule-btn"
                       style={{
-                        padding: "4px 8px",
+                        padding: "5px 12px",
                         fontSize: "10.5px",
-                        backgroundColor: "var(--border-primary)",
-                        border: "1px solid var(--border-primary)",
-                        color: "var(--text-primary)",
-                        fontWeight: 600,
+                        background: "var(--border-strong, #374151)",
+                        border: "none",
+                        color: "#fff",
                         cursor: "pointer",
+                        borderRadius: "4px",
+                        fontWeight: 600,
                       }}
                     >
                       Đồng ý chạy
@@ -1438,12 +1661,15 @@ export default function AiAgent({
                   <div
                     style={{
                       fontSize: "10px",
-                      color: "var(--text-secondary)",
+                      color: "#22c55e",
                       textAlign: "right",
-                      fontStyle: "italic",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "flex-end",
+                      gap: "4px",
                     }}
                   >
-                    ✓ Đã chấp thuận
+                    <Check size={10} /> Đã chấp thuận
                   </div>
                 )}
 
@@ -1463,11 +1689,11 @@ export default function AiAgent({
             );
           }
 
-          // Plain text messages (User or Agent)
+          // Text messages
           return (
             <div
               key={item.id}
-              className="message-container"
+              className="message-container agent-fade-in"
               style={{
                 display: "flex",
                 flexDirection: "column",
@@ -1476,37 +1702,54 @@ export default function AiAgent({
                 position: "relative",
               }}
             >
+              {/* Sender label */}
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: "5px",
-                  marginBottom: "2px",
+                  gap: "4px",
+                  marginBottom: "3px",
+                  padding: isUser ? "0 4px" : "0 2px",
                   fontSize: "10px",
-                  color: "var(--text-secondary)",
+                  color: "var(--text-muted)",
                 }}
               >
-                <span>{isUser ? "Bạn" : "Agent"}</span>
-                <span style={{ fontSize: "9px", opacity: 0.5 }}>
-                  • {item.timestamp}
+                <span
+                  style={{
+                    fontWeight: 500,
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {isUser ? "Bạn" : "Agent"}
                 </span>
+                <span style={{ fontSize: "9px", opacity: 0.5 }}>•</span>
+                <span style={{ fontSize: "9px" }}>{item.timestamp}</span>
               </div>
+
+              {/* Message bubble */}
               <div
                 style={{
-                  backgroundColor: isUser ? "var(--bg-primary)" : "transparent",
+                  maxWidth: "85%",
+                  width: isUser ? "auto" : "100%",
+                  background: isUser ? "var(--bg-secondary)" : "transparent",
                   color: "var(--text-primary)",
-                  padding: isUser ? "6px 10px" : "0px",
-                  fontSize: "12px",
-                  lineHeight: "1.4",
-                  whiteSpace: "pre-wrap",
+                  padding: isUser ? "8px 14px" : "0",
+                  borderRadius: "6px",
                   border: isUser ? "1px solid var(--border-primary)" : "none",
-                  maxWidth: "100%",
+                  fontSize: "12.5px",
+                  lineHeight: "1.55",
+                  whiteSpace: "pre-wrap",
                   position: "relative",
-                  width: "100%",
+                  wordBreak: "break-word",
                 }}
               >
-                {item.text}
+                {item.sender === "agent" && item.text?.startsWith("Lỗi") ? (
+                  <div style={{ color: "#ef4444" }}>{item.text}</div>
+                ) : (
+                  <div>{item.text}</div>
+                )}
 
+                {/* Copy button for agent messages */}
                 {!isUser && item.text && (
                   <button
                     onClick={() => handleCopy(item.id, item.text || "")}
@@ -1519,29 +1762,28 @@ export default function AiAgent({
                       background: "var(--bg-tertiary)",
                       border: "1px solid var(--border-primary)",
                       color: "var(--text-primary)",
-                      borderRadius: "3px",
-                      width: "24px",
-                      height: "24px",
+                      borderRadius: "4px",
+                      width: "22px",
+                      height: "22px",
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                       cursor: "pointer",
                       opacity: 0,
-                      transition: "opacity 0.2s, background-color 0.2s",
+                      transition: "opacity 0.15s, background 0.15s",
                     }}
                     onMouseEnter={(e) =>
-                      (e.currentTarget.style.backgroundColor =
+                      (e.currentTarget.style.background =
                         "var(--border-primary)")
                     }
                     onMouseLeave={(e) =>
-                      (e.currentTarget.style.backgroundColor =
-                        "var(--bg-tertiary)")
+                      (e.currentTarget.style.background = "var(--bg-tertiary)")
                     }
                   >
                     {copiedId === item.id ? (
-                      <Check size={12} style={{ color: "#22c55e" }} />
+                      <Check size={10} style={{ color: "#22c55e" }} />
                     ) : (
-                      <Copy size={12} />
+                      <Copy size={10} />
                     )}
                   </button>
                 )}
@@ -1550,18 +1792,23 @@ export default function AiAgent({
           );
         })}
 
+        {/* Typing Indicator */}
         {isTyping && (
-          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          <div
+            className="agent-fade-in"
+            style={{ display: "flex", flexDirection: "column", gap: "6px" }}
+          >
             {activeThought && (
               <div
                 style={{
                   fontSize: "10px",
-                  color: "var(--text-secondary)",
+                  color: "var(--text-muted)",
                   fontStyle: "italic",
-                  padding: "2px 8px",
+                  padding: "2px 4px",
+                  lineHeight: "1.4",
                 }}
               >
-                💭 {activeThought}
+                Suy nghĩ: {activeThought}
               </div>
             )}
             {activeTool.status === "executing" ? (
@@ -1571,48 +1818,78 @@ export default function AiAgent({
                   alignItems: "center",
                   gap: "8px",
                   padding: "8px 12px",
-                  backgroundColor: "rgba(255, 255, 255, 0.03)",
+                  background: "var(--bg-secondary)",
                   border: "1px solid var(--border-primary)",
+                  borderRadius: "6px",
                   fontSize: "11px",
-                  fontFamily: "var(--font-mono)",
                   color: "var(--text-primary)",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
                 }}
               >
-                <RefreshCw
-                  size={12}
-                  className="animate-spin"
-                  style={{ color: "var(--text-secondary)", marginRight: "4px" }}
-                />
                 <span>
                   AI đang chạy công cụ:{" "}
                   <strong style={{ color: "var(--text-primary)" }}>
                     {activeTool.tool_name}
                   </strong>
                 </span>
-                <span
-                  style={{
-                    fontSize: "10px",
-                    color: "var(--text-muted)",
-                    wordBreak: "break-all",
-                  }}
-                >
-                  ({activeTool.args})
-                </span>
+                {activeTool.args && (
+                  <span
+                    style={{
+                      fontSize: "10px",
+                      color: "var(--text-muted)",
+                      wordBreak: "break-all",
+                    }}
+                  >
+                    ({activeTool.args})
+                  </span>
+                )}
               </div>
             ) : (
               <div
                 style={{
+                  padding: "8px 4px",
                   display: "flex",
-                  gap: "4px",
-                  fontSize: "10px",
-                  color: "var(--text-muted)",
+                  alignItems: "center",
+                  gap: "10px",
                 }}
               >
-                <span>
-                  Agent đang xử lý...{" "}
+                <div
+                  style={{ display: "flex", alignItems: "center", gap: "2px" }}
+                >
+                  <span
+                    className="agent-typing-dot"
+                    style={{
+                      width: "4px",
+                      height: "4px",
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      display: "inline-block",
+                    }}
+                  />
+                  <span
+                    className="agent-typing-dot"
+                    style={{
+                      width: "4px",
+                      height: "4px",
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      display: "inline-block",
+                    }}
+                  />
+                  <span
+                    className="agent-typing-dot"
+                    style={{
+                      width: "4px",
+                      height: "4px",
+                      borderRadius: "50%",
+                      background: "var(--text-muted)",
+                      display: "inline-block",
+                    }}
+                  />
+                </div>
+                <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                  Agent đang xử lý
                   {loopIterations > 0
-                    ? `(${loopIterations}/${totalIterations})`
+                    ? ` (${loopIterations}/${totalIterations})`
                     : ""}
                 </span>
               </div>
@@ -1622,30 +1899,134 @@ export default function AiAgent({
         <div ref={chatEndRef} />
       </div>
 
-      {/* Input Bar & Advanced Controls Panel */}
+      {/* ===== REAL-TIME EXECUTION LOGS DRAWER ===== */}
+      {logsExpanded && (
+        <div
+          style={{
+            height: "180px",
+            borderTop: "1px solid var(--border-primary)",
+            background: "var(--bg-secondary)",
+            display: "flex",
+            flexDirection: "column",
+            flexShrink: 0,
+          }}
+        >
+          {/* Logs Header */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              padding: "4px 12px",
+              background: "var(--bg-tertiary)",
+              borderBottom: "1px solid var(--border-primary)",
+            }}
+          >
+            <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-secondary)", fontFamily: "var(--font-mono)" }}>
+              CONSOLE LOGS (NHẬT KÝ CHẠY THỰC TẾ)
+            </span>
+            <div style={{ display: "flex", gap: "8px" }}>
+              <button
+                onClick={() => setConsoleLogs([])}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: "9px",
+                  cursor: "pointer",
+                  padding: "2px 6px",
+                  borderRadius: "3px",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-primary)"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
+              >
+                Xóa logs
+              </button>
+              <button
+                onClick={() => setLogsExpanded(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-muted)",
+                  fontSize: "9px",
+                  cursor: "pointer",
+                  padding: "2px 6px",
+                  borderRadius: "3px",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.color = "var(--text-primary)"}
+                onMouseLeave={(e) => e.currentTarget.style.color = "var(--text-muted)"}
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+
+          {/* Logs Content */}
+          <div
+            className="agent-scroll"
+            style={{
+              flex: 1,
+              overflowY: "auto",
+              padding: "8px 12px",
+              fontFamily: "var(--font-mono)",
+              fontSize: "10px",
+              lineHeight: "1.4",
+              color: "#a7f3d0", // Light green terminal text
+              background: "#090d16", // Deep space dark background for terminal log look
+              display: "flex",
+              flexDirection: "column",
+              gap: "4px",
+            }}
+          >
+            {consoleLogs.length === 0 ? (
+              <div style={{ color: "var(--text-muted)", fontStyle: "italic", fontSize: "10px", padding: "8px 0" }}>
+                Chưa có nhật ký hoạt động nào. Hãy gửi tin nhắn cho Agent để bắt đầu ghi log.
+              </div>
+            ) : (
+              consoleLogs.map((log, idx) => {
+                const timeStr = new Date(log.timestamp).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                });
+                return (
+                  <div key={idx} style={{ display: "flex", gap: "6px", alignItems: "flex-start", wordBreak: "break-all" }}>
+                    <span style={{ color: "#6b7280", flexShrink: 0 }}>[{timeStr}]</span>
+                    <span style={{ whiteSpace: "pre-wrap" }}>{log.message}</span>
+                  </div>
+                );
+              })
+            )}
+            <div ref={logsEndRef} />
+          </div>
+        </div>
+      )}
+
+      {/* ===== BOTTOM INPUT BAR ===== */}
       <div
         style={{
-          padding: "10px 14px",
           borderTop: "1px solid var(--border-primary)",
-          backgroundColor: "var(--bg-secondary)",
+          background: "var(--bg-secondary)",
+          padding: "0 16px 12px",
           display: "flex",
           flexDirection: "column",
           gap: "8px",
+          flexShrink: 0,
         }}
       >
+        {/* Error banner */}
         {alouetteError && (
           <div
-            className="animate-fade-in"
+            className="agent-fade-in"
             style={{
-              padding: "10px 12px",
-              backgroundColor: "var(--bg-primary)",
-              border: "1px solid #ef4444",
-              borderRadius: "4px",
+              padding: "10px 14px",
+              background: "rgba(239, 68, 68, 0.06)",
+              border: "1px solid rgba(239, 68, 68, 0.2)",
+              borderRadius: "8px",
               display: "flex",
               flexDirection: "column",
               gap: "8px",
-              marginBottom: "4px",
-              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.5)",
+              marginTop: "10px",
             }}
           >
             <div
@@ -1658,16 +2039,19 @@ export default function AiAgent({
               <span
                 style={{
                   fontSize: "11px",
-                  fontWeight: 700,
+                  fontWeight: 600,
                   color: "var(--text-primary)",
                   display: "flex",
                   alignItems: "center",
                   gap: "6px",
                 }}
               >
-                <Bot size={14} style={{ color: "#ef4444" }} />{" "}
+                <AlertCircle size={13} style={{ color: "#ef4444" }} />
                 <span>
-                  Alouette A1 phát hiện lỗi ở [{alouetteError.projectName}]
+                  Lỗi ở{" "}
+                  <strong style={{ color: "#ef4444" }}>
+                    [{alouetteError.projectName}]
+                  </strong>
                 </span>
               </span>
               <button
@@ -1675,25 +2059,23 @@ export default function AiAgent({
                 style={{
                   background: "none",
                   border: "none",
-                  color: "var(--text-secondary)",
+                  color: "var(--text-muted)",
                   cursor: "pointer",
                   display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
                   padding: "2px",
-                  borderRadius: "3px",
-                  transition: "all 0.2s",
+                  borderRadius: "4px",
+                  transition: "all 0.15s",
                 }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = "var(--text-primary)";
-                  e.currentTarget.style.backgroundColor = "var(--bg-hover)";
+                  e.currentTarget.style.background = "rgba(255,255,255,0.05)";
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                  e.currentTarget.style.backgroundColor = "transparent";
+                  e.currentTarget.style.color = "var(--text-muted)";
+                  e.currentTarget.style.background = "transparent";
                 }}
               >
-                <X size={14} />
+                <X size={13} />
               </button>
             </div>
 
@@ -1701,15 +2083,16 @@ export default function AiAgent({
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: "10.5px",
-                color: "#ef4444",
-                backgroundColor: "rgba(239, 68, 68, 0.05)",
-                padding: "6px 8px",
-                border: "1px solid rgba(239, 68, 68, 0.15)",
-                borderRadius: "3px",
-                maxHeight: "80px",
+                color: "#fca5a5",
+                background: "rgba(239, 68, 68, 0.04)",
+                padding: "6px 10px",
+                border: "1px solid rgba(239, 68, 68, 0.1)",
+                borderRadius: "6px",
+                maxHeight: "72px",
                 overflowY: "auto",
                 whiteSpace: "pre-wrap",
                 wordBreak: "break-all",
+                lineHeight: "1.4",
               }}
             >
               {alouetteError.errorText}
@@ -1724,17 +2107,15 @@ export default function AiAgent({
             >
               <button
                 onClick={() => setAlouetteError(null)}
+                className="agent-capsule-btn"
                 style={{
-                  padding: "4px 8px",
+                  padding: "4px 10px",
                   fontSize: "10.5px",
-                  backgroundColor: "transparent",
+                  background: "transparent",
                   border: "1px solid var(--border-primary)",
                   color: "var(--text-secondary)",
                   cursor: "pointer",
-                  borderRadius: "3px",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
+                  borderRadius: "6px",
                 }}
               >
                 Bỏ qua
@@ -1744,21 +2125,22 @@ export default function AiAgent({
                   handleStartAnalyze(alouetteError.errorText);
                   setAlouetteError(null);
                 }}
+                className="agent-capsule-btn"
                 style={{
                   padding: "4px 10px",
                   fontSize: "10.5px",
-                  backgroundColor: "var(--text-primary)",
-                  border: "1px solid var(--text-primary)",
-                  color: "var(--bg-primary)",
+                  background: "var(--border-strong, #374151)",
+                  border: "none",
+                  color: "#fff",
                   fontWeight: 600,
                   cursor: "pointer",
-                  borderRadius: "3px",
+                  borderRadius: "4px",
                   display: "flex",
                   alignItems: "center",
                   gap: "4px",
                 }}
               >
-                <Search size={12} /> Bắt đầu tìm hiểu
+                Bắt đầu tìm hiểu
               </button>
             </div>
           </div>
@@ -1767,13 +2149,13 @@ export default function AiAgent({
         {/* Capabilities Panel */}
         {capsOpen && (
           <div
+            className="agent-fade-in"
             style={{
               display: "flex",
               flexWrap: "wrap",
-              gap: "5px",
-              paddingBottom: "8px",
+              gap: "4px",
+              padding: "10px 0 6px",
               borderBottom: "1px solid var(--border-primary)",
-              marginBottom: "2px",
             }}
           >
             {capList.map((item) => {
@@ -1782,42 +2164,26 @@ export default function AiAgent({
                   key={item.key}
                   type="button"
                   onClick={() => toggleCapability(item.key)}
+                  className="agent-capsule-btn"
                   style={{
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
-                    padding: "3px 8px",
+                    gap: "4px",
+                    padding: "4px 10px",
                     fontSize: "10px",
-                    borderRadius: "3px",
+                    borderRadius: "4px",
                     border: item.isActive
-                      ? "1px solid var(--text-primary)"
+                      ? "1px solid var(--border-strong, #374151)"
                       : "1px solid var(--border-primary)",
-                    backgroundColor: item.isActive
+                    background: item.isActive
                       ? "var(--bg-tertiary)"
                       : "transparent",
                     color: item.isActive
                       ? "var(--text-primary)"
-                      : "var(--text-secondary)",
+                      : "var(--text-muted)",
                     cursor: "pointer",
-                    transition: "all 0.1s ease-in-out",
+                    transition: "all 0.1s",
                     outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = item.isActive
-                      ? "var(--border-primary)"
-                      : "rgba(255, 255, 255, 0.04)";
-                    if (!item.isActive) {
-                      e.currentTarget.style.borderColor = "var(--text-muted)";
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = item.isActive
-                      ? "var(--bg-tertiary)"
-                      : "transparent";
-                    e.currentTarget.style.borderColor = item.isActive
-                      ? "var(--text-primary)"
-                      : "var(--border-primary)";
                   }}
                 >
                   <span>{item.label}</span>
@@ -1827,126 +2193,173 @@ export default function AiAgent({
           </div>
         )}
 
-        {/* Dynamic Auto-Resizing Textarea Row */}
+        {/* Input Row */}
         <form
           onSubmit={handleSend}
           style={{
             display: "flex",
             alignItems: "flex-end",
             gap: "8px",
+            paddingTop: capsOpen ? "0" : "10px",
           }}
         >
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            placeholder="Gửi tin nhắn hoặc ra lệnh..."
-            value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={isTyping}
+          <div
             style={{
               flex: 1,
-              backgroundColor: "var(--bg-primary)",
-              border: "1px solid var(--border-primary)",
-              color: "var(--text-primary)",
-              padding: "7px 10px",
-              fontSize: "12px",
-              outline: "none",
-              resize: "none",
-              fontFamily: "var(--font-sans)",
-              lineHeight: "1.4",
-              maxHeight: "180px",
-              minHeight: "32px",
-              overflowY: "auto",
-            }}
-          />
-          <button
-            type="submit"
-            disabled={!inputVal.trim() || isTyping}
-            style={{
-              backgroundColor: "transparent",
-              border: "1px solid var(--border-primary)",
-              color:
-                inputVal.trim() && !isTyping
-                  ? "var(--text-primary)"
-                  : "var(--text-muted)",
-              height: "32px",
-              padding: "0 12px",
-              fontSize: "11.5px",
-              cursor: inputVal.trim() && !isTyping ? "pointer" : "default",
               display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              alignItems: "flex-end",
+              background: "var(--bg-primary)",
+              border: "1px solid var(--border-primary)",
+              borderRadius: "6px",
+              overflow: "hidden",
             }}
+            onFocus={() => {}}
           >
-            <Send size={12} />
-          </button>
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              placeholder="Gửi tin nhắn hoặc ra lệnh..."
+              value={inputVal}
+              onChange={(e) => setInputVal(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={isTyping}
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "none",
+                color: "var(--text-primary)",
+                padding: "8px 12px",
+                fontSize: "12px",
+                outline: "none",
+                resize: "none",
+                fontFamily: "var(--font-sans)",
+                lineHeight: "1.4",
+                maxHeight: "160px",
+                minHeight: "36px",
+                overflowY: "auto",
+              }}
+            />
+            {isTyping ? (
+              <button
+                type="button"
+                onClick={handleCancel}
+                style={{
+                  background: "var(--border-strong, #374151)",
+                  border: "none",
+                  color: "#ef4444",
+                  width: "28px",
+                  height: "28px",
+                  margin: "4px",
+                  borderRadius: "4px",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.1s",
+                  flexShrink: 0,
+                }}
+                title="Dừng hoạt động"
+              >
+                <span style={{ width: "8px", height: "8px", background: "#ef4444", borderRadius: "1px" }} />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!inputVal.trim()}
+                style={{
+                  background:
+                    inputVal.trim()
+                      ? "var(--border-strong, #374151)"
+                      : "transparent",
+                  border: "none",
+                  color:
+                    inputVal.trim() ? "#fff" : "var(--text-muted)",
+                  width: "28px",
+                  height: "28px",
+                  margin: "4px",
+                  borderRadius: "4px",
+                  fontSize: "11px",
+                  cursor: inputVal.trim() ? "pointer" : "default",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "all 0.1s",
+                  flexShrink: 0,
+                }}
+              >
+                <Send size={11} />
+              </button>
+            )}
+          </div>
         </form>
 
-        {/* Feature Toolbars: Model & Agent Mode Selection */}
+        {/* Bottom Toolbar: Capabilities toggle, Model & Mode selectors */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: "6px",
-            paddingTop: "4px",
-            borderTop: "1px solid rgba(255,255,255,0.02)",
+            gap: "8px",
           }}
         >
-          {/* Capabilities toggle button */}
+          {/* Capabilities toggle */}
           <button
             type="button"
             title="Thiết lập quyền và môi trường chạy"
             onClick={() => setCapsOpen(!capsOpen)}
+            className="agent-capsule-btn"
             style={{
-              backgroundColor: capsOpen
-                ? "var(--bg-tertiary)"
-                : "var(--bg-primary)",
-              border: "1px solid var(--border-primary)",
-              color: capsOpen ? "var(--text-primary)" : "var(--text-secondary)",
-              width: "20.5px",
-              height: "20.5px",
               display: "flex",
               alignItems: "center",
-              justifyContent: "center",
+              gap: "4px",
+              padding: "3px 8px",
+              fontSize: "10px",
+              borderRadius: "4px",
+              border: "1px solid var(--border-primary)",
+              background: capsOpen ? "var(--bg-tertiary)" : "transparent",
+              color: capsOpen ? "var(--text-primary)" : "var(--text-muted)",
               cursor: "pointer",
-              transition: "all 0.12s ease-in-out",
-              outline: "none",
-              boxSizing: "border-box",
-              padding: "0",
             }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.backgroundColor = "var(--border-primary)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.backgroundColor = capsOpen
-                ? "var(--bg-tertiary)"
-                : "var(--bg-primary)")
-            }
           >
-            <Sliders
-              size={11}
-              style={{
-                transform: capsOpen ? "rotate(90deg)" : "none",
-                transition: "transform 0.15s ease",
-                color: capsOpen
-                  ? "var(--text-primary)"
-                  : "var(--text-secondary)",
-              }}
-            />
+            <span>Quyền</span>
           </button>
-          {/* Model Selector dropdown */}
+
+          {/* Logs toggle */}
+          <button
+            type="button"
+            title="Xem nhật ký chạy thực tế (Console Logs)"
+            onClick={() => setLogsExpanded(!logsExpanded)}
+            className="agent-capsule-btn"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "3px 8px",
+              fontSize: "10px",
+              borderRadius: "4px",
+              border: "1px solid var(--border-primary)",
+              background: logsExpanded ? "var(--bg-tertiary)" : "transparent",
+              color: logsExpanded ? "var(--text-primary)" : "var(--text-muted)",
+              cursor: "pointer",
+            }}
+          >
+            <span>Bản ghi {consoleLogs.length > 0 ? `(${consoleLogs.length})` : ""}</span>
+          </button>
+
+          {/* Model Selector */}
           <select
             value={selectedModel}
             onChange={(e) => setSelectedModel(e.target.value)}
+            className="agent-select"
             style={{
-              backgroundColor: "var(--bg-primary)",
+              background: "transparent",
               border: "1px solid var(--border-primary)",
               color: "var(--text-secondary)",
-              fontSize: "10.5px",
-              padding: "2px 6px",
+              fontSize: "10px",
+              padding: "3px 18px 3px 8px",
               outline: "none",
               cursor: "pointer",
+              borderRadius: "4px",
+              fontFamily: "var(--font-sans)",
             }}
           >
             {availableModels.map((m) => (
@@ -1956,24 +2369,51 @@ export default function AiAgent({
             ))}
           </select>
 
-          {/* Agent Mode selector dropdown */}
+          {/* Mode Selector */}
           <select
             value={selectedMode}
             onChange={(e) => setSelectedMode(e.target.value)}
+            className="agent-select"
             style={{
-              backgroundColor: "var(--bg-primary)",
+              background: "transparent",
               border: "1px solid var(--border-primary)",
               color: "var(--text-secondary)",
-              fontSize: "10.5px",
-              padding: "2px 6px",
+              fontSize: "10px",
+              padding: "3px 18px 3px 8px",
               outline: "none",
               cursor: "pointer",
+              borderRadius: "4px",
+              fontFamily: "var(--font-sans)",
             }}
           >
-            <option value="interactive">Interactive (Hỏi trước)</option>
-            <option value="autonomous">Autonomous (Tự trị)</option>
-            <option value="copilot">Copilot (Gợi ý)</option>
+            <option value="interactive">Interactive</option>
+            <option value="autonomous">Autonomous</option>
+            <option value="copilot">Copilot</option>
           </select>
+
+          {/* Spacer */}
+          <div style={{ flex: 1 }} />
+
+          {/* Status indicator */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              fontSize: "9px",
+              color: "var(--text-muted)",
+            }}
+          >
+            <span
+              style={{
+                width: "5px",
+                height: "5px",
+                borderRadius: "50%",
+                background: isTyping ? "#f59e0b" : "#22c55e",
+              }}
+            />
+            {isTyping ? "Đang xử lý" : "Sẵn sàng"}
+          </div>
         </div>
       </div>
     </div>

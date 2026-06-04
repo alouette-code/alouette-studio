@@ -3,6 +3,21 @@ use core_engine::agent_harness::tool_definitions;
 use core_engine::agent_harness::{ChatMessage, LlmResponse, MessageContent};
 use rig_core::{agent::AgentBuilder, client::CompletionClient, completion::Prompt, providers};
 use serde_json::{json, Value};
+use tauri::Emitter;
+
+/// Emit a console log statement to the frontend and print to stdout
+pub fn agent_log(window: Option<&tauri::WebviewWindow>, msg: &str) {
+    println!("{}", msg);
+    if let Some(w) = window {
+        let _ = w.emit(
+            "agent-console-log",
+            serde_json::json!({
+                "message": msg,
+                "timestamp": chrono::Local::now().to_rfc3339(),
+            }),
+        );
+    }
+}
 
 /// Convert ChatMessage history to OpenAI-compatible message JSON array
 fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Value> {
@@ -117,6 +132,7 @@ async fn call_openai_compatible(
     top_p: f32,
     messages: &[Value],
     tools: &[Value],
+    window: Option<&tauri::WebviewWindow>,
 ) -> Result<LlmResponse, String> {
     let client = reqwest::Client::new();
     let base_url = if api_url.is_empty() {
@@ -138,6 +154,8 @@ async fn call_openai_compatible(
         body["tool_choice"] = json!("auto");
     }
 
+    agent_log(window, &format!("[ALOUETTE LLM] Đang gửi HTTP Request tới: {}/chat/completions (model = '{}')", base_url, model));
+
     let response = client
         .post(format!("{}/chat/completions", base_url))
         .header("Authorization", format!("Bearer {}", api_key))
@@ -145,21 +163,34 @@ async fn call_openai_compatible(
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("HTTP request failed: {}", e))?;
+        .map_err(|e| {
+            agent_log(window, &format!("[ALOUETTE LLM ERROR] HTTP Request failed: {}", e));
+            format!("HTTP request failed: {}", e)
+        })?;
 
     let status = response.status();
     let response_text = response
         .text()
         .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
+        .map_err(|e| {
+            agent_log(window, &format!("[ALOUETTE LLM ERROR] Failed to read response text: {}", e));
+            format!("Failed to read response: {}", e)
+        })?;
 
     if !status.is_success() {
+        agent_log(window, &format!(
+            "[ALOUETTE LLM ERROR] API trả về lỗi (status {}): {}",
+            status,
+            &response_text[..response_text.len().min(500)]
+        ));
         return Err(format!(
             "API error ({}): {}",
             status,
             &response_text[..response_text.len().min(500)]
         ));
     }
+
+    agent_log(window, &format!("[ALOUETTE LLM] Nhận phản hồi thành công từ: {}", base_url));
 
     let response_json: Value = serde_json::from_str(&response_text).map_err(|e| {
         format!(
@@ -223,6 +254,7 @@ pub async fn call_rig(
     top_p: f32,
     system_prompt: &str,
     history: &[ChatMessage],
+    window: Option<&tauri::WebviewWindow>,
 ) -> Result<LlmResponse, String> {
     let model_name = if model.is_empty() {
         match api_standard {
@@ -234,6 +266,16 @@ pub async fn call_rig(
     } else {
         model
     };
+
+    agent_log(window, &format!(
+        "\n[ALOUETTE AGENT LOOP] === Bắt đầu gọi LLM ({}) ===",
+        model_name
+    ));
+    agent_log(window, &format!(
+        "[ALOUETTE AGENT LOOP] API Standard: '{}' | Endpoint: '{}'",
+        api_standard,
+        if api_url.is_empty() { "mặc định" } else { api_url }
+    ));
 
     let messages = build_messages_json(system_prompt, history);
     let tools_json = tool_definitions::tools_json_for_api();
@@ -249,6 +291,7 @@ pub async fn call_rig(
                 top_p,
                 &messages,
                 &tools_array,
+                window,
             )
             .await
         }
@@ -259,10 +302,15 @@ pub async fn call_rig(
                 .map_err(|e| format!("Anthropic client: {}", e))?;
             let m = client.completion_model(model_name);
             let agent = AgentBuilder::new(m).preamble(system_prompt).build();
+            agent_log(window, &format!("[ALOUETTE LLM] Đang gửi yêu cầu tới Anthropic/Claude qua Rig Agent (model = '{}')...", model_name));
             let response_text = agent
                 .prompt(&conversation)
                 .await
-                .map_err(|e| format!("Rig Claude: {}", e))?;
+                .map_err(|e| {
+                    agent_log(window, &format!("[ALOUETTE LLM ERROR] Rig Claude failed: {}", e));
+                    format!("Rig Claude: {}", e)
+                })?;
+            agent_log(window, "[ALOUETTE LLM] Đã nhận phản hồi thành công từ Anthropic/Claude.");
 
             let tool_calls = parse_tool_calls_from_text(&response_text);
             let text =
@@ -281,10 +329,15 @@ pub async fn call_rig(
                 .map_err(|e| format!("Gemini client: {}", e))?;
             let m = client.completion_model(model_name);
             let agent = AgentBuilder::new(m).preamble(system_prompt).build();
+            agent_log(window, &format!("[ALOUETTE LLM] Đang gửi yêu cầu tới Google/Gemini qua Rig Agent (model = '{}')...", model_name));
             let response_text = agent
                 .prompt(&conversation)
                 .await
-                .map_err(|e| format!("Rig Gemini: {}", e))?;
+                .map_err(|e| {
+                    agent_log(window, &format!("[ALOUETTE LLM ERROR] Rig Gemini failed: {}", e));
+                    format!("Rig Gemini: {}", e)
+                })?;
+            agent_log(window, "[ALOUETTE LLM] Đã nhận phản hồi thành công từ Google/Gemini.");
 
             let tool_calls = parse_tool_calls_from_text(&response_text);
             let text =
