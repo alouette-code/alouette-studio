@@ -24,17 +24,26 @@ fn get_session_store() -> &'static Mutex<Option<AgentSession>> {
 
 // ─── Response Types ─────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolInfo {
+    pub name: String,
+    pub args: String,
+    pub pending_id: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AgentResponse {
     pub session_id: String,
-    pub reply_type: String, // "text" | "tool_request" | "loop_result"
+    pub reply_type: String, // "text" | "tool_request" | "tool_batch_request" | "loop_result"
     pub text: Option<String>,
     pub tool_name: Option<String>,
     pub args: Option<String>,
+    pub tools: Option<Vec<ToolInfo>>,
     pub pending_id: Option<String>,
     pub iteration: Option<u32>,
     pub total_iterations: Option<u32>,
     pub tool_result: Option<String>,
+    pub approved_tool_index: Option<usize>,
 }
 
 // ─── Session & Loop State ───────────────────────────────────────────────
@@ -315,10 +324,12 @@ pub async fn agent_send_message(
                 text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                 tool_name: None,
                 args: None,
+                tools: None,
                 pending_id: None,
                 iteration: None,
                 total_iterations: None,
                 tool_result: None,
+                approved_tool_index: None,
             });
         }
         let llm_closure = {
@@ -375,7 +386,11 @@ pub async fn agent_send_message(
                         log_msgs.push(format!("[Gọi Công cụ] Đang thực thi công cụ: {}", tn));
                     }
                     if let Some(ref tr) = tool_result {
-                        let short_res = if tr.len() > 1000 { format!("{}... (cắt bớt)", &tr[..1000]) } else { tr.clone() };
+                        let short_res = if tr.len() > 1000 {
+                            format!("{}... (cắt bớt)", &tr[..1000])
+                        } else {
+                            tr.clone()
+                        };
                         log_msgs.push(format!("[Kết quả Công cụ] Phản hồi: {}", short_res));
                     }
                     for msg in log_msgs {
@@ -389,18 +404,65 @@ pub async fn agent_send_message(
                     let args = tool.as_ref().map(|t| t.arguments.to_string());
                     let mut sg = session_store.lock().unwrap();
                     *sg = Some(session);
-                    rig_bridge::agent_log(Some(&window), &format!("[Chờ phê duyệt] Yêu cầu cấp quyền chạy công cụ: {:?}", tool_name));
-                    break Ok(AgentResponse {
-                        session_id: format!("pending_{}", Local::now().timestamp()),
-                        reply_type: "tool_request".to_string(),
-                        text: None,
-                        tool_name,
-                        args,
-                        pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
-                        iteration: Some(iteration),
-                        total_iterations: Some(max_iterations),
-                        tool_result: None,
-                    });
+
+                    if tools.len() > 1 {
+                        // Batch request: trả về tất cả tools
+                        let batch_tools: Vec<ToolInfo> = tools
+                            .iter()
+                            .enumerate()
+                            .map(|(i, t)| ToolInfo {
+                                name: t.name.clone(),
+                                args: t.arguments.to_string(),
+                                pending_id: format!(
+                                    "tool_{}_{}",
+                                    Local::now().timestamp_millis(),
+                                    i
+                                ),
+                            })
+                            .collect();
+                        rig_bridge::agent_log(
+                            Some(&window),
+                            &format!(
+                                "[Chờ phê duyệt] Batch {} công cụ: {:?}",
+                                batch_tools.len(),
+                                batch_tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+                            ),
+                        );
+                        break Ok(AgentResponse {
+                            session_id: format!("pending_{}", Local::now().timestamp()),
+                            reply_type: "tool_batch_request".to_string(),
+                            text: None,
+                            tool_name: None,
+                            args: None,
+                            tools: Some(batch_tools),
+                            pending_id: None,
+                            iteration: Some(iteration),
+                            total_iterations: Some(max_iterations),
+                            tool_result: None,
+                            approved_tool_index: None,
+                        });
+                    } else {
+                        rig_bridge::agent_log(
+                            Some(&window),
+                            &format!(
+                                "[Chờ phê duyệt] Yêu cầu cấp quyền chạy công cụ: {:?}",
+                                tool_name
+                            ),
+                        );
+                        break Ok(AgentResponse {
+                            session_id: format!("pending_{}", Local::now().timestamp()),
+                            reply_type: "tool_request".to_string(),
+                            text: None,
+                            tool_name,
+                            args,
+                            tools: None,
+                            pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
+                            iteration: Some(iteration),
+                            total_iterations: Some(max_iterations),
+                            tool_result: None,
+                            approved_tool_index: None,
+                        });
+                    }
                 }
                 TickResult::Finished {
                     text,
@@ -408,21 +470,32 @@ pub async fn agent_send_message(
                 } => {
                     let mut sg = session_store.lock().unwrap();
                     *sg = Some(session);
-                    rig_bridge::agent_log(Some(&window), &format!("[Hoàn thành] Agent kết thúc vòng lặp sau {} bước.", total_iterations));
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!(
+                            "[Hoàn thành] Agent kết thúc vòng lặp sau {} bước.",
+                            total_iterations
+                        ),
+                    );
                     break Ok(AgentResponse {
                         session_id: saved_session_id.clone(),
                         reply_type: "loop_result".to_string(),
                         text: Some(text.clone()),
                         tool_name: None,
                         args: None,
+                        tools: None,
                         pending_id: None,
                         iteration: Some(total_iterations),
                         total_iterations: Some(max_iterations),
                         tool_result: None,
+                        approved_tool_index: None,
                     });
                 }
                 TickResult::Error { message, iteration } => {
-                    rig_bridge::agent_log(Some(&window), &format!("[Lỗi Agent] Lỗi ở vòng {}: {}", iteration, message));
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!("[Lỗi Agent] Lỗi ở vòng {}: {}", iteration, message),
+                    );
                     break Err(format!("Agent error (iter {}): {}", iteration, message));
                 }
             },
@@ -442,16 +515,21 @@ pub async fn agent_send_message(
                     text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                     tool_name: None,
                     args: None,
+                    tools: None,
                     pending_id: None,
                     iteration: None,
                     total_iterations: None,
                     tool_result: None,
+                    approved_tool_index: None,
                 });
             }
             TickExecutionResult::Timeout => {
                 let mut sg = session_store.lock().unwrap();
                 *sg = Some(session);
-                rig_bridge::agent_log(Some(&window), "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.");
+                rig_bridge::agent_log(
+                    Some(&window),
+                    "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.",
+                );
                 break Err("Đã hết thời gian chờ phản hồi từ Agent (Timeout 90 giây).".to_string());
             }
         }
@@ -467,6 +545,7 @@ pub async fn agent_approve_tool(
     approved: bool,
     model: String,
     active_cwd: Option<String>,
+    tool_index: Option<usize>,
     window: WebviewWindow,
     _app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
@@ -500,7 +579,75 @@ pub async fn agent_approve_tool(
 
     // ─── USER REJECTED ────────────────────────────────────────────
     if !approved {
-        // Ghi rejection observation vào history
+        // Kiểm tra nếu đang trong batch và có tool_index cụ thể
+        if let Some(idx) = tool_index {
+            // Clone pending_tools ra trước để tránh borrow của session.state
+            let pending_tools = match &session.state {
+                AgentState::AwaitingApproval(tools) => Some(tools.clone()),
+                _ => None,
+            };
+
+            if let Some(pending_tools) = pending_tools {
+                if idx < pending_tools.len() {
+                    let rejected_tool = &pending_tools[idx];
+                    // Ghi rejection observation vào history
+                    session.history.push(ChatMessage {
+                        id: format!("obs_{}", Local::now().timestamp_millis()),
+                        role: "system".to_string(),
+                        content: MessageContent::Text(
+                            format!("<observation>User rejected tool '{}' (args: {}). Ask if they want to try a different approach.</observation>",
+                                rejected_tool.name, rejected_tool.arguments)
+                        ),
+                        timestamp: Local::now().format("%H:%M").to_string(),
+                    });
+
+                    // Xóa tool đã reject khỏi danh sách
+                    let mut remaining = pending_tools.clone();
+                    remaining.remove(idx);
+
+                    if !remaining.is_empty() {
+                        // Vẫn còn tools pending, tiếp tục chờ duyệt
+                        session.state = AgentState::AwaitingApproval(remaining.clone());
+                        let mut session_guard = session_store.lock().unwrap();
+                        *session_guard = Some(session);
+
+                        let batch_tools: Vec<ToolInfo> = remaining
+                            .iter()
+                            .enumerate()
+                            .map(|(i, t)| ToolInfo {
+                                name: t.name.clone(),
+                                args: t.arguments.to_string(),
+                                pending_id: format!(
+                                    "tool_{}_{}",
+                                    Local::now().timestamp_millis(),
+                                    i
+                                ),
+                            })
+                            .collect();
+
+                        rig_bridge::agent_log(
+                            Some(&window),
+                            &format!("[Từ chối công cụ] Đã từ chối tool trong batch, còn {} tool chờ duyệt", remaining.len()),
+                        );
+                        return Ok(AgentResponse {
+                            session_id: format!("pending_{}", Local::now().timestamp()),
+                            reply_type: "tool_batch_request".to_string(),
+                            text: None,
+                            tool_name: None,
+                            args: None,
+                            tools: Some(batch_tools),
+                            pending_id: None,
+                            iteration: None,
+                            total_iterations: None,
+                            tool_result: None,
+                            approved_tool_index: Some(idx),
+                        });
+                    }
+                }
+            }
+        }
+
+        // Fallback: từ chối toàn bộ (hoặc tool cuối cùng)
         session.history.push(ChatMessage {
             id: format!("obs_{}", Local::now().timestamp_millis()),
             role: "system".to_string(),
@@ -562,17 +709,22 @@ pub async fn agent_approve_tool(
                 TickResult::Finished { text, .. } => {
                     let mut session_guard = session_store.lock().unwrap();
                     *session_guard = Some(session);
-                    rig_bridge::agent_log(Some(&window), "[Từ chối công cụ] Agent phản hồi sau khi công cụ bị từ chối.");
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        "[Từ chối công cụ] Agent phản hồi sau khi công cụ bị từ chối.",
+                    );
                     return Ok(AgentResponse {
                         session_id: saved_session_id,
                         reply_type: "loop_result".to_string(),
                         text: Some(text),
                         tool_name: None,
                         args: None,
+                        tools: None,
                         pending_id: None,
                         iteration: None,
                         total_iterations: None,
                         tool_result: None,
+                        approved_tool_index: None,
                     });
                 }
                 TickResult::WaitForApproval { tools, iteration } => {
@@ -581,39 +733,63 @@ pub async fn agent_approve_tool(
                     let args = tool.as_ref().map(|t| t.arguments.to_string());
                     let mut session_guard = session_store.lock().unwrap();
                     *session_guard = Some(session);
-                    rig_bridge::agent_log(Some(&window), &format!("[Từ chối công cụ] Agent lại yêu cầu công cụ mới: {:?}", tool_name));
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!(
+                            "[Từ chối công cụ] Agent lại yêu cầu công cụ mới: {:?}",
+                            tool_name
+                        ),
+                    );
                     return Ok(AgentResponse {
                         session_id: format!("pending_{}", Local::now().timestamp()),
                         reply_type: "tool_request".to_string(),
                         text: None,
                         tool_name,
                         args,
+                        tools: None,
                         pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
                         iteration: Some(iteration),
                         total_iterations: Some(25),
                         tool_result: None,
+                        approved_tool_index: None,
                     });
                 }
                 TickResult::Error { message, .. } => {
                     let mut session_guard = session_store.lock().unwrap();
                     *session_guard = Some(session);
-                    rig_bridge::agent_log(Some(&window), &format!("[Từ chối công cụ] Agent gặp lỗi: {}", message));
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!("[Từ chối công cụ] Agent gặp lỗi: {}", message),
+                    );
                     return Err(format!("Agent error after rejection: {}", message));
                 }
-                TickResult::Continue { thought, tool_name, tool_result, iteration } => {
+                TickResult::Continue {
+                    thought: _,
+                    tool_name: _,
+                    tool_result: _,
+                    iteration,
+                } => {
                     let mut session_guard = session_store.lock().unwrap();
                     *session_guard = Some(session);
-                    rig_bridge::agent_log(Some(&window), &format!("[Từ chối công cụ] Agent tiếp tục suy nghĩ (vòng {}).", iteration));
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!(
+                            "[Từ chối công cụ] Agent tiếp tục suy nghĩ (vòng {}).",
+                            iteration
+                        ),
+                    );
                     return Ok(AgentResponse {
                         session_id: saved_session_id,
                         reply_type: "text".to_string(),
                         text: Some("Tool rejected. What would you like to do instead?".to_string()),
                         tool_name: None,
                         args: None,
+                        tools: None,
                         pending_id: None,
                         iteration: None,
                         total_iterations: None,
                         tool_result: None,
+                        approved_tool_index: None,
                     });
                 }
             },
@@ -627,27 +803,131 @@ pub async fn agent_approve_tool(
                     text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                     tool_name: None,
                     args: None,
+                    tools: None,
                     pending_id: None,
                     iteration: None,
                     total_iterations: None,
                     tool_result: None,
+                    approved_tool_index: None,
                 });
             }
             TickExecutionResult::Timeout => {
                 let mut session_guard = session_store.lock().unwrap();
                 *session_guard = Some(session);
-                rig_bridge::agent_log(Some(&window), "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.");
+                rig_bridge::agent_log(
+                    Some(&window),
+                    "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.",
+                );
                 return Err("Đã hết thời gian chờ phản hồi từ Agent (Timeout 90 giây).".to_string());
             }
         }
     }
 
     // ─── USER APPROVED ──────────────────────────────────────────────
-    // Chuyển trạng thái sang ExecutingTool → tick() sẽ tìm tool calls
-    // từ history và tự động chạy
-    session.state = AgentState::ExecutingTool;
 
-    // Emit executing activity
+    // Nếu có tool_index, chỉ chạy tool cụ thể đó, giữ lại các tool còn lại
+    if let Some(idx) = tool_index {
+        // Clone pending_tools ra trước để tránh borrow của session.state
+        let pending_tools = match &session.state {
+            AgentState::AwaitingApproval(tools) => Some(tools.clone()),
+            _ => None,
+        };
+
+        if let Some(pending_tools) = pending_tools {
+            if idx < pending_tools.len() {
+                let approved_tool = pending_tools[idx].clone();
+                let session_id = session.session_id.clone();
+
+                // Emit executing activity
+                let _ = window.emit(
+                    "agent-activity",
+                    serde_json::json!({
+                        "status": "executing",
+                    }),
+                );
+
+                // Chỉ thực thi tool được duyệt
+                let tool_result = harness.execute_tool(&session_id, &approved_tool).await;
+                let (result_text, success) = match tool_result {
+                    Ok(r) => (r, true),
+                    Err(e) => (e, false),
+                };
+
+                let call_id = approved_tool
+                    .call_id
+                    .clone()
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                // Push kết quả vào history
+                session.history.push(ChatMessage {
+                    id: call_id.clone(),
+                    role: "tool".to_string(),
+                    content: MessageContent::ToolResult {
+                        tool_call_id: call_id,
+                        tool_name: approved_tool.name.clone(),
+                        result: result_text.clone(),
+                        success,
+                    },
+                    timestamp: Local::now().format("%H:%M").to_string(),
+                });
+
+                // Xóa tool đã chạy khỏi danh sách pending
+                let mut remaining = pending_tools.clone();
+                remaining.remove(idx);
+
+                if !remaining.is_empty() {
+                    // Vẫn còn tools pending, tiếp tục chờ duyệt
+                    session.state = AgentState::AwaitingApproval(remaining.clone());
+                    let mut session_guard = session_store.lock().unwrap();
+                    *session_guard = Some(session);
+
+                    let batch_tools: Vec<ToolInfo> = remaining
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| ToolInfo {
+                            name: t.name.clone(),
+                            args: t.arguments.to_string(),
+                            pending_id: format!("tool_{}_{}", Local::now().timestamp_millis(), i),
+                        })
+                        .collect();
+
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!(
+                            "[Chấp thuận công cụ] Tool '{}' đã chạy xong, còn {} tool chờ duyệt",
+                            approved_tool.name,
+                            remaining.len()
+                        ),
+                    );
+                    return Ok(AgentResponse {
+                        session_id: format!("pending_{}", Local::now().timestamp()),
+                        reply_type: "tool_batch_request".to_string(),
+                        text: None,
+                        tool_name: None,
+                        args: None,
+                        tools: Some(batch_tools),
+                        pending_id: None,
+                        iteration: None,
+                        total_iterations: None,
+                        tool_result: Some(result_text),
+                        approved_tool_index: Some(idx),
+                    });
+                } else {
+                    // Hết tools pending → chuyển về Thinking để tiếp tục loop
+                    session.state = AgentState::Thinking;
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!("[Chấp thuận công cụ] Tool '{}' đã chạy xong, hết tools pending, tiếp tục loop", approved_tool.name),
+                    );
+                }
+            }
+        }
+    } else {
+        // Không có tool_index → approve all
+        session.state = AgentState::ExecutingTool;
+    }
+
+    // Emit executing activity (nếu chưa emit)
     let _ = window.emit(
         "agent-activity",
         serde_json::json!({
@@ -676,7 +956,7 @@ pub async fn agent_approve_tool(
     let saved_session_id = session.session_id.clone();
     let max_iterations = session.max_iterations;
 
-    // ─── STATE MACHINE: Tick loop (tiếp tục từ ExecutingTool) ─────
+    // ─── STATE MACHINE: Tick loop (tiếp tục từ ExecutingTool hoặc Thinking) ─────
     loop {
         // Kiểm tra ngắt trước mỗi bước
         if check_and_reset_cancel() {
@@ -694,10 +974,12 @@ pub async fn agent_approve_tool(
                 text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                 tool_name: None,
                 args: None,
+                tools: None,
                 pending_id: None,
                 iteration: None,
                 total_iterations: None,
                 tool_result: None,
+                approved_tool_index: None,
             });
         }
         let llm_closure = {
@@ -754,7 +1036,11 @@ pub async fn agent_approve_tool(
                         log_msgs.push(format!("[Gọi Công cụ] Đang thực thi công cụ: {}", tn));
                     }
                     if let Some(ref tr) = tool_result {
-                        let short_res = if tr.len() > 1000 { format!("{}... (cắt bớt)", &tr[..1000]) } else { tr.clone() };
+                        let short_res = if tr.len() > 1000 {
+                            format!("{}... (cắt bớt)", &tr[..1000])
+                        } else {
+                            tr.clone()
+                        };
                         log_msgs.push(format!("[Kết quả Công cụ] Phản hồi: {}", short_res));
                     }
                     for msg in log_msgs {
@@ -763,23 +1049,69 @@ pub async fn agent_approve_tool(
                     continue;
                 }
                 TickResult::WaitForApproval { tools, iteration } => {
-                    let tool = tools.first().cloned();
-                    let tool_name = tool.as_ref().map(|t| t.name.clone());
-                    let args = tool.as_ref().map(|t| t.arguments.to_string());
                     let mut sg = session_store.lock().unwrap();
                     *sg = Some(session);
-                    rig_bridge::agent_log(Some(&window), &format!("[Chờ phê duyệt] Yêu cầu cấp quyền chạy công cụ: {:?}", tool_name));
-                    return Ok(AgentResponse {
-                        session_id: format!("pending_{}", Local::now().timestamp()),
-                        reply_type: "tool_request".to_string(),
-                        text: None,
-                        tool_name,
-                        args,
-                        pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
-                        iteration: Some(iteration),
-                        total_iterations: Some(max_iterations),
-                        tool_result: None,
-                    });
+
+                    if tools.len() > 1 {
+                        let batch_tools: Vec<ToolInfo> = tools
+                            .iter()
+                            .enumerate()
+                            .map(|(i, t)| ToolInfo {
+                                name: t.name.clone(),
+                                args: t.arguments.to_string(),
+                                pending_id: format!(
+                                    "tool_{}_{}",
+                                    Local::now().timestamp_millis(),
+                                    i
+                                ),
+                            })
+                            .collect();
+                        rig_bridge::agent_log(
+                            Some(&window),
+                            &format!(
+                                "[Chờ phê duyệt] Batch {} công cụ: {:?}",
+                                batch_tools.len(),
+                                batch_tools.iter().map(|t| &t.name).collect::<Vec<_>>()
+                            ),
+                        );
+                        return Ok(AgentResponse {
+                            session_id: format!("pending_{}", Local::now().timestamp()),
+                            reply_type: "tool_batch_request".to_string(),
+                            text: None,
+                            tool_name: None,
+                            args: None,
+                            tools: Some(batch_tools),
+                            pending_id: None,
+                            iteration: Some(iteration),
+                            total_iterations: Some(max_iterations),
+                            tool_result: None,
+                            approved_tool_index: None,
+                        });
+                    } else {
+                        let tool = tools.first().cloned();
+                        let tool_name = tool.as_ref().map(|t| t.name.clone());
+                        let args = tool.as_ref().map(|t| t.arguments.to_string());
+                        rig_bridge::agent_log(
+                            Some(&window),
+                            &format!(
+                                "[Chờ phê duyệt] Yêu cầu cấp quyền chạy công cụ: {:?}",
+                                tool_name
+                            ),
+                        );
+                        return Ok(AgentResponse {
+                            session_id: format!("pending_{}", Local::now().timestamp()),
+                            reply_type: "tool_request".to_string(),
+                            text: None,
+                            tool_name,
+                            args,
+                            tools: None,
+                            pending_id: Some(format!("tool_{}", Local::now().timestamp_millis())),
+                            iteration: Some(iteration),
+                            total_iterations: Some(max_iterations),
+                            tool_result: None,
+                            approved_tool_index: None,
+                        });
+                    }
                 }
                 TickResult::Finished {
                     text,
@@ -793,17 +1125,25 @@ pub async fn agent_approve_tool(
                     );
                     let mut sg = session_store.lock().unwrap();
                     *sg = Some(session);
-                    rig_bridge::agent_log(Some(&window), &format!("[Hoàn thành] Agent kết thúc vòng lặp sau {} bước.", total_iterations));
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!(
+                            "[Hoàn thành] Agent kết thúc vòng lặp sau {} bước.",
+                            total_iterations
+                        ),
+                    );
                     return Ok(AgentResponse {
                         session_id: saved_session_id,
                         reply_type: "loop_result".to_string(),
                         text: Some(text),
                         tool_name: None,
                         args: None,
+                        tools: None,
                         pending_id: None,
                         iteration: Some(total_iterations),
                         total_iterations: Some(max_iterations),
                         tool_result: None,
+                        approved_tool_index: None,
                     });
                 }
                 TickResult::Error { message, iteration } => {
@@ -813,7 +1153,10 @@ pub async fn agent_approve_tool(
                             "status": "error",
                         }),
                     );
-                    rig_bridge::agent_log(Some(&window), &format!("[Lỗi Agent] Lỗi ở vòng {}: {}", iteration, message));
+                    rig_bridge::agent_log(
+                        Some(&window),
+                        &format!("[Lỗi Agent] Lỗi ở vòng {}: {}", iteration, message),
+                    );
                     return Err(format!("Agent error (iter {}): {}", iteration, message));
                 }
             },
@@ -833,10 +1176,12 @@ pub async fn agent_approve_tool(
                     text: Some("Agent đã bị ngắt bởi người dùng.".to_string()),
                     tool_name: None,
                     args: None,
+                    tools: None,
                     pending_id: None,
                     iteration: None,
                     total_iterations: None,
                     tool_result: None,
+                    approved_tool_index: None,
                 });
             }
             TickExecutionResult::Timeout => {
@@ -848,7 +1193,10 @@ pub async fn agent_approve_tool(
                 );
                 let mut sg = session_store.lock().unwrap();
                 *sg = Some(session);
-                rig_bridge::agent_log(Some(&window), "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.");
+                rig_bridge::agent_log(
+                    Some(&window),
+                    "[Lỗi Hết Giờ] Đã hết thời gian 90 giây chờ phản hồi từ LLM.",
+                );
                 return Err("Đã hết thời gian chờ phản hồi từ Agent (Timeout 90 giây).".to_string());
             }
         }

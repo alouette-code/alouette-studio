@@ -1,12 +1,18 @@
+import { Wifi, Monitor } from "lucide-react";
 
 interface DiagnosticsPanelProps {
   uptimeSeconds: number;
 }
 
-export default function DiagnosticsPanel({ uptimeSeconds }: DiagnosticsPanelProps) {
+export default function DiagnosticsPanel({
+  uptimeSeconds,
+}: DiagnosticsPanelProps) {
   return (
     <div className="lower-panel-user">
-      <div className="panel-header-row" style={{ justifyContent: 'flex-end', paddingBottom: '4px' }}>
+      <div
+        className="panel-header-row"
+        style={{ justifyContent: "flex-end", paddingBottom: "4px" }}
+      >
         <span className="uptime-clock">
           Uptime: {Math.floor(uptimeSeconds / 60)}m {uptimeSeconds % 60}s
         </span>
@@ -14,19 +20,24 @@ export default function DiagnosticsPanel({ uptimeSeconds }: DiagnosticsPanelProp
 
       <div className="user-dashboard-grid">
         <div className="user-card diagnostic-connection">
-          <h4>🔌 Connection Diagnostics</h4>
+          <h4 style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <Wifi size={14} /> Connection Diagnostics
+          </h4>
           <div className="ping-test-box">
             <span className="ping-title">Local Connection diagnostics</span>
             <span className="ping-cmd">$ ping 127.0.0.1 -n 20</span>
             <span className="ping-status status-stopped">Stopped</span>
           </div>
           <p className="desc">
-            Diagnostic test sockets ensure sidecar process handlers can bind execution parameters cleanly.
+            Diagnostic test sockets ensure sidecar process handlers can bind
+            execution parameters cleanly.
           </p>
         </div>
 
         <div className="user-card sysinfo-specs">
-          <h4>💻 Runtime System Metadata</h4>
+          <h4 style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <Monitor size={14} /> Runtime System Metadata
+          </h4>
           <div className="specs-list">
             <div className="spec-item">
               <span>OS Architecture</span>

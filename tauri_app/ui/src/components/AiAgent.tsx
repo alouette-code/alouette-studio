@@ -28,15 +28,36 @@ import {
   Box,
   CornerDownLeft,
   Sparkles,
+  FileText,
+  Search,
+  FolderOpen,
+  Tag,
+  Save,
+  Brain,
+  Plug,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+
+interface ToolItem {
+  name: string;
+  args: string;
+  pending_id: string;
+  status?:
+    | "waiting"
+    | "approved"
+    | "rejected"
+    | "running"
+    | "success"
+    | "failed";
+}
 
 interface ChatItem {
   id: string;
   type:
     | "text"
     | "tool_request"
+    | "tool_batch_request"
     | "agent_activity"
     | "alouette_error"
     | "skill_call";
@@ -44,6 +65,7 @@ interface ChatItem {
   text?: string;
   toolName?: string;
   args?: string;
+  tools?: ToolItem[];
   toolStatus?:
     | "waiting"
     | "approved"
@@ -61,6 +83,415 @@ interface AiAgentProps {
   onBack: () => void;
   activeProjectCwd?: string;
   activeProjectId?: string;
+}
+
+// ─── Tool Card Item (compact, expandable) ───────────────────────────────
+
+interface ToolCardItemProps {
+  tool: ToolItem;
+  index: number;
+  onApprove: (toolIndex: number) => void;
+  onReject: (toolIndex: number) => void;
+}
+
+function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
+  const [expanded, setExpanded] = useState(false);
+  const [approved, setApproved] = useState(tool.status === "approved");
+  const [rejected, setRejected] = useState(tool.status === "rejected");
+
+  if (approved || rejected) {
+    return (
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: "6px",
+          padding: "3px 6px",
+          borderRadius: "4px",
+          background: approved
+            ? "rgba(34, 197, 94, 0.06)"
+            : "rgba(239, 68, 68, 0.06)",
+          opacity: 0.7,
+          fontSize: "10px",
+        }}
+      >
+        <span
+          style={{ color: approved ? "#22c55e" : "#ef4444", fontSize: "9px" }}
+        >
+          {approved ? "✓" : "✕"}
+        </span>
+        <span style={{ color: "var(--text-muted)" }}>
+          {getFriendlyToolNameStatic(tool.name)}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        border: "1px solid var(--border-primary)",
+        borderRadius: "4px",
+        overflow: "hidden",
+      }}
+    >
+      {/* Mini header */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "3px 6px",
+          cursor: "pointer",
+          userSelect: "none",
+          background: expanded ? "rgba(255,255,255,0.02)" : "transparent",
+          transition: "background 0.15s",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+          {expanded ? (
+            <ChevronDown
+              size={9}
+              style={{ color: "var(--text-muted)", flexShrink: 0 }}
+            />
+          ) : (
+            <ChevronRight
+              size={9}
+              style={{ color: "var(--text-muted)", flexShrink: 0 }}
+            />
+          )}
+          {getToolIconComponent(tool.name)}
+          <span
+            style={{
+              fontSize: "9.5px",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+            }}
+          >
+            {getFriendlyToolNameStatic(tool.name)}
+          </span>
+        </div>
+
+        {/* Approve/Reject buttons (always visible) */}
+        <div style={{ display: "flex", gap: "3px" }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setRejected(true);
+              onReject(index);
+            }}
+            title="Từ chối"
+            style={{
+              padding: "2px",
+              background: "transparent",
+              border: "1px solid var(--border-primary)",
+              color: "var(--text-secondary)",
+              borderRadius: "3px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              lineHeight: 1,
+            }}
+          >
+            <X size={9} />
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setApproved(true);
+              onApprove(index);
+            }}
+            title="Đồng ý chạy"
+            style={{
+              padding: "2px",
+              background: "var(--border-strong, #374151)",
+              border: "none",
+              color: "#fff",
+              borderRadius: "3px",
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              lineHeight: 1,
+            }}
+          >
+            <Check size={9} />
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded args */}
+      {expanded && tool.args && tool.args !== "{}" && (
+        <div
+          style={{
+            borderTop: "1px solid var(--border-primary)",
+            background: "var(--bg-primary)",
+            padding: "4px 6px",
+          }}
+        >
+          <pre
+            style={{
+              margin: 0,
+              fontFamily: "var(--font-mono)",
+              fontSize: "9px",
+              color: "var(--text-secondary)",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+              lineHeight: "1.4",
+              maxHeight: "100px",
+              overflowY: "auto",
+            }}
+          >
+            {tool.args}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getToolIconComponent(name: string): React.ReactNode {
+  const size = 11;
+  const style = { flexShrink: 0, color: "var(--text-secondary)" };
+  switch (name) {
+    case "read_file":
+    case "read_file_range":
+      return <FileText size={size} style={style} />;
+    case "write_file":
+      return <Pencil size={size} style={style} />;
+    case "execute_command":
+      return <Terminal size={size} style={style} />;
+    case "search_files":
+      return <Search size={size} style={style} />;
+    case "scan_directory_tree":
+    case "scan_subdirectory":
+      return <FolderOpen size={size} style={style} />;
+    case "extract_symbol":
+    case "search_symbol":
+      return <Tag size={size} style={style} />;
+    case "save_memory":
+      return <Save size={size} style={style} />;
+    case "search_memory":
+      return <Brain size={size} style={style} />;
+    case "check_port":
+      return <Plug size={size} style={style} />;
+    default:
+      return <Wrench size={size} style={style} />;
+  }
+}
+
+function getFriendlyToolNameStatic(name: string): string {
+  switch (name) {
+    case "read_file":
+    case "read_file_range":
+      return "Đọc tệp tin";
+    case "write_file":
+      return "Ghi tệp tin";
+    case "execute_command":
+      return "Chạy lệnh terminal";
+    case "search_files":
+      return "Tìm kiếm tệp";
+    case "scan_directory_tree":
+    case "scan_subdirectory":
+      return "Quét thư mục";
+    case "extract_symbol":
+    case "search_symbol":
+      return "Truy xuất mã nguồn";
+    case "save_memory":
+      return "Lưu ký ức";
+    case "search_memory":
+      return "Tìm kiếm ký ức";
+    case "check_port":
+      return "Kiểm tra cổng mạng";
+    default:
+      return name;
+  }
+}
+
+// ─── Single Tool Request Card (compact, expandable) ────────────────────
+
+interface SingleToolRequestCardProps {
+  item: ChatItem;
+  onApprove: (id: string) => void;
+  onReject: (id: string) => void;
+}
+
+function SingleToolRequestCard({
+  item,
+  onApprove,
+  onReject,
+}: SingleToolRequestCardProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div
+      className="message-container agent-fade-in"
+      style={{
+        borderRadius: "6px",
+        border: "1px solid var(--border-primary)",
+        background: "var(--bg-secondary)",
+        padding: "6px 10px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "4px",
+      }}
+    >
+      {/* Compact header */}
+      <div
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          cursor: "pointer",
+          userSelect: "none",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+          }}
+        >
+          {expanded ? (
+            <ChevronDown
+              size={9}
+              style={{ color: "var(--text-muted)", flexShrink: 0 }}
+            />
+          ) : (
+            <ChevronRight
+              size={9}
+              style={{ color: "var(--text-muted)", flexShrink: 0 }}
+            />
+          )}
+          {getToolIconComponent(item.toolName || "")}
+          <span
+            style={{
+              fontSize: "9.5px",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+            }}
+          >
+            {getFriendlyToolNameStatic(item.toolName || "")}
+          </span>
+        </div>
+        <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
+          {item.timestamp}
+        </span>
+      </div>
+
+      {/* Expanded args */}
+      {expanded && item.args && item.args !== "{}" && (
+        <pre
+          style={{
+            margin: 0,
+            padding: "4px 6px",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--border-primary)",
+            borderRadius: "4px",
+            fontFamily: "var(--font-mono)",
+            fontSize: "9px",
+            color: "var(--text-secondary)",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-all",
+            lineHeight: "1.4",
+            maxHeight: "120px",
+            overflowY: "auto",
+          }}
+        >
+          {item.args}
+        </pre>
+      )}
+
+      {/* Actions */}
+      {item.toolStatus === "waiting" && (
+        <div
+          style={{
+            display: "flex",
+            gap: "4px",
+            justifyContent: "flex-end",
+          }}
+        >
+          <button
+            onClick={() => onReject(item.id)}
+            style={{
+              padding: "2px 8px",
+              fontSize: "9px",
+              background: "transparent",
+              border: "1px solid var(--border-primary)",
+              color: "var(--text-secondary)",
+              cursor: "pointer",
+              borderRadius: "3px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "3px",
+              fontWeight: 500,
+              lineHeight: "18px",
+            }}
+          >
+            <X size={9} /> Từ chối
+          </button>
+          <button
+            onClick={() => onApprove(item.id)}
+            style={{
+              padding: "2px 8px",
+              fontSize: "9px",
+              background: "var(--border-strong, #374151)",
+              border: "none",
+              color: "#fff",
+              cursor: "pointer",
+              borderRadius: "3px",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "3px",
+              fontWeight: 600,
+              lineHeight: "18px",
+            }}
+          >
+            <Check size={9} /> Đồng ý chạy
+          </button>
+        </div>
+      )}
+
+      {item.toolStatus === "approved" && (
+        <div
+          style={{
+            fontSize: "9px",
+            color: "#22c55e",
+            textAlign: "right",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "3px",
+          }}
+        >
+          <Check size={9} /> Đã chấp thuận
+        </div>
+      )}
+
+      {item.toolStatus === "rejected" && (
+        <div
+          style={{
+            fontSize: "9px",
+            color: "var(--text-muted)",
+            textAlign: "right",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            gap: "3px",
+            fontStyle: "italic",
+          }}
+        >
+          <X size={9} /> Đã từ chối
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AiAgent({
@@ -82,7 +513,6 @@ export default function AiAgent({
   const [loopIterations, setLoopIterations] = useState<number>(0);
   const [totalIterations, setTotalIterations] = useState<number>(25);
   const [activeThought, setActiveThought] = useState<string | null>(null);
-
 
   const [inputVal, setInputVal] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -156,7 +586,11 @@ export default function AiAgent({
 
   useEffect(() => {
     const loadActiveModels = async () => {
-      let activeIds: string[] = ["deepseek-v4-pro", "claude-opus-4.7", "gemini-3.5-flash"];
+      let activeIds: string[] = [
+        "deepseek-v4-pro",
+        "claude-opus-4.7",
+        "gemini-3.5-flash",
+      ];
       let activeModelBackend = "";
       try {
         const config = await invoke<any>("get_custom_ai_config");
@@ -227,7 +661,10 @@ export default function AiAgent({
         setAvailableModels(list);
         setSelectedModel((prev) => {
           if (list.some((m) => m.id === prev)) return prev;
-          if (activeModelBackend && list.some((m) => m.id === activeModelBackend)) {
+          if (
+            activeModelBackend &&
+            list.some((m) => m.id === activeModelBackend)
+          ) {
             return activeModelBackend;
           }
           return list[0].id;
@@ -249,8 +686,6 @@ export default function AiAgent({
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatHistory, isTyping]);
-
-
 
   useEffect(() => {
     let unlistenFn: any;
@@ -424,11 +859,13 @@ export default function AiAgent({
     try {
       const response: {
         session_id: string;
-        reply_type: "text" | "tool_request" | "agent_activity" | "loop_result";
+        reply_type: string;
         text?: string;
         tool_name?: string;
         args?: string;
+        tools?: Array<{ name: string; args: string; pending_id: string }>;
         pending_id?: string;
+        approved_tool_index?: number;
         loop_result?: {
           iterations: Array<{
             iteration: number;
@@ -554,6 +991,25 @@ export default function AiAgent({
           }),
         };
         setChatHistory((prev) => [...prev, toolMsg]);
+      } else if (response.reply_type === "tool_batch_request") {
+        const responseAny = response as any;
+        const tools: ToolItem[] = (responseAny.tools || []).map((t: any) => ({
+          name: t.name,
+          args: t.args,
+          pending_id: t.pending_id,
+          status: "waiting" as const,
+        }));
+        const batchMsg: ChatItem = {
+          id: `batch_${Date.now()}`,
+          type: "tool_batch_request",
+          sender: "agent",
+          tools,
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+        setChatHistory((prev) => [...prev, batchMsg]);
       } else if (response.reply_type === "agent_activity") {
         const activityMsg: ChatItem = {
           id: Date.now().toString(),
@@ -611,12 +1067,16 @@ export default function AiAgent({
     await triggerSendMessage(promptText);
   };
 
-  const handleApproveTool = async (id: string) => {
-    setChatHistory((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, toolStatus: "approved" as const } : item,
-      ),
-    );
+  const handleApproveTool = async (id: string, toolIndex?: number) => {
+    // For batch items, don't set item-level status (individual tools track their own)
+    const isBatch = toolIndex !== undefined;
+    if (!isBatch) {
+      setChatHistory((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, toolStatus: "approved" as const } : item,
+        ),
+      );
+    }
 
     setIsTyping(true);
 
@@ -635,6 +1095,8 @@ export default function AiAgent({
         text?: string;
         reply_type?: string;
         tool_result?: string;
+        tools?: Array<{ name: string; args: string; pending_id: string }>;
+        approved_tool_index?: number;
         loop_result?: {
           iterations: Array<{
             iteration: number;
@@ -655,10 +1117,33 @@ export default function AiAgent({
         approved: true,
         model: backendModelName,
         activeCwd: activeProjectCwd,
+        toolIndex: toolIndex ?? null,
       });
 
       setIsTyping(false);
       setActiveThought(null);
+
+      // Batch response: cập nhật tool result và hiển thị tools còn lại
+      if (response.reply_type === "tool_batch_request" && response.tools) {
+        setChatHistory((prev) =>
+          prev.map((item) => {
+            if (item.id === id) {
+              // Đánh dấu tool vừa được duyệt
+              const updatedTools = response.tools!.map((t) => ({
+                ...t,
+                status: "waiting" as const,
+              }));
+              return {
+                ...item,
+                tools: updatedTools,
+                toolResult: response.tool_result,
+              };
+            }
+            return item;
+          }),
+        );
+        return;
+      }
 
       if (response.tool_result) {
         setChatHistory((prev) =>
@@ -746,12 +1231,16 @@ export default function AiAgent({
     }
   };
 
-  const handleRejectTool = async (id: string) => {
-    setChatHistory((prev) =>
-      prev.map((item) =>
-        item.id === id ? { ...item, toolStatus: "rejected" as const } : item,
-      ),
-    );
+  const handleRejectTool = async (id: string, toolIndex?: number) => {
+    // For batch items, don't set item-level status (individual tools track their own)
+    const isBatch = toolIndex !== undefined;
+    if (!isBatch) {
+      setChatHistory((prev) =>
+        prev.map((item) =>
+          item.id === id ? { ...item, toolStatus: "rejected" as const } : item,
+        ),
+      );
+    }
 
     setIsTyping(true);
 
@@ -768,14 +1257,37 @@ export default function AiAgent({
     try {
       const response: {
         text?: string;
+        reply_type?: string;
+        tools?: Array<{ name: string; args: string; pending_id: string }>;
       } = await invoke("agent_approve_tool", {
         approved: false,
         model: backendModelName,
         activeCwd: activeProjectCwd,
+        toolIndex: toolIndex ?? null,
       });
 
       setIsTyping(false);
       setActiveThought(null);
+
+      // Batch response: cập nhật danh sách tools còn lại
+      if (response.reply_type === "tool_batch_request" && response.tools) {
+        setChatHistory((prev) =>
+          prev.map((item) => {
+            if (item.id === id) {
+              const updatedTools = response.tools!.map((t) => ({
+                ...t,
+                status: "waiting" as const,
+              }));
+              return {
+                ...item,
+                tools: updatedTools,
+              };
+            }
+            return item;
+          }),
+        );
+        return;
+      }
 
       const rejectMsg: ChatItem = {
         id: Date.now().toString(),
@@ -924,27 +1436,27 @@ export default function AiAgent({
     switch (name) {
       case "read_file":
       case "read_file_range":
-        return "📄 Đọc tệp tin";
+        return "Đọc tệp tin";
       case "write_file":
-        return "✍️ Ghi tệp tin";
+        return "Ghi tệp tin";
       case "execute_command":
-        return "💻 Chạy lệnh terminal";
+        return "Chạy lệnh terminal";
       case "search_files":
-        return "🔍 Tìm kiếm tệp";
+        return "Tìm kiếm tệp";
       case "scan_directory_tree":
       case "scan_subdirectory":
-        return "📁 Quét thư mục";
+        return "Quét thư mục";
       case "extract_symbol":
       case "search_symbol":
-        return "🏷️ Truy xuất mã nguồn";
+        return "Truy xuất mã nguồn";
       case "save_memory":
-        return "💾 Lưu ký ức";
+        return "Lưu ký ức";
       case "search_memory":
-        return "🧠 Tìm kiếm ký ức";
+        return "Tìm kiếm ký ức";
       case "check_port":
-        return "🔌 Kiểm tra cổng mạng";
+        return "Kiểm tra cổng mạng";
       default:
-        return `⚙️ Công cụ: ${name}`;
+        return `Công cụ: ${name}`;
     }
   };
 
@@ -1066,7 +1578,14 @@ export default function AiAgent({
         </div>
 
         {/* Right: Actions */}
-        <div ref={dropdownRef} style={{ position: "relative", display: "flex", alignItems: "center" }}>
+        <div
+          ref={dropdownRef}
+          style={{
+            position: "relative",
+            display: "flex",
+            alignItems: "center",
+          }}
+        >
           <button
             onClick={() => setMenuOpen(!menuOpen)}
             className="agent-header-btn"
@@ -1266,7 +1785,8 @@ export default function AiAgent({
                   lineHeight: "1.5",
                 }}
               >
-                Gửi tin nhắn để bắt đầu. Có thể giúp bạn đọc/ghi tệp, chạy terminal, tìm kiếm mã nguồn.
+                Gửi tin nhắn để bắt đầu. Có thể giúp bạn đọc/ghi tệp, chạy
+                terminal, tìm kiếm mã nguồn.
               </div>
             </div>
             <div
@@ -1423,6 +1943,7 @@ export default function AiAgent({
                         style={{ color: "var(--text-muted)", flexShrink: 0 }}
                       />
                     )}
+                    {getToolIconComponent(item.toolName || "")}
                     <span
                       style={{
                         fontSize: "11px",
@@ -1549,7 +2070,9 @@ export default function AiAgent({
             );
           }
 
-          if (item.type === "tool_request") {
+          // ─── TOOL BATCH REQUEST (nhiều tools cùng lúc) ───────────
+          if (item.type === "tool_batch_request") {
+            const tools = item.tools || [];
             return (
               <div
                 key={item.id}
@@ -1558,10 +2081,10 @@ export default function AiAgent({
                   borderRadius: "6px",
                   border: "1px solid var(--border-primary)",
                   background: "var(--bg-secondary)",
-                  padding: "10px 12px",
+                  padding: "8px 10px",
                   display: "flex",
                   flexDirection: "column",
-                  gap: "8px",
+                  gap: "6px",
                 }}
               >
                 <div
@@ -1575,19 +2098,23 @@ export default function AiAgent({
                     style={{
                       display: "flex",
                       alignItems: "center",
-                      gap: "6px",
+                      gap: "4px",
                     }}
                   >
+                    <Wrench
+                      size={10}
+                      style={{ color: "var(--text-secondary)" }}
+                    />
                     <span
                       style={{
-                        fontSize: "10px",
+                        fontSize: "9px",
                         fontWeight: 700,
                         color: "var(--text-secondary)",
                         textTransform: "uppercase",
                         letterSpacing: "0.04em",
                       }}
                     >
-                      Yêu cầu chạy công cụ
+                      Yêu cầu chạy {tools.length} công cụ
                     </span>
                   </div>
                   <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
@@ -1597,95 +2124,33 @@ export default function AiAgent({
 
                 <div
                   style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "11px",
-                    color: "var(--text-primary)",
-                    background: "var(--bg-primary)",
-                    padding: "6px 10px",
-                    border: "1px solid var(--border-primary)",
-                    borderRadius: "6px",
-                    wordBreak: "break-all",
-                    lineHeight: "1.4",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
                   }}
                 >
-                  <strong style={{ color: "var(--text-primary)" }}>{item.toolName}</strong>{" "}
-                  <span style={{ color: "var(--text-secondary)" }}>
-                    {item.args}
-                  </span>
+                  {tools.map((tool, idx) => (
+                    <ToolCardItem
+                      key={tool.pending_id}
+                      tool={tool}
+                      index={idx}
+                      onApprove={(ti) => handleApproveTool(item.id, ti)}
+                      onReject={(ti) => handleRejectTool(item.id, ti)}
+                    />
+                  ))}
                 </div>
-
-                {item.toolStatus === "waiting" && (
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "6px",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <button
-                      onClick={() => handleRejectTool(item.id)}
-                      className="agent-capsule-btn"
-                      style={{
-                        padding: "5px 12px",
-                        fontSize: "10.5px",
-                        background: "transparent",
-                        border: "1px solid var(--border-primary)",
-                        color: "var(--text-secondary)",
-                        cursor: "pointer",
-                        borderRadius: "4px",
-                        fontWeight: 500,
-                      }}
-                    >
-                      Từ chối
-                    </button>
-                    <button
-                      onClick={() => handleApproveTool(item.id)}
-                      className="agent-capsule-btn"
-                      style={{
-                        padding: "5px 12px",
-                        fontSize: "10.5px",
-                        background: "var(--border-strong, #374151)",
-                        border: "none",
-                        color: "#fff",
-                        cursor: "pointer",
-                        borderRadius: "4px",
-                        fontWeight: 600,
-                      }}
-                    >
-                      Đồng ý chạy
-                    </button>
-                  </div>
-                )}
-
-                {item.toolStatus === "approved" && (
-                  <div
-                    style={{
-                      fontSize: "10px",
-                      color: "#22c55e",
-                      textAlign: "right",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "flex-end",
-                      gap: "4px",
-                    }}
-                  >
-                    <Check size={10} /> Đã chấp thuận
-                  </div>
-                )}
-
-                {item.toolStatus === "rejected" && (
-                  <div
-                    style={{
-                      fontSize: "10px",
-                      color: "var(--text-muted)",
-                      textAlign: "right",
-                      fontStyle: "italic",
-                    }}
-                  >
-                    ✕ Đã từ chối
-                  </div>
-                )}
               </div>
+            );
+          }
+
+          if (item.type === "tool_request") {
+            return (
+              <SingleToolRequestCard
+                key={item.id}
+                item={item}
+                onApprove={(id) => handleApproveTool(id)}
+                onReject={(id) => handleRejectTool(id)}
+              />
             );
           }
 
@@ -1899,8 +2364,6 @@ export default function AiAgent({
         <div ref={chatEndRef} />
       </div>
 
-
-
       {/* ===== BOTTOM INPUT BAR ===== */}
       <div
         style={{
@@ -2084,8 +2547,12 @@ export default function AiAgent({
                   justifyContent: "center",
                   transition: "color 0.2s",
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)"}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)")
+                }
                 title="Focus editor"
               >
                 <Pencil size={13} />
@@ -2104,8 +2571,16 @@ export default function AiAgent({
                   justifyContent: "center",
                   transition: "color 0.2s",
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.color = capsOpen ? "#38bdf8" : "rgba(255, 255, 255, 0.75)"}
-                onMouseLeave={(e) => e.currentTarget.style.color = capsOpen ? "#38bdf8" : "rgba(255, 255, 255, 0.35)"}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.color = capsOpen
+                    ? "#38bdf8"
+                    : "rgba(255, 255, 255, 0.75)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.color = capsOpen
+                    ? "#38bdf8"
+                    : "rgba(255, 255, 255, 0.35)")
+                }
                 title="Config permissions"
               >
                 <Wrench size={13} />
@@ -2124,8 +2599,12 @@ export default function AiAgent({
                   justifyContent: "center",
                   transition: "color 0.2s",
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)"}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)")
+                }
                 title="Workspace status"
               >
                 <Box size={13} />
@@ -2148,8 +2627,12 @@ export default function AiAgent({
                 fontFamily: "var(--font-sans)",
                 transition: "color 0.2s",
               }}
-              onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)"}
-              onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)"}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)")
+              }
             >
               <span>Local Config</span>
               <ChevronDown size={11} style={{ opacity: 0.8 }} />
@@ -2239,7 +2722,14 @@ export default function AiAgent({
               marginTop: "2px",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "8px", position: "relative" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                position: "relative",
+              }}
+            >
               {/* Agent Mode Pill Dropdown */}
               <div ref={modeDropdownRef} style={{ position: "relative" }}>
                 <button
@@ -2259,11 +2749,13 @@ export default function AiAgent({
                     transition: "all 0.2s",
                   }}
                   onMouseEnter={(e) => {
-                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.08)";
+                    e.currentTarget.style.background =
+                      "rgba(255, 255, 255, 0.08)";
                     e.currentTarget.style.color = "#fff";
                   }}
                   onMouseLeave={(e) => {
-                    e.currentTarget.style.background = "rgba(255, 255, 255, 0.05)";
+                    e.currentTarget.style.background =
+                      "rgba(255, 255, 255, 0.05)";
                     e.currentTarget.style.color = "rgba(255, 255, 255, 0.65)";
                   }}
                 >
@@ -2272,8 +2764,8 @@ export default function AiAgent({
                     {selectedMode === "interactive"
                       ? "Agent"
                       : selectedMode === "autonomous"
-                      ? "Autonomous"
-                      : "Copilot"}
+                        ? "Autonomous"
+                        : "Copilot"}
                   </span>
                   <ChevronDown size={11} style={{ opacity: 0.6 }} />
                 </button>
@@ -2309,7 +2801,10 @@ export default function AiAgent({
                           width: "100%",
                           textAlign: "left",
                           padding: "6px 8px",
-                          background: selectedMode === mode.value ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                          background:
+                            selectedMode === mode.value
+                              ? "rgba(255, 255, 255, 0.08)"
+                              : "transparent",
                           border: "none",
                           borderRadius: "4px",
                           color: "#fff",
@@ -2341,11 +2836,16 @@ export default function AiAgent({
                     cursor: "pointer",
                     transition: "color 0.2s",
                   }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
-                  onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)"}
+                  onMouseEnter={(e) =>
+                    (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                  }
+                  onMouseLeave={(e) =>
+                    (e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)")
+                  }
                 >
                   <span>
-                    {availableModels.find((m) => m.id === selectedModel)?.name || selectedModel}
+                    {availableModels.find((m) => m.id === selectedModel)
+                      ?.name || selectedModel}
                   </span>
                   <ChevronDown size={11} style={{ opacity: 0.6 }} />
                 </button>
@@ -2379,7 +2879,10 @@ export default function AiAgent({
                           width: "100%",
                           textAlign: "left",
                           padding: "6px 8px",
-                          background: selectedModel === m.id ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                          background:
+                            selectedModel === m.id
+                              ? "rgba(255, 255, 255, 0.08)"
+                              : "transparent",
                           border: "none",
                           borderRadius: "4px",
                           color: "#fff",
@@ -2411,8 +2914,12 @@ export default function AiAgent({
                   fontFamily: "var(--font-sans)",
                   transition: "color 0.2s",
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)"}
-                onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)"}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)")
+                }
                 title="Add context (@)"
               >
                 @
@@ -2439,15 +2946,26 @@ export default function AiAgent({
                 }}
                 title="Dừng hoạt động"
               >
-                <span style={{ width: "8px", height: "8px", background: "#fff", borderRadius: "1px" }} />
+                <span
+                  style={{
+                    width: "8px",
+                    height: "8px",
+                    background: "#fff",
+                    borderRadius: "1px",
+                  }}
+                />
               </button>
             ) : (
               <button
                 type="submit"
                 disabled={!inputVal.trim()}
                 style={{
-                  background: inputVal.trim() ? "#0078d4" : "rgba(255, 255, 255, 0.05)",
-                  border: inputVal.trim() ? "none" : "1px solid rgba(255, 255, 255, 0.08)",
+                  background: inputVal.trim()
+                    ? "#0078d4"
+                    : "rgba(255, 255, 255, 0.05)",
+                  border: inputVal.trim()
+                    ? "none"
+                    : "1px solid rgba(255, 255, 255, 0.08)",
                   color: inputVal.trim() ? "#fff" : "rgba(255, 255, 255, 0.25)",
                   width: "28px",
                   height: "28px",
@@ -2490,8 +3008,12 @@ export default function AiAgent({
               padding: 0,
               fontFamily: "var(--font-sans)",
             }}
-            onMouseEnter={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)"}
-            onMouseLeave={(e) => e.currentTarget.style.color = "rgba(255, 255, 255, 0.4)"}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.color = "rgba(255, 255, 255, 0.4)")
+            }
           >
             <span>← Last Session</span>
           </button>
