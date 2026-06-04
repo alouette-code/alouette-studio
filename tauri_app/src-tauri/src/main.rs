@@ -156,6 +156,7 @@ fn main() {
             commands::process::register_project,
             commands::process::deregister_project,
             commands::terminal::spawn_terminal_session,
+            commands::terminal::sync_terminal_input_buf,
             commands::terminal::write_to_terminal_session,
             commands::terminal::kill_terminal_session,
             commands::terminal::check_terminal_session,

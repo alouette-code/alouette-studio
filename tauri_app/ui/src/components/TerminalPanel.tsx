@@ -580,24 +580,34 @@ export default function TerminalPanel({
       term.loadAddon(fit);
       term.open(container);
 
-      // Force disable IME at the DOM root level to prevent Linux IBus/Bamboo from even attempting to hook into the textarea
+      // Configure textarea properties
       try {
         const textarea = (term as any).textarea as HTMLTextAreaElement;
         if (textarea) {
-          textarea.setAttribute("inputmode", "url");
           textarea.setAttribute("autocomplete", "off");
           textarea.setAttribute("autocorrect", "off");
           textarea.setAttribute("autocapitalize", "off");
           textarea.setAttribute("spellcheck", "false");
-          
-          // Brutal fallback: instantly kill any composition session if the OS ignores inputmode
-          textarea.addEventListener("compositionstart", (e) => {
-             textarea.blur();
-             setTimeout(() => textarea.focus(), 10);
-          });
+
+          // Force refresh on input/composition to clear any IME overlapping rendering
+          const refreshCursorLine = () => {
+            requestAnimationFrame(() => {
+              try {
+                const cursorY = term.buffer.active.cursorY;
+                const start = Math.max(0, cursorY - 1);
+                const end = Math.min(term.rows - 1, cursorY + 1);
+                term.refresh(start, end);
+              } catch {}
+            });
+          };
+
+          textarea.addEventListener("input", refreshCursorLine);
+          textarea.addEventListener("compositionstart", refreshCursorLine);
+          textarea.addEventListener("compositionupdate", refreshCursorLine);
+          textarea.addEventListener("compositionend", refreshCursorLine);
         }
       } catch (e) {
-        console.warn("[term] Failed to configure IME restrictions on textarea", e);
+        console.warn("[term] Failed to configure textarea attributes", e);
       }
 
       const doFit = () => {
@@ -622,9 +632,38 @@ export default function TerminalPanel({
         // Ignore focus tracking sequences and null/empty signals that could leak during tab focus changes
         if (!data || data === "\x1b[I" || data === "\x1b[O" || data === "\x00") return;
 
-        invoke("write_to_terminal_session", { sessionId, input: data }).catch(
-          (err) => console.warn("[term] write FAILED:", err),
-        );
+        const isEnter = data.includes("\r") || data.includes("\n");
+        if (isEnter) {
+          // Read current line from screen
+          const activeBuffer = term.buffer.active;
+          const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;
+          const line = activeBuffer.getLine(lineIndex)?.translateToString(true) || "";
+          
+          const promptChars = ['>', '$', '#'];
+          let promptCharIndex = -1;
+          for (let i = line.length - 1; i >= 0; i--) {
+            if (promptChars.includes(line[i])) {
+              promptCharIndex = i;
+              break;
+            }
+          }
+          const command = promptCharIndex !== -1 ? line.substring(promptCharIndex + 2) : line;
+
+          invoke("sync_terminal_input_buf", { sessionId, currentInput: command }).then(() => {
+            invoke("write_to_terminal_session", { sessionId, input: data }).catch(
+              (err) => console.warn("[term] write FAILED:", err),
+            );
+          }).catch((err) => {
+            console.warn("[term] sync FAILED:", err);
+            invoke("write_to_terminal_session", { sessionId, input: data }).catch(
+              (e) => console.warn("[term] write fallback FAILED:", e),
+            );
+          });
+        } else {
+          invoke("write_to_terminal_session", { sessionId, input: data }).catch(
+            (err) => console.warn("[term] write FAILED:", err),
+          );
+        }
       });
       inst.disposers.push(() => {
         try {
@@ -695,12 +734,6 @@ export default function TerminalPanel({
 
       // Key handler: copy/paste
       term.attachCustomKeyEventHandler((e) => {
-        // Block IME composition (e.g. Bamboo Vietnamese) so the terminal only accepts raw English keypresses
-        // e.keyCode === 229 is the standard code for IME processing.
-        // Returning false tells xterm.js to swallow the event (preventDefault and stopPropagation).
-        if (e.isComposing || e.keyCode === 229) {
-          return false;
-        }
 
         // Force refresh of the cursor row on key down to guarantee correct rendering of characters
         if (e.type === "keydown") {

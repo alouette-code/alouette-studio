@@ -22,12 +22,107 @@ pub async fn spawn_terminal_session(
     Ok(())
 }
 
+fn vietnamese_to_telex(input: &str) -> String {
+    let mut result = String::with_capacity(input.len() * 2);
+    for c in input.chars() {
+        let mapped = match c {
+            'đ' => "dd", 'Đ' => "DD",
+            'â' => "aa", 'Â' => "AA",
+            'ê' => "ee", 'Ê' => "EE",
+            'ô' => "oo", 'Ô' => "OO",
+            'ă' => "aw", 'Ă' => "AW",
+            'ơ' => "ow", 'Ơ' => "OW",
+            'ư' => "uw", 'Ư' => "UW",
+            'á' => "as", 'Á' => "AS",
+            'à' => "af", 'À' => "AF",
+            'ả' => "ar", 'Ả' => "AR",
+            'ã' => "ax", 'Ã' => "AX",
+            'ạ' => "aj", 'Ạ' => "AJ",
+            'é' => "es", 'É' => "ES",
+            'è' => "ef", 'È' => "EF",
+            'ẻ' => "er", 'Ẻ' => "ER",
+            'ẽ' => "ex", 'Ẽ' => "EX",
+            'ẹ' => "ej", 'Ẹ' => "EJ",
+            'í' => "is", 'Í' => "IS",
+            'ì' => "if", 'Ì' => "IF",
+            'ỉ' => "ir", 'Ỉ' => "IR",
+            'ĩ' => "ix", 'Ĩ' => "IX",
+            'ị' => "ij", 'Ị' => "IJ",
+            'ó' => "os", 'Ó' => "OS",
+            'ò' => "of", 'Ò' => "OF",
+            'ỏ' => "or", 'Ỏ' => "OR",
+            'õ' => "ox", 'Õ' => "OX",
+            'ọ' => "oj", 'Ọ' => "OJ",
+            'ú' => "us", 'Ú' => "US",
+            'ù' => "uf", 'Ù' => "UF",
+            'ủ' => "ur", 'Ủ' => "UR",
+            'ũ' => "ux", 'Ũ' => "UX",
+            'ụ' => "uj", 'Ụ' => "UJ",
+            'ý' => "ys", 'Ý' => "YS",
+            'ỳ' => "yf", 'Ỳ' => "YF",
+            'ỷ' => "yr", 'Ỷ' => "YR",
+            'ỹ' => "yx", 'Ỹ' => "YX",
+            'ỵ' => "yj", 'Ỵ' => "YJ",
+            'ấ' => "aas", 'Ấ' => "AAS",
+            'ầ' => "aaf", 'Ầ' => "AAF",
+            'ẩ' => "aar", 'Ẩ' => "AAR",
+            'ẫ' => "aax", 'Ẫ' => "AAX",
+            'ậ' => "aaj", 'Ậ' => "AAJ",
+            'ắ' => "aws", 'Ắ' => "AWS",
+            'ằ' => "awf", 'Ằ' => "AWF",
+            'ẳ' => "awr", 'Ẳ' => "AWR",
+            'ẵ' => "awx", 'Ẵ' => "AWX",
+            'ặ' => "awj", 'Ặ' => "AWJ",
+            'ế' => "ees", 'Ế' => "EES",
+            'ề' => "eef", 'Ề' => "EEF",
+            'ể' => "eer", 'Ể' => "EER",
+            'ễ' => "eex", 'Ễ' => "EEX",
+            'ệ' => "eej", 'Ệ' => "EEJ",
+            'ố' => "oos", 'Ố' => "OOS",
+            'ồ' => "oof", 'Ồ' => "OOF",
+            'ổ' => "oor", 'Ổ' => "OOR",
+            'ỗ' => "oox", 'Ỗ' => "OOX",
+            'ộ' => "ooj", 'Ộ' => "OOJ",
+            'ớ' => "ows", 'Ớ' => "OWS",
+            'ờ' => "owf", 'Ờ' => "OWF",
+            'ở' => "owr", 'Ở' => "OWR",
+            'ỡ' => "owx", 'Ỡ' => "OWX",
+            'ợ' => "owj", 'Ợ' => "OWJ",
+            'ứ' => "uws", 'Ứ' => "UWS",
+            'ừ' => "uwf", 'Ừ' => "UWF",
+            'ử' => "uwr", 'Ử' => "UWR",
+            'ữ' => "uwx", 'Ữ' => "UWX",
+            'ự' => "uwj", 'Ự' => "UWJ",
+            '\u{0300}' | '\u{0301}' | '\u{0309}' | '\u{0303}' | '\u{0323}' | '\u{0302}' | '\u{0306}' | '\u{031b}' => "",
+            other => {
+                result.push(other);
+                continue;
+            }
+        };
+        result.push_str(mapped);
+    }
+    result
+}
+
+#[tauri::command]
+pub async fn sync_terminal_input_buf(
+    state: State<'_, AppState>,
+    session_id: String,
+    current_input: String,
+) -> Result<(), String> {
+    let mut pm = state.process_manager.lock().await;
+    let filtered_input = vietnamese_to_telex(&current_input);
+    pm.input_buf.insert(session_id, filtered_input);
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn write_to_terminal_session(
     state: State<'_, AppState>,
     session_id: String,
     input: String,
 ) -> Result<(), String> {
+    let input = vietnamese_to_telex(&input);
     eprintln!("[term-input] Received input: {:?}", input);
     // 1. Immediately handle Ctrl+C to interrupt executing commands safely
     if input.contains('\x03') {
@@ -87,7 +182,6 @@ pub async fn write_to_terminal_session(
     let mut allowed_cmd = String::new();
     let mut blocked_reason = String::new();
     let mut buf_len: usize = 0;
-    let mut echo_string = String::new();
     let out_tx;
     let stdin_tx;
 
@@ -135,26 +229,6 @@ pub async fn write_to_terminal_session(
                     pm.clear_input_buf(&session_id);
                 }
             }
-        } else {
-            for c in input.chars() {
-                let is_bs = c == '\u{7f}' || c == '\u{08}';
-                if is_bs {
-                    let mut buf = pm.get_input_buf(&session_id).cloned().unwrap_or_default();
-                    if !buf.is_empty() {
-                        buf.pop();
-                        pm.clear_input_buf(&session_id);
-                        if !buf.is_empty() {
-                            pm.append_input_buf(&session_id, &buf);
-                        }
-                        echo_string.push_str("\u{08} \u{08}");
-                    }
-                } else {
-                    let mut temp = String::new();
-                    temp.push(c);
-                    pm.append_input_buf(&session_id, &temp);
-                    echo_string.push(c);
-                }
-            }
         }
 
         let ctx = match pm.get_terminal_write_context(&session_id) {
@@ -166,14 +240,10 @@ pub async fn write_to_terminal_session(
     }
 
     if !blocked_reason.is_empty() {
-        let erase: String = (0..buf_len).map(|_| '\u{08}')
-            .chain(" ".repeat(buf_len).chars())
-            .chain((0..buf_len).map(|_| '\u{08}'))
-            .collect();
-        // Send Ctrl+C to PowerShell to cancel input line + show fresh prompt
+        // Send Ctrl+C to PowerShell/Bash to cancel input line
         let _ = stdin_tx.send("\x03".to_string()).await;
-        // Send erase + warning to display
-        let warning = format!("\r{}[Sandbox] Blocked: {}\r\n", erase, blocked_reason);
+        // Send blocked warning
+        let warning = format!("\r[Sandbox] Blocked: {}\r\n", blocked_reason);
         let _ = out_tx.send(TerminalOutput {
             session_id: session_id.clone(),
             text: warning,
@@ -188,29 +258,12 @@ pub async fn write_to_terminal_session(
                 pm.update_cwd_for_cd(&session_id, &allowed_cmd);
             }
         }
-        
-        // Erase the locally-echoed characters from the screen first,
-        // because ConPTY will automatically echo the entire stdin string when it receives it.
-        if !allowed_cmd.is_empty() {
-            let erase = "\x08 \x08".repeat(allowed_cmd.len());
-            let _ = out_tx.send(TerminalOutput {
-                session_id: session_id.clone(),
-                text: erase,
-            });
-        }
-
-        let full = allowed_cmd + "\r";
-        let _ = stdin_tx.send(full).await;
+        let _ = stdin_tx.send("\r".to_string()).await;
         return Ok(());
     }
 
-    // Local echo for non-Enter keystrokes
-    if !is_enter && !echo_string.is_empty() {
-        let _ = out_tx.send(TerminalOutput {
-            session_id: session_id.clone(),
-            text: echo_string,
-        });
-    }
+    // Direct forward to PTY for typing/backspacing
+    let _ = stdin_tx.send(input).await;
 
     Ok(())
 }
