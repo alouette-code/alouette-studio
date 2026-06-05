@@ -1657,7 +1657,7 @@ export default function AiAgent({
     },
     {
       key: "postMini",
-      label: "Post Mini",
+      label: "Ping Zero Min",
       icon: Zap,
       isActive: capabilities.postMini,
     },

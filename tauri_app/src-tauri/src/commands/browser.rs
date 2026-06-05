@@ -91,7 +91,7 @@ pub async fn open_browser_window(app_handle: AppHandle) -> Result<(), String> {
             PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .parent()
                 .map(|p| p.display().to_string())
-                .unwrap_or_else(|| "tauri_app".to_string())
+                .unwrap_or_else(|| "alouette-studio".to_string())
         )
     })?;
 

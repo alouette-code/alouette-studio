@@ -87,6 +87,63 @@ body {
     user-select: none;
 }
 
+/* Custom Styled Checkboxes & Selects to avoid default OS styling */
+input[type="checkbox"] {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border: 1px solid var(--border-primary);
+    background-color: var(--bg-primary);
+    outline: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    vertical-align: middle;
+    transition: all 0.15s ease;
+}
+
+input[type="checkbox"]:checked {
+    background-color: var(--color-accent);
+    border-color: var(--color-accent);
+}
+
+input[type="checkbox"]:checked::after {
+    content: "";
+    display: block;
+    width: 4px;
+    height: 8px;
+    border: solid #ffffff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg) translate(-0.5px, -1.5px);
+}
+
+input[type="checkbox"]:hover {
+    border-color: var(--text-secondary);
+}
+
+input[type="checkbox"]:focus {
+    border-color: var(--color-accent);
+}
+
+select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px !important;
+}
+
+select option {
+    background-color: var(--bg-secondary) !important;
+    color: var(--text-primary) !important;
+}
+
 /* Base App Layout Container */
 .app-container {
     display: flex;
@@ -222,8 +279,8 @@ body {
 }
 
 .brand-icon {
-    width: 50px;
-    height: 50px;
+    width: 22px;
+    height: 22px;
     object-fit: contain;
 }
 

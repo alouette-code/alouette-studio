@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
+import brandIcon from "./logo_alouette.png";
 import {
   Send,
   Trash2,
@@ -1218,12 +1219,13 @@ export default function MiniPostman() {
       {/* ================================================================ */}
       <div className="postman-window-titlebar" data-tauri-drag-region>
         <div className="titlebar-left" data-tauri-drag-region>
-          <Globe
-            size={13}
+          <img
+            src={brandIcon}
+            alt="Alouette Logo"
             className="titlebar-icon"
-            style={{ color: "var(--color-accent)" }}
+            style={{ width: "14px", height: "14px", objectFit: "contain", marginRight: "4px" }}
           />
-          <span className="titlebar-title">Mini Postman</span>
+          <span className="titlebar-title">Ping Zero Min</span>
           <span className="titlebar-subtitle">API Debugger & Diagnostics</span>
         </div>
         <div className="titlebar-right">

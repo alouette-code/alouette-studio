@@ -64,6 +64,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 
 [[package]]
+name = "alouette-studio"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "chrono",
+ "core_engine",
+ "futures-util",
+ "jsonschema",
+ "md5",
+ "quick-xml 0.40.1",
+ "regex-lite",
+ "reqwest",
+ "rig-core",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha1 0.11.0",
+ "sha2 0.11.0",
+ "tauri",
+ "tauri-build",
+ "tokio",
+ "tract-onnx",
+ "url",
+]
+
+[[package]]
 name = "android_system_properties"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5091,33 +5118,6 @@ dependencies = [
  "dunce",
  "embed-resource",
  "toml 1.1.2+spec-1.1.0",
-]
-
-[[package]]
-name = "tauri_app"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "chrono",
- "core_engine",
- "futures-util",
- "jsonschema",
- "md5",
- "quick-xml 0.40.1",
- "regex-lite",
- "reqwest",
- "rig-core",
- "rusqlite",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha1 0.11.0",
- "sha2 0.11.0",
- "tauri",
- "tauri-build",
- "tokio",
- "tract-onnx",
- "url",
 ]
 
 [[package]]

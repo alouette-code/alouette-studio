@@ -229,7 +229,7 @@ pub async fn open_ping_window(app_handle: tauri::AppHandle) -> Result<(), String
         "ping_window",
         tauri::WebviewUrl::App("index.html".into()),
     )
-    .title("Mini Postman - Connection Diagnostics")
+    .title("Ping Zero Min - Connection Diagnostics")
     .inner_size(1100.0, 780.0)
     .resizable(true)
     .decorations(false)

@@ -1,4 +1,4 @@
-import brandIcon from "./brand-icon.png";
+import brandIcon from "./logo_alouette.png";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import {

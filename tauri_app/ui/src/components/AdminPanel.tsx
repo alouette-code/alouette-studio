@@ -72,7 +72,7 @@ const DOCK_ITEMS: DockItem[] = [
   { id: "user", label: "User", icon: <User size={16} /> },
   { id: "git", label: "Git", icon: <GitBranch size={16} /> },
   { id: "ai", label: "Model AI", icon: <Sparkles size={16} /> },
-  { id: "postman", label: "Post Mini", icon: <Wifi size={16} /> },
+  { id: "postman", label: "Ping Zero Min", icon: <Wifi size={16} /> },
   { id: "browser", label: "Zen Browser", icon: <ZenIcon size={16} /> },
   { id: "environment", label: "Environment", icon: <Server size={16} /> },
   { id: "build", label: "Build", icon: <Cpu size={16} /> },
@@ -193,7 +193,7 @@ export default function AdminPanel() {
     try {
       await invoke("open_ping_window");
     } catch (e) {
-      setToast({ message: "Failed to open Post Mini", type: "error" });
+      setToast({ message: "Failed to open Ping Zero Min", type: "error" });
     }
   };
 
