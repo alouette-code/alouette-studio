@@ -280,6 +280,7 @@ export default function App() {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [isAiViewActive, setIsAiViewActive] = useState(false);
   const [isGitViewActive, setIsGitViewActive] = useState(false);
+  const [wasAiActiveBeforeGit, setWasAiActiveBeforeGit] = useState(false);
   const [initialAgentSessionData, setInitialAgentSessionData] =
     useState<any>(null);
   const [agentHistoryList, setAgentHistoryList] = useState<any[]>([]);
@@ -1484,14 +1485,18 @@ export default function App() {
             title="1. Git"
             onClick={() => {
               if (!isRightSidebarOpen) {
+                setWasAiActiveBeforeGit(isAiViewActive);
                 setIsRightSidebarOpen(true);
                 setIsGitViewActive(true);
                 setIsAiViewActive(false);
               } else {
                 if (isGitViewActive) {
-                  setIsRightSidebarOpen(false);
                   setIsGitViewActive(false);
+                  if (wasAiActiveBeforeGit) {
+                    setIsAiViewActive(true);
+                  }
                 } else {
+                  setWasAiActiveBeforeGit(isAiViewActive);
                   setIsGitViewActive(true);
                   setIsAiViewActive(false);
                 }
@@ -1510,7 +1515,6 @@ export default function App() {
                 setIsGitViewActive(false);
               } else {
                 if (isAiViewActive) {
-                  setIsRightSidebarOpen(false);
                   setIsAiViewActive(false);
                 } else {
                   setIsAiViewActive(true);
