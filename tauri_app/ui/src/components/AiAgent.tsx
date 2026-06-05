@@ -80,9 +80,12 @@ interface ChatItem {
 }
 
 interface AiAgentProps {
-  onBack: () => void;
+  onBack?: () => void;
   activeProjectCwd?: string;
   activeProjectId?: string;
+  initialSessionData?: any;
+  onClearInitialSessionData?: () => void;
+  onLoadSession?: (sessionId: string, title: string) => void;
 }
 
 // ─── Tool Card Item (compact, expandable) ───────────────────────────────
@@ -498,8 +501,15 @@ export default function AiAgent({
   onBack,
   activeProjectCwd,
   activeProjectId,
+  initialSessionData,
+  onClearInitialSessionData,
+  onLoadSession,
 }: AiAgentProps) {
   const [chatHistory, setChatHistory] = useState<ChatItem[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [historyItems, setHistoryItems] = useState<any[]>([]);
+
   const [activeTool, setActiveTool] = useState<{
     status: "executing" | "idle";
     tool_name?: string;
@@ -521,12 +531,95 @@ export default function AiAgent({
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
-  const [sessionTitle, setSessionTitle] = useState("Agent Active Session #1");
+  const [sessionTitle, setSessionTitle] = useState("New Chat");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [thinkingMode, setThinkingMode] = useState<"high" | "low">("low");
   const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
     {},
   );
+
+  const saveSession = async (
+    history: ChatItem[],
+    title: string,
+    sessId: string,
+  ) => {
+    try {
+      await invoke("save_agent_session", {
+        sessionId: sessId,
+        title: title,
+        model: selectedModel,
+        mode: selectedMode,
+        activeCwd: activeProjectCwd || null,
+        frontendHistory: history,
+      });
+    } catch (err) {
+      console.error("Failed to save session:", err);
+    }
+  };
+
+  useEffect(() => {
+    if (sessionId && chatHistory.length > 0) {
+      saveSession(chatHistory, sessionTitle, sessionId);
+    }
+  }, [chatHistory, sessionTitle, sessionId]);
+
+  useEffect(() => {
+    if (initialSessionData) {
+      setChatHistory(initialSessionData.frontend_history);
+      setSessionTitle(initialSessionData.title);
+      setSessionId(initialSessionData.session_id);
+      setSelectedModel(initialSessionData.model);
+      setSelectedMode(initialSessionData.mode);
+      if (onClearInitialSessionData) {
+        onClearInitialSessionData();
+      }
+    }
+  }, [initialSessionData]);
+
+  const handleLoadSession = async (sessId: string, title?: string) => {
+    if (onLoadSession) {
+      onLoadSession(sessId, title || "Lịch sử Chat");
+      setHistoryModalOpen(false);
+      return;
+    }
+    try {
+      const data: any = await invoke("load_agent_session", {
+        sessionId: sessId,
+      });
+      setChatHistory(data.frontend_history);
+      setSessionTitle(data.title);
+      setSessionId(data.session_id);
+      setSelectedModel(data.model);
+      setSelectedMode(data.mode);
+      setHistoryModalOpen(false);
+    } catch (err: any) {
+      alert(`Lỗi khi tải lịch sử: ${err?.message || err}`);
+    }
+  };
+
+  const handleDeleteSession = async (sessId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!confirm("Bạn có chắc chắn muốn xóa lịch sử chat này không?")) return;
+    try {
+      await invoke("agent_delete_session", { sessionId: sessId });
+      setHistoryItems((prev) =>
+        prev.filter((item) => item.session_id !== sessId),
+      );
+    } catch (err: any) {
+      alert(`Lỗi khi xóa lịch sử: ${err?.message || err}`);
+    }
+  };
+
+  const handleOpenHistoryModal = async () => {
+    try {
+      const list = await invoke<any[]>("agent_get_history");
+      setHistoryItems(list);
+      setHistoryModalOpen(true);
+      setMenuOpen(false);
+    } catch (err: any) {
+      alert(`Lỗi khi lấy lịch sử chat: ${err?.message || err}`);
+    }
+  };
 
   const handleCopy = (id: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -579,6 +672,7 @@ export default function AiAgent({
   const [capsOpen, setCapsOpen] = useState(false);
 
   const activeStreamMessageIdRef = useRef<string | null>(null);
+  const isActiveSender = useRef(false);
 
   const createStreamPlaceholder = (initialText: string) => {
     const streamId = "stream_" + Date.now();
@@ -636,6 +730,8 @@ export default function AiAgent({
     const setupStreamListeners = async () => {
       unlistenText = await listen("agent-text-chunk", (event: any) => {
         resetWatchdog();
+        // Chỉ xử lý nếu chính instance NÀY đang gửi message
+        if (!isActiveSender.current) return;
         const chunk = event.payload;
         const streamId = activeStreamMessageIdRef.current;
         if (!streamId) {
@@ -653,6 +749,7 @@ export default function AiAgent({
 
       unlistenThought = await listen("agent-thought-chunk", (event: any) => {
         resetWatchdog();
+        if (!isActiveSender.current) return;
         const chunk = event.payload;
         setActiveThought((prev) => (prev || "") + chunk);
       });
@@ -661,6 +758,7 @@ export default function AiAgent({
         "agent-thought-final",
         (event: any) => {
           resetWatchdog();
+          if (!isActiveSender.current) return;
           const finalThought = event.payload;
           setActiveThought(finalThought);
         },
@@ -673,6 +771,7 @@ export default function AiAgent({
             "[ALOUETTE UI] Received stream-complete event:",
             event.payload,
           );
+          if (!isActiveSender.current) return;
           if (watchdogTimer) clearTimeout(watchdogTimer);
           setIsTyping(false);
         },
@@ -797,6 +896,7 @@ export default function AiAgent({
     let unlistenFn: any;
     const setupListener = async () => {
       unlistenFn = await listen("agent-activity", (event: any) => {
+        if (!isActiveSender.current) return;
         setActiveTool(event.payload as any);
       });
     };
@@ -810,6 +910,7 @@ export default function AiAgent({
     let unlistenFn: any;
     const setupIterationListener = async () => {
       unlistenFn = await listen("agent-iteration", (event: any) => {
+        if (!isActiveSender.current) return;
         const data = event.payload;
 
         const iterKey = `iter_${data.iteration}`;
@@ -956,8 +1057,21 @@ export default function AiAgent({
       }),
     };
 
+    let isFirstMessage = chatHistory.length === 0;
+    let newTitle = sessionTitle;
+    if (isFirstMessage) {
+      const words = messageText.trim().split(/\s+/);
+      newTitle =
+        words.length <= 6
+          ? messageText.trim()
+          : words.slice(0, 6).join(" ") + "...";
+      setSessionTitle(newTitle);
+    }
+
     setChatHistory((prev) => [...prev, userMsg]);
     setIsTyping(true);
+    // Đánh dấu instance này là sender đang active
+    isActiveSender.current = true;
 
     processedIters.current = new Set();
     setLoopIterations(0);
@@ -1013,6 +1127,10 @@ export default function AiAgent({
       setLoopIterations(0);
 
       removeStreamPlaceholder();
+
+      if (response.session_id) {
+        setSessionId(response.session_id);
+      }
 
       if (response.total_iterations) {
         setTotalIterations(response.total_iterations);
@@ -1167,6 +1285,9 @@ export default function AiAgent({
         }),
       };
       setChatHistory((prev) => [...prev, errorMsg]);
+    } finally {
+      // Dọn dẹp: instance này không còn active nữa
+      isActiveSender.current = false;
     }
   };
 
@@ -1198,6 +1319,7 @@ export default function AiAgent({
     }
 
     setIsTyping(true);
+    isActiveSender.current = true;
 
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {
@@ -1211,6 +1333,7 @@ export default function AiAgent({
 
     try {
       const response: {
+        session_id?: string;
         text?: string;
         reply_type?: string;
         tool_result?: string;
@@ -1243,6 +1366,10 @@ export default function AiAgent({
       setIsTyping(false);
       setActiveThought(null);
       removeStreamPlaceholder();
+
+      if (response.session_id) {
+        setSessionId(response.session_id);
+      }
 
       // Batch response: cập nhật tool result và hiển thị tools còn lại
       if (response.reply_type === "tool_batch_request" && response.tools) {
@@ -1350,6 +1477,8 @@ export default function AiAgent({
       removeStreamPlaceholder();
       setIsTyping(false);
       alert(`Lỗi khi phê duyệt tool: ${err?.message || err}`);
+    } finally {
+      isActiveSender.current = false;
     }
   };
 
@@ -1365,6 +1494,7 @@ export default function AiAgent({
     }
 
     setIsTyping(true);
+    isActiveSender.current = true;
 
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {
@@ -1378,6 +1508,7 @@ export default function AiAgent({
 
     try {
       const response: {
+        session_id?: string;
         text?: string;
         reply_type?: string;
         tools?: Array<{ name: string; args: string; pending_id: string }>;
@@ -1392,6 +1523,10 @@ export default function AiAgent({
       setIsTyping(false);
       setActiveThought(null);
       removeStreamPlaceholder();
+
+      if (response.session_id) {
+        setSessionId(response.session_id);
+      }
 
       // Batch response: cập nhật danh sách tools còn lại
       if (response.reply_type === "tool_batch_request" && response.tools) {
@@ -1428,6 +1563,8 @@ export default function AiAgent({
       removeStreamPlaceholder();
       setIsTyping(false);
       alert(`Lỗi khi từ chối tool: ${err?.message || err}`);
+    } finally {
+      isActiveSender.current = false;
     }
   };
 
@@ -1435,9 +1572,8 @@ export default function AiAgent({
     try {
       await invoke("agent_reset_session");
       setChatHistory([]);
-      setSessionTitle(
-        `Agent Active Session #${Math.floor(Math.random() * 100) + 1}`,
-      );
+      setSessionId(null);
+      setSessionTitle("New Chat");
       setMenuOpen(false);
     } catch (err: any) {
       alert(`Lỗi khi reset session: ${err?.message || err}`);
@@ -1808,10 +1944,7 @@ export default function AiAgent({
               </button>
 
               <button
-                onClick={() => {
-                  alert("Chức năng xem lịch sử chat đang được phát triển.");
-                  setMenuOpen(false);
-                }}
+                onClick={handleOpenHistoryModal}
                 className="agent-dropdown-item"
                 style={{
                   width: "100%",
@@ -3186,6 +3319,215 @@ export default function AiAgent({
           </div>
         </div>
       </div>
+
+      {/* ===== HISTORY MODAL ===== */}
+      {historyModalOpen && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0, 0, 0, 0.65)",
+            backdropFilter: "blur(4px)",
+            zIndex: 2000,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+          onClick={() => setHistoryModalOpen(false)}
+        >
+          <div
+            style={{
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border-primary)",
+              borderRadius: "8px",
+              boxShadow: "0 16px 48px rgba(0, 0, 0, 0.6)",
+              display: "flex",
+              flexDirection: "column",
+              maxHeight: "80%",
+              width: "100%",
+              overflow: "hidden",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "12px 16px",
+                borderBottom: "1px solid var(--border-primary)",
+                background: "var(--bg-primary)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  color: "var(--text-primary)",
+                }}
+              >
+                Lịch sử Chat Agent
+              </span>
+              <button
+                onClick={() => setHistoryModalOpen(false)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--text-secondary)",
+                  cursor: "pointer",
+                  padding: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            <div
+              className="agent-scroll"
+              style={{
+                flex: 1,
+                overflowY: "auto",
+                padding: "8px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "6px",
+              }}
+            >
+              {historyItems.length === 0 ? (
+                <div
+                  style={{
+                    textAlign: "center",
+                    padding: "30px",
+                    color: "var(--text-muted)",
+                    fontSize: "11.5px",
+                  }}
+                >
+                  Chưa có lịch sử chat nào.
+                </div>
+              ) : (
+                historyItems.map((item) => (
+                  <div
+                    key={item.session_id}
+                    onClick={() =>
+                      handleLoadSession(item.session_id, item.title)
+                    }
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      padding: "8px 12px",
+                      background: "var(--bg-primary)",
+                      border: "1px solid var(--border-primary)",
+                      borderRadius: "6px",
+                      cursor: "pointer",
+                      transition: "all var(--transition-fast)",
+                      position: "relative",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = "var(--border-focus)";
+                      e.currentTarget.style.backgroundColor =
+                        "var(--bg-tertiary)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor =
+                        "var(--border-primary)";
+                      e.currentTarget.style.backgroundColor =
+                        "var(--bg-primary)";
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "flex-start",
+                        gap: "10px",
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontSize: "11.5px",
+                          fontWeight: 600,
+                          color: "var(--text-primary)",
+                          wordBreak: "break-all",
+                        }}
+                      >
+                        {item.title}
+                      </span>
+                      <button
+                        onClick={(e) => handleDeleteSession(item.session_id, e)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "var(--color-danger)",
+                          cursor: "pointer",
+                          padding: "2px",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          opacity: 0.6,
+                        }}
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.opacity = "1")
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.opacity = "0.6")
+                        }
+                        title="Xóa lịch sử"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "6px",
+                        marginTop: "6px",
+                        fontSize: "9px",
+                        color: "var(--text-muted)",
+                      }}
+                    >
+                      <span
+                        style={{
+                          padding: "1px 4px",
+                          background: "var(--bg-secondary)",
+                          borderRadius: "3px",
+                        }}
+                      >
+                        {item.model}
+                      </span>
+                      <span
+                        style={{
+                          padding: "1px 4px",
+                          background: "var(--bg-secondary)",
+                          borderRadius: "3px",
+                          textTransform: "uppercase",
+                        }}
+                      >
+                        {item.mode}
+                      </span>
+                      <span>
+                        {new Date(item.created_at * 1000).toLocaleString([], {
+                          month: "short",
+                          day: "numeric",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

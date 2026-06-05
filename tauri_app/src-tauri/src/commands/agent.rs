@@ -1700,3 +1700,225 @@ fn log_debug(msg: &str) {
         let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f"), msg);
     }
 }
+
+// ─── Agent History DB Implementation ──────────────────────────────────
+use rusqlite::{params, Connection};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentHistoryItem {
+    pub session_id: String,
+    pub title: String,
+    pub created_at: i64,
+    pub model: String,
+    pub mode: String,
+    pub active_cwd: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoadedSession {
+    pub session_id: String,
+    pub title: String,
+    pub model: String,
+    pub mode: String,
+    pub active_cwd: Option<String>,
+    pub frontend_history: serde_json::Value,
+}
+
+fn resolve_history_db_path() -> std::path::PathBuf {
+    let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    for _ in 0..10 {
+        let check_path = current.join("core_engine/app_data");
+        if check_path.exists() {
+            return check_path.join("history_agen.sql");
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    std::env::current_dir()
+        .unwrap_or_default()
+        .join("core_engine/app_data/history_agen.sql")
+}
+
+fn init_history_db(conn: &Connection) -> Result<(), String> {
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS history_agen (
+            session_id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            model TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            active_cwd TEXT,
+            backend_history TEXT NOT NULL,
+            frontend_history TEXT NOT NULL
+        );",
+        [],
+    )
+    .map_err(|e| format!("Failed to create history_agen table: {}", e))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn agent_get_history() -> Result<Vec<AgentHistoryItem>, String> {
+    let db_path = resolve_history_db_path();
+    if let Some(parent) = db_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open history database: {}", e))?;
+
+    init_history_db(&conn)?;
+
+    let mut stmt = conn
+        .prepare("SELECT session_id, title, created_at, model, mode, active_cwd FROM history_agen ORDER BY created_at DESC;")
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let history_iter = stmt
+        .query_map([], |row| {
+            Ok(AgentHistoryItem {
+                session_id: row.get(0)?,
+                title: row.get(1)?,
+                created_at: row.get(2)?,
+                model: row.get(3)?,
+                mode: row.get(4)?,
+                active_cwd: row.get(5)?,
+            })
+        })
+        .map_err(|e| format!("Failed to query history: {}", e))?;
+
+    let mut list = Vec::new();
+    for item in history_iter {
+        list.push(item.map_err(|e| e.to_string())?);
+    }
+    Ok(list)
+}
+
+#[tauri::command]
+pub async fn load_agent_session(session_id: String) -> Result<LoadedSession, String> {
+    let db_path = resolve_history_db_path();
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open history database: {}", e))?;
+
+    init_history_db(&conn)?;
+
+    let mut stmt = conn
+        .prepare("SELECT title, model, mode, active_cwd, backend_history, frontend_history FROM history_agen WHERE session_id = ?1;")
+        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+
+    let mut rows = stmt
+        .query(params![session_id])
+        .map_err(|e| format!("Failed to query session: {}", e))?;
+
+    if let Some(row) = rows.next().map_err(|e| format!("Failed to fetch row: {}", e))? {
+        let title: String = row.get(0).map_err(|e| e.to_string())?;
+        let model: String = row.get(1).map_err(|e| e.to_string())?;
+        let mode: String = row.get(2).map_err(|e| e.to_string())?;
+        let active_cwd: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+        let backend_history_str: String = row.get(4).map_err(|e| e.to_string())?;
+        let frontend_history_str: String = row.get(5).map_err(|e| e.to_string())?;
+
+        let backend_history: Vec<ChatMessage> = serde_json::from_str(&backend_history_str)
+            .map_err(|e| format!("Failed to parse backend history: {}", e))?;
+
+        let frontend_history: serde_json::Value = serde_json::from_str(&frontend_history_str)
+            .map_err(|e| format!("Failed to parse frontend history: {}", e))?;
+
+        let session_store = get_session_store();
+        let mut guard = session_store.lock().unwrap();
+        *guard = Some(AgentSession {
+            session_id: session_id.clone(),
+            history: backend_history,
+            state: AgentState::Idle,
+            iteration_count: 0,
+            max_iterations: 25,
+            mode: match mode.as_str() {
+                "autonomous" => HarnessMode::Autonomous,
+                _ => HarnessMode::Standard,
+            },
+            plan: None,
+            autonomous_state: None,
+        });
+
+        Ok(LoadedSession {
+            session_id,
+            title,
+            model,
+            mode,
+            active_cwd,
+            frontend_history,
+        })
+    } else {
+        Err("Session not found.".to_string())
+    }
+}
+
+#[tauri::command]
+pub async fn save_agent_session(
+    session_id: String,
+    title: String,
+    model: String,
+    mode: String,
+    active_cwd: Option<String>,
+    frontend_history: serde_json::Value,
+) -> Result<(), String> {
+    let db_path = resolve_history_db_path();
+    if let Some(parent) = db_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open history database: {}", e))?;
+
+    init_history_db(&conn)?;
+
+    let backend_history_json = {
+        let session_store = get_session_store();
+        let guard = session_store.lock().unwrap();
+        if let Some(ref session) = *guard {
+            if session.session_id == session_id {
+                serde_json::to_string(&session.history).unwrap_or_else(|_| "[]".to_string())
+            } else {
+                "[]".to_string()
+            }
+        } else {
+            "[]".to_string()
+        }
+    };
+
+    let frontend_history_str = serde_json::to_string(&frontend_history)
+        .map_err(|e| format!("Failed to serialize frontend history: {}", e))?;
+
+    let created_at = chrono::Local::now().timestamp();
+
+    conn.execute(
+        "INSERT OR REPLACE INTO history_agen (session_id, title, created_at, model, mode, active_cwd, backend_history, frontend_history)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+        params![
+            session_id,
+            title,
+            created_at,
+            model,
+            mode,
+            active_cwd,
+            backend_history_json,
+            frontend_history_str,
+        ],
+    )
+    .map_err(|e| format!("Failed to save session to DB: {}", e))?;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn agent_delete_session(session_id: String) -> Result<(), String> {
+    let db_path = resolve_history_db_path();
+    let conn = Connection::open(&db_path)
+        .map_err(|e| format!("Failed to open history database: {}", e))?;
+
+    init_history_db(&conn)?;
+
+    conn.execute("DELETE FROM history_agen WHERE session_id = ?1;", params![session_id])
+        .map_err(|e| format!("Failed to delete session: {}", e))?;
+
+    Ok(())
+}
+

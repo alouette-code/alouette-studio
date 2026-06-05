@@ -211,6 +211,10 @@ fn main() {
             commands::agent::save_custom_ai_config,
             commands::agent::agent_cancel,
             commands::agent::agent_status,
+            commands::agent::agent_get_history,
+            commands::agent::load_agent_session,
+            commands::agent::save_agent_session,
+            commands::agent::agent_delete_session,
             toggle_alouette_open,
             is_alouette_open_active,
         ])

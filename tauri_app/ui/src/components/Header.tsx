@@ -11,8 +11,13 @@ import {
   Square,
   X,
   Play,
-  Database
+  Database,
+  Sparkles,
+  ExternalLink,
 } from "lucide-react";
+
+// Search Engine
+import { isAgentHistorySearch } from "../lib/search";
 
 interface HeaderProps {
   theme: "dark" | "light";
@@ -34,9 +39,17 @@ interface HeaderProps {
   triggerToast: (message: string, type: "success" | "error" | "info") => void;
   onOpenResources: () => void;
   onToggleTunnel?: () => void;
+  agentHistoryList?: any[];
+  onLoadAgentSession?: (sessionId: string) => void;
 }
 
-function CloudflareIcon({ size = 16, active = false }: { size?: number; active?: boolean }) {
+function CloudflareIcon({
+  size = 16,
+  active = false,
+}: {
+  size?: number;
+  active?: boolean;
+}) {
   return (
     <svg
       width={size}
@@ -46,7 +59,7 @@ function CloudflareIcon({ size = 16, active = false }: { size?: number; active?:
       style={{
         opacity: active ? 1 : 0.55,
         color: active ? "#F38020" : "inherit",
-        transition: "all 0.2s ease"
+        transition: "all 0.2s ease",
       }}
       xmlns="http://www.w3.org/2000/svg"
     >
@@ -74,7 +87,9 @@ export default function Header({
   triggerConfirm,
   triggerToast,
   onOpenResources,
-  onToggleTunnel
+  onToggleTunnel,
+  agentHistoryList,
+  onLoadAgentSession,
 }: HeaderProps) {
   const appWindow = getCurrentWindow();
 
@@ -132,17 +147,23 @@ export default function Header({
                 <button className="dropdown-item" onClick={handleExportConfig}>
                   Export Configurations
                 </button>
-                <button className="dropdown-item" onClick={handleImportMockConfig}>
+                <button
+                  className="dropdown-item"
+                  onClick={handleImportMockConfig}
+                >
                   Load Demo Templates
                 </button>
                 <div className="dropdown-divider"></div>
                 <button
                   className="dropdown-item text-danger"
                   onClick={() => {
-                    triggerConfirm("Are you sure you want to wipe all configurations?", () => {
-                      wipeConfig();
-                      triggerToast("All configurations wiped.", "info");
-                    });
+                    triggerConfirm(
+                      "Are you sure you want to wipe all configurations?",
+                      () => {
+                        wipeConfig();
+                        triggerToast("All configurations wiped.", "info");
+                      },
+                    );
                   }}
                 >
                   Wipe Configurations
@@ -204,9 +225,90 @@ export default function Header({
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           {searchQuery && (
-            <button className="search-clear-btn" onClick={() => setSearchQuery("")}>
+            <button
+              className="search-clear-btn"
+              onClick={() => setSearchQuery("")}
+            >
               ✕
             </button>
+          )}
+
+          {/* Floating Agent History Dropdown (sử dụng search engine) */}
+          {isAgentHistorySearch(searchQuery) && agentHistoryList && (
+            <div className="agent-search-dropdown">
+              <div className="agent-search-dropdown-header">
+                <span className="agent-search-dropdown-header-left">
+                  <Sparkles
+                    size={12}
+                    style={{ color: "var(--accent-purple, #a78bfa)" }}
+                  />
+                  LỊCH SỬ AGENT ({agentHistoryList.length})
+                </span>
+                <span className="agent-search-dropdown-header-right">
+                  Mở tab <ExternalLink size={10} />
+                </span>
+              </div>
+              <div className="agent-search-dropdown-list">
+                {agentHistoryList.length === 0 ? (
+                  <div className="agent-search-dropdown-empty">
+                    <Search size={20} style={{ opacity: 0.4 }} />
+                    <span>Không tìm thấy lịch sử phù hợp</span>
+                    <span style={{ fontSize: "10px", opacity: 0.6 }}>
+                      Thử gõ từ khóa khác để tìm kiếm mờ (fuzzy)
+                    </span>
+                  </div>
+                ) : (
+                  agentHistoryList.map((item, index) => (
+                    <button
+                      key={item.session_id}
+                      className="agent-search-dropdown-item"
+                      onClick={() =>
+                        onLoadAgentSession &&
+                        onLoadAgentSession(item.session_id)
+                      }
+                    >
+                      <div className="agent-search-dropdown-item-top">
+                        <span className="agent-search-dropdown-item-index">
+                          #{index + 1}
+                        </span>
+                        <span
+                          className="agent-search-dropdown-item-title"
+                          title={item.title}
+                        >
+                          {item.title}
+                        </span>
+                        <span
+                          className={`agent-search-dropdown-badge mode-${item.mode}`}
+                        >
+                          {item.mode === "autonomous"
+                            ? "Tự động"
+                            : "Tiêu chuẩn"}
+                        </span>
+                      </div>
+                      <div className="agent-search-dropdown-item-meta">
+                        <span className="agent-search-dropdown-badge">
+                          {item.model}
+                        </span>
+                        <span className="agent-search-dropdown-date">
+                          {new Date(item.created_at * 1000).toLocaleString(
+                            "vi-VN",
+                            {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              day: "2-digit",
+                              month: "2-digit",
+                            },
+                          )}
+                        </span>
+                        <span className="agent-search-dropdown-open-icon">
+                          <ExternalLink size={11} />
+                        </span>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
           )}
         </div>
       </div>
@@ -234,12 +336,19 @@ export default function Header({
                 alignItems: "center",
                 justifyContent: "center",
                 cursor: "pointer",
-                color: "inherit"
+                color: "inherit",
               }}
               onClick={onToggleTunnel}
-              title={activeProject.enable_tunnel ? "Cloudflare Tunnel Enabled (Click to Disable)" : "Cloudflare Tunnel Disabled (Click to Enable)"}
+              title={
+                activeProject.enable_tunnel
+                  ? "Cloudflare Tunnel Enabled (Click to Disable)"
+                  : "Cloudflare Tunnel Disabled (Click to Enable)"
+              }
             >
-              <CloudflareIcon active={!!activeProject.enable_tunnel} size={15} />
+              <CloudflareIcon
+                active={!!activeProject.enable_tunnel}
+                size={15}
+              />
             </button>
             <span className="header-process-name" title={activeProject.name}>
               {activeProject.name}
@@ -248,23 +357,36 @@ export default function Header({
               <span className="label">PID</span>
               <span className="value mono">
                 {activeState?.type === "Running"
-                  ? (typeof activeState.data === "object" ? activeState.data?.pid : activeState.data)
+                  ? typeof activeState.data === "object"
+                    ? activeState.data?.pid
+                    : activeState.data
                   : "N/A"}
               </span>
             </div>
             {activeProject.port && (
               <div className="header-meta-capsule">
                 <span className="label">PORT</span>
-                <span className="value mono text-success">{activeProject.port}</span>
+                <span className="value mono text-success">
+                  {activeProject.port}
+                </span>
               </div>
             )}
-            {activeState?.type === "Running" || activeState?.type === "Setup" ? (
-              <button className="btn-header-stop" onClick={handleStop} title="Stop process">
+            {activeState?.type === "Running" ||
+            activeState?.type === "Setup" ? (
+              <button
+                className="btn-header-stop"
+                onClick={handleStop}
+                title="Stop process"
+              >
                 <Square size={10} fill="currentColor" />
                 <span>Stop</span>
               </button>
             ) : (
-              <button className="btn-header-start" onClick={handleStart} title="Start process">
+              <button
+                className="btn-header-start"
+                onClick={handleStart}
+                title="Start process"
+              >
                 <Play size={10} fill="currentColor" />
                 <span>Start</span>
               </button>

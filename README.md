@@ -1,6 +1,6 @@
 # Alouette Studio
 
-**Integrated Development Studio & Native Process Orchestrator** — a high-performance desktop application for managing isolated development environments with enterprise-grade toolchain isolation, real-time resource monitoring, integrated multi-session terminal access, built-in Monaco Editor, SQLite browser, robust API client, and local AI-powered log diagnostic suite.
+**Integrated Development Studio & Native Process Orchestrator** — a high-performance desktop application for managing isolated development environments with enterprise-grade toolchain isolation, real-time resource monitoring, integrated multi-session terminal access, built-in Monaco Editor, SQLite browser, robust API client, AI Agent harness with autonomous loop, and local AI-powered log diagnostic suite.
 
 Built with **Rust + Tauri v2 + React 18 + TypeScript**.
 
@@ -14,12 +14,14 @@ Built with **Rust + Tauri v2 + React 18 + TypeScript**.
 - Setup command execution before main process
 - Force kill with process tree traversal
 - Port scanning (netstat on Windows, lsof on Unix)
+- Network isolation per process
 
 ### Resource Monitoring
 - Real-time CPU and RAM usage per process tree
 - Live canvas-based charts via Tauri events
 - Configurable resource limits (max CPU %, max RAM MB)
 - Watchdog enforcement: auto-terminate processes exceeding limits for 30+ seconds
+- GPU performance simulation and port detail tracking
 
 ### Proto Toolchain Isolation
 - Automatic download of [Proto](https://moonrepo.dev/proto) CLI (moonrepo)
@@ -35,11 +37,24 @@ Built with **Rust + Tauri v2 + React 18 + TypeScript**.
 - Full stdin/stdout/stderr routing
 - Session resizing support
 
+### AI Agent — Autonomous Code Assistant (Agent Loop Engine)
+- **Agent Loop Engine:** Full think-act-observe loop: LLM response → parse → tool call → execute → feed result → repeat
+- **3 operation modes:** Interactive (approve before write), Write (auto-approve read+write), Autonomous (fully auto)
+- **Real-time streaming:** Frontend receives `agent-iteration` events with thought, tool_name, tool_result in real-time
+- **History compaction:** Auto-compacts conversation history when exceeding 80 messages
+- **Skill tools:** `scan_directory_tree`, `scan_subdirectory`, `search_files`, `extract_symbol`, `read_file_range`, `search_symbol`
+- **Memory management:** Long-term and short-term memory tracking for context persistence
+- **Self-healing:** Automatic error recovery and retry logic on tool execution failures
+- **Telemetry:** Execution metrics and performance tracking
+- **Plan system:** Multi-step plan generation and execution
+- **Prompt system:** Custom identity and tool prompts stored in `prompts/identity.txt` and `prompts/tools.txt`
+- **Rig Framework integration:** Uses `rig-core 0.37` for LLM provider abstraction, supporting Google Gemini, OpenAI-compatible APIs, and local LLMs
+
 ### Alouette Open — AI-Powered Log Monitoring (Alouette A1)
-- **Real-Time Log Monitoring:** High-performance background polling (500ms intervals) of process log outputs and system log streams.
-- **ONNX Model & Heuristic Detection:** Integrates local `alouette_open-A1 v1.0.onnx` execution via `tract-onnx` in Rust alongside heuristic fallbacks for robust and instant error detection.
-- **Interactive UI Cards:** Displays gorgeous, floating error alerts in the AI Agent chat panel built with Lucide React icons (`Bot`, `X`, `Search`).
-- **Instant Fix Workflow:** One-click "Bắt đầu tìm hiểu" sends diagnostic reports and commands directly to the active AI Agent to research and suggest instant codebase resolutions.
+- **Real-Time Log Monitoring:** High-performance background polling (500ms intervals) of process log outputs and system log streams
+- **ONNX Model & Heuristic Detection:** Integrates local `alouette_open-A1 v1.0.onnx` execution via `tract-onnx` in Rust alongside heuristic fallbacks for robust and instant error detection
+- **Interactive UI Cards:** Displays gorgeous, floating error alerts in the AI Agent chat panel built with Lucide React icons (`Bot`, `X`, `Search`)
+- **Instant Fix Workflow:** One-click "Bắt đầu tìm hiểu" sends diagnostic reports and commands directly to the active AI Agent
 
 ### Sandbox — 3-Tier Command Protection
 Designed to prevent destructive command execution (e.g., `rm -rf /`, `cd ~ && rm -rf .`, `Format C:`):
@@ -56,6 +71,9 @@ Commands are intercepted before being sent to the PTY shell. Navigation (`cd`, `
 - Automatic download of latest Cloudflared binary
 - Tunnel URL parsing from stderr output
 - Per-project tunnel enable/disable
+- Supports 2 modes: Tunnel Free (auto port link) and Named Tunnel (Cloudflare Zero Trust Token)
+- Visual toggle in title bar with brand-colored Cloudflare icon
+- Configuration saved in `cloudflare_config.yml`
 
 ### MiniPostman — Built-in API Client
 A full-featured HTTP client embedded directly in the application:
@@ -69,7 +87,7 @@ A full-featured HTTP client embedded directly in the application:
 - **Collections:** Organize and save requests
 - **Environments:** Variable management with scoped environments
 - **History:** Full request history with search
-- **Code Generation:** Generate cURL commands from any request
+- **Code Generation:** Generate cURL commands and code snippets from any request
 
 ### Network Tools
 - **DNS Lookup** — resolve domain names
@@ -105,6 +123,31 @@ A full-featured HTTP client embedded directly in the application:
 - Insert new rows, delete rows
 - Add columns (TEXT, INTEGER, REAL)
 
+### Project Resources Panel
+- Real-time Uptime tracking for each project
+- Hardware metrics: CPU usage, RAM consumption with configurable limits
+- GPU performance simulation metrics
+- Port mapping and network details
+- Sandbox and tunnel configuration status
+- Quick-access from the database icon in the title bar
+
+### Build Panel
+- Build & deployment dashboard
+- Build process orchestration and output monitoring
+- Integration with project toolchain settings
+
+### System Manager
+- System-level administration and process oversight
+- Background service management
+- System state monitoring and diagnostics
+
+### Split Editor Panes
+- Right-click on Tab bar to split editor into 2-3 side-by-side panes
+- Click any pane to activate focus
+- Files open in the active pane
+- Drag-and-drop tabs between panes
+- Right-click menu with "Close Split Pane" option to merge
+
 ### Global Settings
 Persistent application settings stored in `app_data/settings.json`:
 
@@ -114,6 +157,20 @@ Persistent application settings stored in `app_data/settings.json`:
 | **Logs** | Max log lines, auto-scroll, active log filter |
 | **Performance** | Max history points, max terminal output length, monitor interval |
 | **Appearance** | Font size, sidebar widths, panel heights |
+| **Application & Startup** | Keep alive (minimize to tray), auto-start with OS, run in background |
+| **Resource Control** | CPU % and RAM MB limits enforcement |
+| **Auto Restart** | Periodic automatic restart scheduling |
+| **Telegram Bot** | Remote alerts via Telegram API Token and Chat ID |
+
+### Thinking Mode
+- **High mode (purple):** Forces deep thinking via API thinking budget configuration
+- **Low mode (gray):** Lets the model decide automatically, optimizing speed and resources
+
+### Agent History
+- Chat history automatically saved to SQLite (`core_engine/app_data/history_agen.sql`)
+- Session titles auto-generated from first 6 words of user's first message
+- Search by typing `history agent` or `agent history` in the search bar
+- Click any history entry to restore full session in the AI Agent sidebar
 
 ### Zen Browser Integration
 Launch a Zen Browser window directly from the application with bundled browser resources.
@@ -123,145 +180,193 @@ Launch a Zen Browser window directly from the application with bundled browser r
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│                        Tauri Desktop Shell                          │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                    React Frontend (UI)                        │  │
-│  │  Components | Hooks | Monaco | xterm.js | Charts            │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-│  │              Tauri IPC Bridge (Commands + Events)             │  │
-│  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                   Core Engine (Rust)                          │  │
-│  │  Process Manager | Sandbox | Proto | Cloudflared | DB       │  │
-│  └───────────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          Tauri Desktop Shell                            │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │                    React Frontend (UI)                            │  │
+│  │  Components | Hooks | Monaco | xterm.js | Charts | Lucide Icons │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│  │              Tauri IPC Bridge (Commands + Events)                 │  │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │                   Core Engine (Rust)                              │  │
+│  │  Process Manager | Sandbox | Proto | Cloudflared | DB            │  │
+│  │  Agent Harness | Alouette Open | System Manager                  │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
 | Layer | Technology | Responsibility |
 |-------|-----------|----------------|
-| **UI** | React 18 + TypeScript + Vite + xterm.js + Monaco | Desktop interface with process dashboards, terminals, file editor, SQLite browser, API client, admin panel |
-| **Bridge** | Tauri v2 IPC | Type-safe command handlers, event routers, state management |
-| **Engine** | Rust (Tokio async) | Process lifecycle, sandbox enforcement, proto toolchain isolation, resource monitoring, SQLite persistence |
+| **UI** | React 18 + TypeScript + Vite + xterm.js + Monaco | Desktop interface with process dashboards, terminals, file editor, SQLite browser, API client, admin panel, AI Agent chat |
+| **Bridge** | Tauri v2 IPC | Type-safe command handlers (13 command modules), event routers (5 routers), state management |
+| **Engine** | Rust (Tokio async) | Process lifecycle, sandbox enforcement, proto toolchain isolation, resource monitoring, SQLite persistence, AI agent loop, ONNX inference, system management |
 
 ---
 
 ## Project Structure
 
 ```
-alouette-server/
-├── Cargo.toml                      # Rust workspace root
+alouette_studio/
+├── .gitignore
+├── .taurignore
+├── AI.json                            # AI assistant guidelines
+├── CLAUDE.md                          # Project-level AI instructions
+├── Cargo.toml                         # Rust workspace root (core_engine + tauri_app)
 ├── README.md
-├── AI.json                         # AI assistant guidelines
-├── fix.js                          # Utility fix script
-├── icon.png                        # Application icon
+├── fix.js                             # Utility fix script
+├── icon.png                           # Application icon
 │
-├── core_engine/                    # Rust library crate — core logic
-│   ├── Cargo.toml
-│   ├── app_data/                   # Runtime data (workspaces, toolchains, DB)
-│   └── src/
-│       ├── lib.rs                  # Crate root + public re-exports
-│       ├── config.rs               # TOML configuration deserialization
-│       ├── db.rs                   # SQLite persistence layer (WAL mode)
-│       ├── monitor.rs              # Resource monitoring (CPU/RAM per process tree)
-│       ├── settings.rs             # Global app settings (JSON persistence)
-│       ├── cloudflared_manager.rs  # Cloudflare tunnel binary management
-│       ├── proto_manager.rs        # Proto toolchain download & isolation
-│       ├── workspace_manager.rs    # Git clone / local copy workspace setup
-│       └── process/                # Process lifecycle management
-│           ├── mod.rs              # Module declarations + re-exports
-│           ├── models.rs           # ProcessState, ProcessLog, TerminalOutput, ProjectInstance
-│           ├── manager.rs          # ProcessManager struct + CRUD
-│           ├── executor.rs         # start_process, stop_process, force_fatal_stop
-│           ├── terminal.rs         # spawn_terminal, write_terminal, kill_terminal
-│           ├── logging.rs          # Log rotation, stream piping
-│           ├── tree.rs             # Process tree traversal, path utilities
-│           └── sandbox/            # 3-tier command protection
-│               ├── mod.rs          # Module entry + orchestration
-│               ├── interceptor.rs  # Tier 1a — semantic command analysis
-│               ├── engine.rs       # Tier 1b — token-based fallback
-│               ├── windows.rs      # Tier 2 — AppContainer (Windows)
-│               ├── linux.rs        # Tier 2 — placeholder (Linux)
-│               └── macos.rs        # Tier 2 — placeholder (macOS)
-│
-├── tauri_app/                      # Tauri v2 desktop application
-│   ├── src-tauri/
-│   │   ├── Cargo.toml              # Tauri binary crate
-│   │   ├── tauri.conf.json         # Tauri configuration (undecorated window)
-│   │   ├── build.rs                # Tauri build script
-│   │   ├── capabilities/           # Permission capabilities
-│   │   ├── icons/                  # Application icons
-│   │   ├── app_data/
-│   │   │   └── model_alouette_open/
-│   │   │       └── alouette_open-A1 v1.0.onnx # Local ONNX AI Model
-│   │   └── src/
-│   │       ├── main.rs             # Entry point + Tauri setup + exit cleanup
-│   │       ├── alouette_open.rs    # Alouette A1 background log monitor (ONNX + Heuristics)
-│   │       ├── state.rs            # AppState struct + logging utility
-│   │       ├── events.rs           # Background event router tasks (5 routers)
-│   │       └── commands/           # Tauri IPC command handlers
-│   │           ├── mod.rs
-│   │           ├── process.rs      # Start/stop/register/deregister projects
-│   │           ├── terminal.rs     # Spawn/write/kill/resize/check terminal sessions
-│   │           ├── files.rs        # File explorer + read/write file content
-│   │           ├── sqlite.rs       # SQLite table browser + CRUD editor
-│   │           ├── network.rs      # HTTP requests, DNS, ping, SSL, JWT, hash, etc.
-│   │           ├── browser.rs      # Zen Browser window launcher
-│   │           └── settings.rs     # Global settings get/save/reset
-│   │
-│   └── ui/                         # React frontend (Vite)
-│       ├── package.json
-│       ├── vite.config.ts
-│       ├── tsconfig.json
-│       ├── index.html
-│       └── src/
-│           ├── main.tsx            # React entry point
-│           ├── App.tsx             # Application orchestrator
-│           ├── index.css           # Global styles + CSS variables + dark/light
-│           ├── constants.ts        # Static mock data + configuration
-│           ├── vite-env.d.ts       # Vite type declarations
-│           ├── types/
-│           │   └── index.ts        # TypeScript interfaces (Project, TerminalState, etc.)
-│           ├── hooks/
-│           │   ├── useProjects.ts  # Project CRUD + event listeners
-│           │   ├── useResources.ts # Resource monitoring + canvas charts
-│           │   └── useTerminal.ts  # Terminal session management
-│           └── components/
-│               ├── Header.tsx          # Title bar + window controls
-│               ├── TabList.tsx         # Project tab navigation
-│               ├── ProcessManager.tsx  # Process control dashboard
-│               ├── TerminalPanel.tsx   # PTY terminal UI (xterm.js)
-│               ├── ConfigSetup.tsx     # Project configuration editor
-│               ├── CodeEditor.tsx      # Monaco file editor
-│               ├── FileExplorer.tsx    # File tree browser
-│               ├── SqliteEditor.tsx    # SQLite database browser
-│               ├── DiagnosticsPanel.tsx# Log viewer + diagnostics
-│               ├── AdminPanel.tsx      # Admin & system management
-│               ├── MiniPostman.tsx              # API client (Postman-like)
-│               ├── MiniPostmanTypes.ts           # API client type definitions
-│               ├── MiniPostmanCollections.tsx    # Saved request collections
-│               ├── MiniPostmanCodeSnippets.tsx   # Code generation view
-│               ├── MiniPostmanEnvManager.tsx     # Environment variables
-│               ├── MiniPostmanScripts.tsx        # Pre-request/post-response scripts
-│               ├── MiniPostmanNetworkTools.tsx   # DNS, ping, SSL, JWT, hash, etc.
-│               └── brand-icon.png    # Brand logo asset
-│
-├── scripts/                        # Utility scripts
-│   ├── generate_icons.js
-│   └── generate_icons.py
-│
-├── assets/                         # Static assets
+├── assets/                            # Static assets
 │   ├── icon-app.png
 │   └── icon-app-square.png
 │
-└── docs/                           # Technical documentation
-    ├── README.md
-    ├── cloudflared_tunnels.md
-    ├── frontend_state.md
-    ├── interactive_terminals.md
-    ├── process_lifecycle.md
-    ├── proto_toolchain.md
-    ├── resource_monitoring.md
-    └── sqlite_storage.md
+├── scripts/                           # Utility scripts
+│   ├── generate_icons.js
+│   └── generate_icons.py
+│
+├── docs/                              # Technical documentation
+│   ├── README.md
+│   ├── cloudflared_tunnels.md
+│   ├── frontend_state.md
+│   ├── interactive_terminals.md
+│   ├── process_lifecycle.md
+│   ├── proto_toolchain.md
+│   ├── resource_monitoring.md
+│   └── sqlite_storage.md
+│
+├── core_engine/                       # Rust library crate — core system logic
+│   ├── Cargo.toml
+│   ├── build.rs
+│   ├── app_data/                      # Runtime data storage
+│   │   ├── ai_config.yml              # Custom AI provider configuration
+│   │   ├── alouette.db                # SQLite database (projects, logs, history)
+│   │   ├── cloudflare_config.yml      # Cloudflare Tunnel configuration
+│   │   ├── alouette_toolchains/       # Proto toolchain binaries
+│   │   └── workspaces/                # Cloned/copied project workspaces
+│   └── src/
+│       ├── lib.rs                     # Crate root + public re-exports
+│       ├── config.rs                  # TOML configuration deserialization
+│       ├── db.rs                      # SQLite persistence layer (WAL mode)
+│       ├── monitor.rs                 # Resource monitoring (CPU/RAM per process tree)
+│       ├── settings.rs                # Global app settings (JSON persistence)
+│       ├── cloudflared_manager.rs     # Cloudflare tunnel binary management
+│       ├── proto_manager.rs           # Proto toolchain download & isolation
+│       ├── workspace_manager.rs       # Git clone / local copy workspace setup
+│       ├── process/                   # Process lifecycle management
+│       │   ├── mod.rs                 # Module declarations + re-exports
+│       │   ├── models.rs              # ProcessState, ProcessLog, TerminalOutput, ProjectInstance
+│       │   ├── manager.rs             # ProcessManager struct + CRUD
+│       │   ├── executor.rs            # start_process, stop_process, force_fatal_stop
+│       │   ├── terminal.rs            # spawn_terminal, write_terminal, kill_terminal
+│       │   ├── logging.rs             # Log rotation, stream piping
+│       │   ├── tree.rs                # Process tree traversal, path utilities
+│       │   ├── network_isolate.rs     # Network isolation per process
+│       │   └── sandbox/               # 3-tier command protection
+│       │       ├── mod.rs             # Module entry + orchestration
+│       │       ├── interceptor.rs     # Tier 1a — semantic command analysis
+│       │       ├── engine.rs          # Tier 1b — token-based fallback
+│       │       ├── windows.rs         # Tier 2 — AppContainer (Windows)
+│       │       ├── linux.rs           # Tier 2 — placeholder (Linux)
+│       │       └── macos.rs           # Tier 2 — placeholder (macOS)
+│       ├── agent_harness/             # AI Agent Loop Engine
+│       │   ├── mod.rs                 # AgentHarness::run_agent_loop() entry point
+│       │   ├── autonomous.rs          # Autonomous mode auto-approval logic
+│       │   ├── compaction.rs          # History compaction when exceeding 80 messages
+│       │   ├── hooks.rs               # Lifecycle hooks (pre/post tool execution)
+│       │   ├── memory.rs              # Short-term + long-term memory management
+│       │   ├── parser.rs              # LLM response parser (tool calls, text)
+│       │   ├── plan.rs                # Multi-step plan generation & execution
+│       │   ├── self_heal.rs           # Error recovery & retry logic
+│       │   ├── skills.rs              # Skill tool implementations
+│       │   ├── telemetry.rs           # Execution metrics & performance tracking
+│       │   ├── tool_definitions.rs    # Tool definitions for LLM function calling
+│       │   └── prompts/              # System prompts for LLM
+│       │       ├── identity.txt       # AI identity / role prompt
+│       │       └── tools.txt          # Tool descriptions prompt
+│       └── bin/
+│           └── test_parser.rs         # Standalone parser test binary
+│
+├── tauri_app/                         # Tauri v2 desktop application
+│   ├── .taurignore
+│   ├── zen_bundle/                    # Zen Browser resources (empty, gitignored)
+│   ├── src-tauri/                     # Tauri Rust binary crate
+│   │   ├── Cargo.toml
+│   │   ├── build.rs                   # Tauri build script
+│   │   ├── tauri.conf.json            # Tauri configuration (undecorated window)
+│   │   ├── .prototools                # Proto toolchain version pin
+│   │   ├── capabilities/
+│   │   │   └── default.json           # Tauri v2 capability permissions
+│   │   ├── icons/                     # Application icons (PNG, ICO, ICNS)
+│   │   ├── gen/schemas/               # Auto-generated platform schemas
+│   │   │   ├── acl-manifests.json
+│   │   │   ├── capabilities.json
+│   │   │   ├── desktop-schema.json
+│   │   │   ├── linux-schema.json
+│   │   │   └── windows-schema.json
+│   │   ├── logs/                      # Runtime logs directory
+│   │   ├── app_data/                  # Runtime data (gitignored)
+│   │   └── src/
+│   │       ├── main.rs                # Entry point + Tauri setup + exit cleanup
+│   │       ├── alouette_open.rs       # Alouette A1 background log monitor (ONNX + Heuristics)
+│   │       ├── events.rs              # Background event router tasks (5 routers)
+│   │       ├── state.rs               # AppState struct + logging utility
+│   │       ├── system_manager.rs      # System administration & state management
+│   │       └── commands/              # Tauri IPC command handlers (13 modules)
+│   │           ├── mod.rs             # Module declarations
+│   │           ├── agent.rs           # AI Agent commands (run_agent_loop, history management)
+│   │           ├── browser.rs         # Zen Browser window launcher
+│   │           ├── files.rs           # File explorer + read/write file content
+│   │           ├── language.rs        # Language detection & processing commands
+│   │           ├── network.rs         # HTTP requests, DNS, ping, SSL, JWT, hash, etc.
+│   │           ├── process.rs         # Start/stop/register/deregister projects
+│   │           ├── rig_bridge.rs      # Rig LLM framework bridge (providers, models)
+│   │           ├── sandbox.rs         # Sandbox configuration & status commands
+│   │           ├── settings.rs        # Global settings get/save/reset
+│   │           ├── sqlite.rs          # SQLite table browser + CRUD editor
+│   │           └── terminal.rs        # Spawn/write/kill/resize/check terminal sessions
+│   │
+│   └── ui/                            # React frontend (Vite)
+│       ├── package.json
+│       ├── tsconfig.json
+│       ├── vite.config.ts
+│       ├── index.html
+│       └── src/
+│           ├── main.tsx               # React entry point
+│           ├── App.tsx                # Application orchestrator
+│           ├── index.css              # Global styles + CSS variables + dark/light
+│           ├── constants.ts           # Static mock data + configuration
+│           ├── vite-env.d.ts          # Vite type declarations
+│           ├── types/
+│           │   └── index.ts           # TypeScript interfaces (Project, TerminalState, etc.)
+│           ├── hooks/
+│           │   ├── useProjects.ts     # Project CRUD + event listeners
+│           │   ├── useResources.ts    # Resource monitoring + canvas charts
+│           │   └── useTerminal.ts     # Terminal session management
+│           └── components/
+│               ├── AdminPanel.tsx             # System administration & permissions
+│               ├── AiAgent.tsx                # AI Agent chat UI with real-time iteration display
+│               ├── BuildPanel.tsx             # Build & deployment dashboard
+│               ├── CloudflareTunnel.tsx       # Cloudflare Tunnel config (Single Card Layout)
+│               ├── CodeEditor.tsx             # Monaco file editor with syntax highlighting
+│               ├── ConfigSetup.tsx            # Per-project configuration editor
+│               ├── DiagnosticsPanel.tsx       # Log viewer + system diagnostics
+│               ├── FileExplorer.tsx           # File tree browser
+│               ├── Header.tsx                 # Custom title bar + window controls (drag, min, close)
+│               ├── MiniPostman.tsx            # API Client (Postman-like HTTP client)
+│               ├── MiniPostmanCodeSnippets.tsx # Code generation view for API requests
+│               ├── MiniPostmanCollections.tsx  # Saved request collections manager
+│               ├── MiniPostmanEnvManager.tsx   # Environment variables for API requests
+│               ├── MiniPostmanNetworkTools.tsx  # DNS, ping, SSL, JWT, hash, encoder tools
+│               ├── MiniPostmanScripts.tsx       # Pre-request & post-response scripts
+│               ├── MiniPostmanTypes.ts          # TypeScript types for MiniPostman
+│               ├── ProcessManager.tsx          # Process control dashboard
+│               ├── ProjectResources.tsx         # Resource monitoring tab (CPU, RAM, GPU, Port)
+│               ├── SqliteEditor.tsx            # SQLite database browser + CRUD
+│               ├── TabList.tsx                 # Project tab navigation
+│               ├── TerminalPanel.tsx           # PTY terminal UI (xterm.js)
+│               └── brand-icon.png              # Brand logo asset
+│
+└── target/                            # Rust build artifacts (gitignored)
 ```
 
 ---
@@ -291,7 +396,7 @@ alouette-server/
 ```bash
 # Clone the repository
 git clone <repository-url>
-cd alouette-server
+cd alouette_studio
 
 # Install frontend dependencies
 cd tauri_app/ui
@@ -299,7 +404,7 @@ npm install
 cd ../..
 
 # Run in development mode
-npm --prefix tauri_app/ui run tauri dev
+npx --prefix tauri_app/ui tauri dev
 ```
 
 The Tauri development server will start the Vite dev server on port 5173 and launch the desktop application window with an undecorated custom title bar.
@@ -345,7 +450,7 @@ npm run preview
 ## Build & Distribution
 
 ```bash
-npm --prefix tauri_app/ui run tauri build
+npx --prefix tauri_app/ui tauri build
 
 # The distributable will be in:
 # tauri_app/src-tauri/target/release/bundle/
@@ -415,8 +520,86 @@ The application uses 5 background event routers:
 | **Resource Router** | `resource-update` | Real-time CPU/RAM stats + watchdog |
 | **Terminal Router** | `terminal-output` | Routes PTY output to frontend |
 | **Init Router** | — | Preloads environment info on startup |
+| **Agent Router** | `agent-iteration` | Real-time AI Agent thinking + tool execution progress |
 
 On exit, the application gracefully terminates all running processes and terminal sessions before closing.
+
+---
+
+## Installed Libraries
+
+### Core Engine (Rust/Cargo)
+
+| Crate | Version | Purpose |
+|-------|---------|---------|
+| tokio | 1.35 (full) | Async runtime |
+| sysinfo | 0.30 | System resource information |
+| serde | 1.0 (derive) | Serialization framework |
+| serde_json | 1.0 | JSON serialization |
+| toml | 0.8 | TOML configuration parsing |
+| chrono | 0.4 | Date/time handling |
+| parking_lot | 0.12 | Fast mutex synchronization |
+| reqwest | 0.11 (json, stream) | HTTP client |
+| futures-util | 0.3 | Async stream utilities |
+| bytes | 1.5 | Byte buffer management |
+| flate2 | 1.0 | Gzip compression |
+| tar | 0.4 | Tar archive handling |
+| zip | 0.6 | Zip archive handling |
+| portable-pty | 0.8 | Cross-platform PTY |
+| fs_extra | 1.3 | Extended filesystem operations |
+| async-trait | 0.1 | Async trait support |
+| directories | 5.0 | Platform-specific directories |
+| rusqlite | 0.31.0 (bundled) | SQLite database |
+| winapi | 0.3 | Windows API bindings |
+
+### Tauri App (Rust/Cargo)
+
+| Crate | Version | Purpose |
+|-------|---------|---------|
+| tauri | 2.0 (unstable, tray-icon, image-png) | Desktop application framework |
+| serde | 1.0 (derive) | Serialization framework |
+| serde_json | 1.0 | JSON serialization |
+| serde_yaml | 0.9 | YAML serialization |
+| tokio | 1.35 (full) | Async runtime |
+| core_engine | local | Local workspace dependency |
+| chrono | 0.4 | Date/time handling |
+| base64 | 0.21 | Base64 encoding |
+| rusqlite | 0.31.0 (bundled) | SQLite database |
+| reqwest | 0.11 (json, multipart, cookies) | HTTP client |
+| sha2 | 0.10 | SHA-256 hashing |
+| sha1 | 0.10 | SHA-1 hashing |
+| md5 | 0.7 | MD5 hashing |
+| regex-lite | 0.1 | Lightweight regex |
+| url | 2 | URL parsing |
+| quick-xml | 0.31 | XML parsing |
+| jsonschema | 0.18 | JSON Schema validation |
+| tract-onnx | 0.21.3 | ONNX inference engine (Alouette Open) |
+| rig-core | 0.37 (derive) | LLM provider abstraction / Agent framework |
+| futures-util | 0.3 | Async stream utilities |
+| tauri-build | 2.0 | Tauri build script |
+
+### Frontend (npm)
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| react | ^18.2.0 | UI framework |
+| react-dom | ^18.2.0 | React DOM renderer |
+| @tauri-apps/api | ^2.0.0 | Tauri IPC bridge |
+| @monaco-editor/react | ^4.7.0 | Monaco code editor |
+| xterm | ^5.3.0 | Terminal emulator |
+| @xterm/addon-fit | ^0.11.0 | xterm.js auto-fit addon |
+| lucide-react | ^0.300.0 | Icon library |
+
+**Dev dependencies:**
+
+| Package | Version | Purpose |
+|---------|---------|---------|
+| typescript | ^5.2.0 | Type checking |
+| vite | ^5.0.0 | Build tool |
+| @vitejs/plugin-react | ^4.2.0 | Vite React plugin |
+| @tauri-apps/cli | ^2.1.0 | Tauri CLI |
+| @types/react | ^18.2.0 | React type definitions |
+| @types/react-dom | ^18.2.0 | React DOM type definitions |
 
 ---
 
@@ -433,5 +616,7 @@ Detailed technical documentation is available in the `docs/` directory:
 | `proto_toolchain.md` | Proto toolchain isolation and environment spoofing |
 | `resource_monitoring.md` | Resource metrics collection and watchdog |
 | `sqlite_storage.md` | Database schema, WAL mode, and persistence strategy |
+
+Additional AI agent configuration is available in `CLAUDE.md` (project-level AI instructions) and `AI.json` (detailed AI assistant guidelines with full directory structure, component purposes, and library inventory).
 
 ---
