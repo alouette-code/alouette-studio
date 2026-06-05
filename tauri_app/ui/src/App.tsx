@@ -35,6 +35,7 @@ import MiniPostman from "./components/MiniPostman";
 import AiAgent from "./components/AiAgent";
 import ProjectResources from "./components/ProjectResources";
 import CloudflareTunnel from "./components/CloudflareTunnel";
+import EnvironmentSetup from "./components/EnvironmentSetup";
 import GitPanel from "./components/GitPanel";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
@@ -1032,6 +1033,12 @@ export default function App() {
                                       className="tab-icon"
                                       style={{ color: "#F38020" }}
                                     />
+                                  ) : path === "__environment__" ? (
+                                    <Server
+                                      size={12}
+                                      className="tab-icon"
+                                      style={{ color: "var(--color-accent, #6366f1)" }}
+                                    />
                                   ) : path.startsWith("__agent_history__:") ? (
                                     <Sparkles
                                       size={12}
@@ -1048,10 +1055,12 @@ export default function App() {
                                       ? "Tài nguyên"
                                       : path === "__cloudflare_tunnel__"
                                         ? "Cloudflare Tunnel"
-                                        : path.startsWith("__agent_history__:")
-                                          ? path.split(":")[2] ||
-                                            "Lịch sử Agent"
-                                          : path.split(/[\\/]/).pop()}
+                                        : path === "__environment__"
+                                          ? "Môi trường"
+                                          : path.startsWith("__agent_history__:")
+                                            ? path.split(":")[2] ||
+                                              "Lịch sử Agent"
+                                            : path.split(/[\\/]/).pop()}
                                   </span>
                                   <button
                                     className="tab-close-btn"
@@ -1148,6 +1157,10 @@ export default function App() {
                             />
                           ) : paneOpenFilePath === "__cloudflare_tunnel__" ? (
                             <CloudflareTunnel />
+                          ) : paneOpenFilePath === "__environment__" ? (
+                            <EnvironmentSetup
+                              activeProject={activeProject || null}
+                            />
                           ) : paneOpenFilePath?.startsWith(
                               "__agent_history__:",
                             ) ? (
@@ -1507,6 +1520,7 @@ export default function App() {
           <button
             className="tool-btn tool-env"
             title="5. Environment (Môi trường)"
+            onClick={() => handleFileOpenCustom("__environment__")}
           >
             <Server size={14} />
           </button>

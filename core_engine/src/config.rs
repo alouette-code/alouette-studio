@@ -56,6 +56,32 @@ pub struct SandboxConfig {
     pub timeout: String,
     pub cpu_limit: String,
     pub max_file_size: String,
+
+    // ── Environment simulation settings (Simulated Sandbox Environment) ──
+    #[serde(default)]
+    pub env_firewall_enabled: bool,
+    #[serde(default)]
+    pub env_firewall_rules: String, // Stringified list of hosts (e.g., "*.google.com, github.com")
+    #[serde(default)]
+    pub env_weak_network_enabled: bool,
+    #[serde(default)]
+    pub env_weak_network_latency_ms: u32,
+    #[serde(default)]
+    pub env_weak_network_jitter_ms: u32,
+    #[serde(default)]
+    pub env_weak_network_loss_rate: f32, // Percent 0.0 - 100.0
+    #[serde(default)]
+    pub env_weak_network_bandwidth_kbps: u32,
+    #[serde(default)]
+    pub env_unstable_server_enabled: bool,
+    #[serde(default)]
+    pub env_unstable_server_drop_rate: f32,
+    #[serde(default)]
+    pub env_unstable_server_periodic_crash_secs: u32,
+    #[serde(default)]
+    pub env_unstable_server_error_rate: f32,
+    #[serde(default)]
+    pub env_unstable_server_error_codes: String,
 }
 
 /// A language runtime managed by Proto (installable via `proto`).
@@ -102,6 +128,19 @@ impl SandboxConfig {
             timeout: "30s".to_string(),
             cpu_limit: "1.0 Core".to_string(),
             max_file_size: "50MB".to_string(),
+            // Environment simulation defaults
+            env_firewall_enabled: false,
+            env_firewall_rules: String::new(),
+            env_weak_network_enabled: false,
+            env_weak_network_latency_ms: 0,
+            env_weak_network_jitter_ms: 0,
+            env_weak_network_loss_rate: 0.0,
+            env_weak_network_bandwidth_kbps: 0,
+            env_unstable_server_enabled: false,
+            env_unstable_server_drop_rate: 0.0,
+            env_unstable_server_periodic_crash_secs: 0,
+            env_unstable_server_error_rate: 0.0,
+            env_unstable_server_error_codes: "500,502,503".to_string(),
         }
     }
 }
@@ -135,6 +174,82 @@ impl ProjectsConfig {
         }
         fs::write(path, content)
             .map_err(|e| format!("Failed to write config file: {}", e))?;
+        Ok(())
+    }
+}
+
+/// Simulated environmental config for a project, stored in YAML file.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct EnvSimulationConfig {
+    pub project_id: String,
+
+    // Firewall Settings
+    pub firewall_enabled: bool,
+    pub firewall_rules: String,
+
+    // Weak Network Simulation
+    pub weak_network_enabled: bool,
+    pub latency_ms: u32,
+    pub jitter_ms: u32,
+    pub loss_rate: f32,
+    pub bandwidth_kbps: u32,
+
+    // Unstable Server Simulation
+    pub unstable_server_enabled: bool,
+    pub unstable_server_drop_rate: f32,
+    pub unstable_server_periodic_crash_secs: u32,
+    pub unstable_server_error_rate: f32,
+    pub unstable_server_error_codes: String,
+
+    // Performance and Hardware Limit Settings (Simulated watchdog limits, decoupled)
+    pub cpu_limit_enabled: bool,
+    pub cpu_limit_percent: u32,
+    pub ram_limit_enabled: bool,
+    pub ram_limit_mb: u64,
+}
+
+impl EnvSimulationConfig {
+    pub fn default_for(project_id: &str) -> Self {
+        Self {
+            project_id: project_id.to_string(),
+            firewall_enabled: false,
+            firewall_rules: String::new(),
+            weak_network_enabled: false,
+            latency_ms: 0,
+            jitter_ms: 0,
+            loss_rate: 0.0,
+            bandwidth_kbps: 0,
+            unstable_server_enabled: false,
+            unstable_server_drop_rate: 0.0,
+            unstable_server_periodic_crash_secs: 0,
+            unstable_server_error_rate: 0.0,
+            unstable_server_error_codes: "500,502,503".to_string(),
+            cpu_limit_enabled: false,
+            cpu_limit_percent: 80,
+            ram_limit_enabled: false,
+            ram_limit_mb: 2000,
+        }
+    }
+
+    pub fn load_all_from_file<P: AsRef<Path>>(path: P) -> Result<std::collections::HashMap<String, Self>, String> {
+        if !path.as_ref().exists() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let content = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read env simulation config: {}", e))?;
+        let config: std::collections::HashMap<String, EnvSimulationConfig> = serde_yaml::from_str(&content)
+            .map_err(|e| format!("Failed to parse YAML env simulation config: {}", e))?;
+        Ok(config)
+    }
+
+    pub fn save_all_to_file<P: AsRef<Path>>(configs: &std::collections::HashMap<String, Self>, path: P) -> Result<(), String> {
+        let content = serde_yaml::to_string(configs)
+            .map_err(|e| format!("Failed to serialize YAML env simulation config: {}", e))?;
+        if let Some(parent) = path.as_ref().parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        fs::write(path, content)
+            .map_err(|e| format!("Failed to write env simulation config: {}", e))?;
         Ok(())
     }
 }

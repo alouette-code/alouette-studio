@@ -149,8 +149,22 @@ pub fn spawn_resource_stats_router(
                 pm.get_config(&stats.project_id)
             };
 
-            let mut cpu_limit = limits.as_ref().and_then(|c| c.max_cpu_percent);
-            let mut ram_limit_mb = limits.as_ref().and_then(|c| c.max_ram_mb);
+            let sim_config = core_engine::EnvSimulationConfig::load_all_from_file(app_data_dir().join("env_simulation.yml"))
+                .ok()
+                .and_then(|map| map.get(&stats.project_id).cloned())
+                .unwrap_or_else(|| core_engine::EnvSimulationConfig::default_for(&stats.project_id));
+
+            let mut cpu_limit = if sim_config.cpu_limit_enabled {
+                Some(sim_config.cpu_limit_percent)
+            } else {
+                limits.as_ref().and_then(|c| c.max_cpu_percent)
+            };
+
+            let mut ram_limit_mb = if sim_config.ram_limit_enabled {
+                Some(sim_config.ram_limit_mb)
+            } else {
+                limits.as_ref().and_then(|c| c.max_ram_mb)
+            };
 
             if settings.enable_limit {
                 if cpu_limit.is_none() {

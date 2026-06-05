@@ -1,7 +1,28 @@
 use crate::state::AppState;
-use core_engine::SandboxConfig;
+use core_engine::{SandboxConfig, EnvSimulationConfig};
 use std::collections::HashMap;
 use tauri::State;
+
+#[tauri::command]
+pub async fn load_env_simulation_configs(
+    state: State<'_, AppState>,
+) -> Result<HashMap<String, EnvSimulationConfig>, String> {
+    let pm = state.process_manager.lock().await;
+    let path = pm.app_data_dir.join("env_simulation.yml");
+    EnvSimulationConfig::load_all_from_file(path)
+}
+
+#[tauri::command]
+pub async fn save_env_simulation_config(
+    state: State<'_, AppState>,
+    config: EnvSimulationConfig,
+) -> Result<(), String> {
+    let pm = state.process_manager.lock().await;
+    let path = pm.app_data_dir.join("env_simulation.yml");
+    let mut configs = EnvSimulationConfig::load_all_from_file(&path)?;
+    configs.insert(config.project_id.clone(), config);
+    EnvSimulationConfig::save_all_to_file(&configs, &path)
+}
 
 #[tauri::command]
 pub async fn load_sandbox_configs(

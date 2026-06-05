@@ -12,7 +12,7 @@ pub mod workspace_manager;
 pub use agent_harness::{
     AgentHarness, AgentSession, AgentState, ChatMessage, MessageContent, TickResult,
 };
-pub use config::{LanguageRuntime, LanguageTool, ProjectConfig, ProjectsConfig, SandboxConfig};
+pub use config::{LanguageRuntime, LanguageTool, ProjectConfig, ProjectsConfig, SandboxConfig, EnvSimulationConfig};
 pub use db::DbManager;
 pub use monitor::{ResourceMonitor, ResourceStats};
 pub use process::{

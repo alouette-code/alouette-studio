@@ -23,5 +23,7 @@ async-trait = "0.1"
 directories = "6.0"
 rusqlite = { version = "0.40.0", features = ["bundled"] }
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "jobapi2", "handleapi"] }
+rand = "0.8"
+serde_yaml = "0.9"
 
 

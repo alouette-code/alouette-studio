@@ -6,6 +6,7 @@ pub mod logging;
 pub mod tree;
 pub mod sandbox;
 pub mod network_isolate;
+pub mod network_simulate_proxy;
 
 // Re-exports
 pub use models::{ProcessState, ProcessLog, TerminalOutput, TerminalSession, TerminalWriteContext, ProjectInstance};

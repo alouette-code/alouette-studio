@@ -65,6 +65,7 @@ impl ProcessManager {
         }
         let proto_home = self.proto_manager.proto_home.clone();
         let app_data_dir = self.app_data_dir.clone();
+        let db_manager = self.db_manager.clone();
 
         tokio::spawn(async move {
             let mut state_updater = StateUpdater {
@@ -86,6 +87,49 @@ impl ProcessManager {
                         timestamp: chrono::Utc::now().timestamp_millis() as u64,
                     });
                 };
+            }
+
+            let sim_config_path = app_data_dir.join("env_simulation.yml");
+            let sim_config = crate::config::EnvSimulationConfig::load_all_from_file(&sim_config_path)
+                .ok()
+                .and_then(|map| map.get(&project_id_str).cloned())
+                .unwrap_or_else(|| crate::config::EnvSimulationConfig::default_for(&project_id_str));
+
+            let is_sim_active = sim_config.firewall_enabled
+                || sim_config.weak_network_enabled
+                || sim_config.unstable_server_enabled;
+
+            let mut proxy_port_opt = None;
+            if is_sim_active {
+                let params = super::network_simulate_proxy::SimulationParams {
+                    firewall_enabled: sim_config.firewall_enabled,
+                    firewall_rules: sim_config.firewall_rules
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect(),
+                    weak_network_enabled: sim_config.weak_network_enabled,
+                    latency_ms: sim_config.latency_ms,
+                    jitter_ms: sim_config.jitter_ms,
+                    loss_rate: sim_config.loss_rate,
+                    bandwidth_kbps: sim_config.bandwidth_kbps,
+                    unstable_server_enabled: sim_config.unstable_server_enabled,
+                    unstable_server_drop_rate: sim_config.unstable_server_drop_rate,
+                    unstable_server_error_rate: sim_config.unstable_server_error_rate,
+                    unstable_server_error_codes: sim_config.unstable_server_error_codes
+                        .split(',')
+                        .map(|s| s.trim().parse::<u16>().unwrap_or(500))
+                        .collect(),
+                };
+                match super::network_simulate_proxy::start_proxy(params).await {
+                    Ok(port) => {
+                        log_system!(format!("Watchdog: Khởi động Proxy Giả lập Môi trường trên cổng {}...", port));
+                        proxy_port_opt = Some(port);
+                    }
+                    Err(e) => {
+                        log_system!(format!("Watchdog WARNING: Lỗi khởi động Proxy Giả lập: {}", e));
+                    }
+                }
             }
 
             state_updater.update(ProcessState::Setup);
@@ -205,6 +249,18 @@ impl ProcessManager {
                 if let Some(ref envs) = config.env {
                     cmd.envs(envs);
                 }
+
+                if let Some(port) = proxy_port_opt {
+                    let proxy_url = format!("http://127.0.0.1:{}", port);
+                    cmd.env("http_proxy", &proxy_url);
+                    cmd.env("https_proxy", &proxy_url);
+                    cmd.env("all_proxy", format!("socks5://127.0.0.1:{}", port));
+                    cmd.env("HTTP_PROXY", &proxy_url);
+                    cmd.env("HTTPS_PROXY", &proxy_url);
+                    cmd.env("no_proxy", "localhost,127.0.0.1");
+                    cmd.env("NO_PROXY", "localhost,127.0.0.1");
+                }
+
                 cmd.stdout(std::process::Stdio::piped());
                 cmd.stderr(std::process::Stdio::piped());
 
@@ -215,6 +271,31 @@ impl ProcessManager {
                     Ok(mut child) => {
                         let pid = child.id().unwrap_or(0);
                         state_updater.update(ProcessState::Running { pid });
+
+                        let crash_watcher_task = if sim_config.unstable_server_enabled
+                            && sim_config.unstable_server_periodic_crash_secs > 0
+                        {
+                            let crash_secs = sim_config.unstable_server_periodic_crash_secs;
+                            let project_id_c = project_id_str.clone();
+                            let log_file_c = log_file.clone();
+                            let log_sender_c = log_sender.clone();
+                            let max_log_size = max_log_size;
+                            Some(tokio::spawn(async move {
+                                tokio::time::sleep(tokio::time::Duration::from_secs(crash_secs as u64)).await;
+                                let text = format!("Watchdog WARNING: Kích hoạt mô phỏng Sập máy chủ (Periodic Server Crash) sau {} giây!", crash_secs);
+                                let _ = append_log_line(&log_file_c, &text, max_log_size).await;
+                                let _ = log_sender_c.send(ProcessLog {
+                                    project_id: project_id_c,
+                                    stream: "system".to_string(),
+                                    text,
+                                    timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                                });
+                                // Kill process tree
+                                terminate_process_tree(pid).await;
+                            }))
+                        } else {
+                            None
+                        };
 
                         let stdout = child.stdout.take().expect("Failed to capture stdout");
                         let stderr = child.stderr.take().expect("Failed to capture stderr");
@@ -387,6 +468,9 @@ impl ProcessManager {
                         // Wait for process exit or manual stop command
                         tokio::select! {
                             exit_status = child.wait() => {
+                                if let Some(ref task) = crash_watcher_task {
+                                    task.abort();
+                                }
                                 let _ = stdout_task.await;
                                 let _ = stderr_task.await;
 
@@ -445,6 +529,9 @@ impl ProcessManager {
                                 }
                             }
                             _ = &mut stop_rx => {
+                                if let Some(ref task) = crash_watcher_task {
+                                    task.abort();
+                                }
                                 // Terminate active process tree recursively
                                 log_system!("--- Stopping Process Tree... ---");
                                 if let Some(t_pid) = tunnel_pid {
