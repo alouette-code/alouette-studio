@@ -1,11 +1,9 @@
-//! # Terminal
-
+use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 use std::path::PathBuf;
 use tokio::sync::{broadcast, mpsc};
-use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-use super::models::{TerminalOutput, TerminalSession, TerminalWriteContext};
 use super::manager::ProcessManager;
+use super::models::{TerminalOutput, TerminalSession, TerminalWriteContext};
 use super::sandbox;
 
 impl ProcessManager {
@@ -43,22 +41,33 @@ impl ProcessManager {
     }
 
     pub fn check_input_sandbox(&self, session_id: &str) -> Result<Option<String>, String> {
-        let buf = self.input_buf.get(session_id)
+        let buf = self
+            .input_buf
+            .get(session_id)
             .ok_or_else(|| "No input buffer".to_string())?;
         let trimmed = buf.trim();
         if trimmed.is_empty() {
             return Ok(None);
         }
 
-        let cwd = self.sessions_cwd.get(session_id)
+        let cwd = self
+            .sessions_cwd
+            .get(session_id)
             .cloned()
             .unwrap_or_else(|| PathBuf::from("."));
 
-        let ws = self.terminal_sessions.get(session_id)
+        let ws = self
+            .terminal_sessions
+            .get(session_id)
             .map(|s| s.workspace_root.clone())
             .unwrap_or_else(|| cwd.clone());
 
-        eprintln!("[sandbox] Checking command: '{}' (cwd: {}, ws: {})", trimmed, cwd.display(), ws.display());
+        eprintln!(
+            "[sandbox] Checking command: '{}' (cwd: {}, ws: {})",
+            trimmed,
+            cwd.display(),
+            ws.display()
+        );
 
         let verdict = sandbox::check_command(trimmed, &cwd, &ws);
         match verdict {
@@ -97,11 +106,15 @@ impl ProcessManager {
             return;
         }
 
-        let current = self.sessions_cwd.get(session_id)
+        let current = self
+            .sessions_cwd
+            .get(session_id)
             .cloned()
             .unwrap_or_else(|| PathBuf::from("."));
 
-        let workspace_root = self.terminal_sessions.get(session_id)
+        let workspace_root = self
+            .terminal_sessions
+            .get(session_id)
             .map(|s| s.workspace_root.clone())
             .unwrap_or_else(|| current.clone());
 
@@ -120,7 +133,8 @@ impl ProcessManager {
 
         if rest.is_empty() {
             // cd/sl alone → workspace root
-            self.sessions_cwd.insert(session_id.to_string(), workspace_root.clone());
+            self.sessions_cwd
+                .insert(session_id.to_string(), workspace_root.clone());
             return;
         }
 
@@ -181,7 +195,10 @@ impl ProcessManager {
 
         let proto_home = &self.proto_manager.proto_home;
         let mut envs: Vec<(String, String)> = vec![
-            ("PROTO_HOME".into(), proto_home.to_string_lossy().to_string()),
+            (
+                "PROTO_HOME".into(),
+                proto_home.to_string_lossy().to_string(),
+            ),
             ("WORKSPACE_ROOT".into(), abs_root.clone()),
         ];
         if let Ok(existing_path) = std::env::var("PATH") {
@@ -196,7 +213,12 @@ impl ProcessManager {
 
         let pty_system = native_pty_system();
         let pty = pty_system
-            .openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
             .map_err(|e| format!("PTY open: {e}"))?;
 
         let mut cmd = if cfg!(target_os = "windows") {
@@ -230,15 +252,25 @@ impl ProcessManager {
             cmd.env(k, v);
         }
 
-        let shell_name = if cfg!(target_os = "windows") { "powershell.exe" } else { "shell" };
-        let child: Box<dyn portable_pty::Child + Send + Sync> = pty.slave.spawn_command(cmd)
+        let shell_name = if cfg!(target_os = "windows") {
+            "powershell.exe"
+        } else {
+            "shell"
+        };
+        let child: Box<dyn portable_pty::Child + Send + Sync> = pty
+            .slave
+            .spawn_command(cmd)
             .map_err(|e| format!("Spawn {shell_name}: {e}"))?;
         let pid = child.process_id().unwrap_or(0);
         eprintln!("[terminal] Spawned '{sid}' PID {pid}");
 
-        let writer = pty.master.take_writer()
+        let writer = pty
+            .master
+            .take_writer()
             .map_err(|e| format!("PTY writer: {e}"))?;
-        let reader = pty.master.try_clone_reader()
+        let reader = pty
+            .master
+            .try_clone_reader()
             .map_err(|e| format!("PTY reader: {e}"))?;
 
         let (tx, mut rx) = mpsc::channel::<String>(256);
@@ -263,7 +295,10 @@ impl ProcessManager {
             let mut buf = [0u8; 4096];
             loop {
                 match std::io::Read::read(&mut r, &mut buf) {
-                    Ok(0) => { eprintln!("[terminal] '{sid_r}' EOF"); break; }
+                    Ok(0) => {
+                        eprintln!("[terminal] '{sid_r}' EOF");
+                        break;
+                    }
                     Ok(n) => {
                         let text = String::from_utf8_lossy(&buf[..n]).into_owned();
                         let _ = out_tx.send(TerminalOutput {
@@ -280,7 +315,10 @@ impl ProcessManager {
                             timestamp: chrono::Utc::now().timestamp_millis() as u64,
                         });
                     }
-                    Err(e) => { eprintln!("[terminal] '{sid_r}' read: {e}"); break; }
+                    Err(e) => {
+                        eprintln!("[terminal] '{sid_r}' read: {e}");
+                        break;
+                    }
                 }
             }
         });
@@ -298,14 +336,17 @@ impl ProcessManager {
         };
 
         let workspace_root = PathBuf::from(&abs_root);
-        self.terminal_sessions.insert(sid.clone(), TerminalSession {
-            stdin_sender: tx,
-            pid,
-            workspace_root: workspace_root.clone(),
-            block_internet,
-            _child: Some(child),
-            _job_handle: job_handle,
-        });
+        self.terminal_sessions.insert(
+            sid.clone(),
+            TerminalSession {
+                stdin_sender: tx,
+                pid,
+                workspace_root: workspace_root.clone(),
+                block_internet,
+                _child: Some(child),
+                _job_handle: job_handle,
+            },
+        );
 
         // Apply network isolation if requested
         if block_internet {
@@ -320,7 +361,10 @@ impl ProcessManager {
         let hb_tx = self.terminal_sender.clone();
         tokio::spawn(async move {
             tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
-            let _ = hb_tx.send(TerminalOutput { session_id: sid, text: String::new() });
+            let _ = hb_tx.send(TerminalOutput {
+                session_id: sid,
+                text: String::new(),
+            });
         });
 
         Ok(())
@@ -350,12 +394,14 @@ impl ProcessManager {
     pub fn resize_terminal(&self, session_id: &str, rows: u16, cols: u16) -> Result<(), String> {
         if let Some(&ptr) = self._pty_pairs.get(session_id) {
             let pty = unsafe { &*(ptr as *const portable_pty::PtyPair) };
-            pty.master.resize(portable_pty::PtySize {
-                rows,
-                cols,
-                pixel_width: 0,
-                pixel_height: 0,
-            }).map_err(|e| format!("Failed to resize PTY: {e}"))?;
+            pty.master
+                .resize(portable_pty::PtySize {
+                    rows,
+                    cols,
+                    pixel_width: 0,
+                    pixel_height: 0,
+                })
+                .map_err(|e| format!("Failed to resize PTY: {e}"))?;
             Ok(())
         } else {
             Err(format!("PTY pair not found for session '{session_id}'"))
@@ -370,9 +416,13 @@ impl ProcessManager {
 /// Lấy home directory, tương thích cross-platform
 fn get_home_dir_for_cwd() -> Option<String> {
     #[cfg(target_os = "windows")]
-    { std::env::var("USERPROFILE").ok() }
+    {
+        std::env::var("USERPROFILE").ok()
+    }
     #[cfg(not(target_os = "windows"))]
-    { std::env::var("HOME").ok() }
+    {
+        std::env::var("HOME").ok()
+    }
 }
 
 /// Resolve environment variables trong path string
@@ -385,7 +435,10 @@ fn resolve_env_vars_for_cwd(s: &str) -> String {
                 chars.next();
                 let mut var_name = String::new();
                 while let Some(&next) = chars.peek() {
-                    if next == '}' { chars.next(); break; }
+                    if next == '}' {
+                        chars.next();
+                        break;
+                    }
                     var_name.push(chars.next().unwrap());
                 }
                 let val = if let Some(e) = var_name.strip_prefix("env:") {
@@ -399,7 +452,9 @@ fn resolve_env_vars_for_cwd(s: &str) -> String {
                 while let Some(&next) = chars.peek() {
                     if next.is_alphanumeric() || next == '_' || next == ':' {
                         var_name.push(chars.next().unwrap());
-                    } else { break; }
+                    } else {
+                        break;
+                    }
                 }
                 let val = if let Some(e) = var_name.strip_prefix("env:") {
                     std::env::var(e).unwrap_or_default()
@@ -424,6 +479,8 @@ pub async fn process_and_send_terminal_input(
         text.pop();
         text.push_str("\r\n");
     }
-    ctx.stdin_sender.send(text).await
+    ctx.stdin_sender
+        .send(text)
+        .await
         .map_err(|e| format!("Terminal send: {e}"))
 }

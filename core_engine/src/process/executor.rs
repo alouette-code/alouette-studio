@@ -1,15 +1,17 @@
 use chrono::Utc;
 use tokio::sync::oneshot;
 
-use super::models::{ProcessState, ProcessLog};
-use super::manager::ProcessManager;
 use super::logging::{append_log_line, pipe_stream};
-use super::tree::{StateUpdater, terminate_process_tree};
+use super::manager::ProcessManager;
+use super::models::{ProcessLog, ProcessState};
+use super::tree::{terminate_process_tree, StateUpdater};
 
 impl ProcessManager {
     /// Starts a project lifecycle: running setup if configured, followed by the main command.
     pub async fn start_process(&mut self, project_id: &str) -> Result<(), String> {
-        let inst = self.instances.get_mut(project_id)
+        let inst = self
+            .instances
+            .get_mut(project_id)
             .ok_or_else(|| format!("Project '{}' not found", project_id))?;
 
         if let ProcessState::Running { .. } | ProcessState::Setup = inst.state {
@@ -23,7 +25,10 @@ impl ProcessManager {
             if !source.is_empty() {
                 let dest = self.workspace_manager.workspaces_dir.join(project_id);
                 if !dest.exists() {
-                    let dest = self.workspace_manager.prepare_workspace(project_id, source).await?;
+                    let dest = self
+                        .workspace_manager
+                        .prepare_workspace(project_id, source)
+                        .await?;
                     config.cwd = Some(dest.to_string_lossy().to_string());
                 } else {
                     config.cwd = Some(dest.to_string_lossy().to_string());
@@ -44,12 +49,13 @@ impl ProcessManager {
         let max_log_size = self.max_log_size.unwrap_or(20 * 1024 * 1024);
         let cloudflared_manager = self.cloudflared_manager.clone();
 
-        // Generate Spoofed ENV
         let spoofed_envs = self.proto_manager.get_spoofed_env();
 
-        // Optional: Pre-install toolchain
         let toolchain = config.toolchain.clone();
-        let mut toolchain_version = config.toolchain_version.clone().unwrap_or_else(|| "stable".to_string());
+        let mut toolchain_version = config
+            .toolchain_version
+            .clone()
+            .unwrap_or_else(|| "stable".to_string());
         if toolchain_version == "stable" {
             if let Some(ref tool) = toolchain {
                 if tool == "go" || tool == "python" {
@@ -59,7 +65,6 @@ impl ProcessManager {
         }
         let proto_home = self.proto_manager.proto_home.clone();
 
-        // Spin up the async execution loop
         tokio::spawn(async move {
             let mut state_updater = StateUpdater {
                 project_id: project_id_str.clone(),
@@ -84,12 +89,20 @@ impl ProcessManager {
 
             state_updater.update(ProcessState::Setup);
 
-            // Install toolchain if requested using private proto binary
             if let Some(ref tool) = toolchain {
                 if !tool.is_empty() {
-                    log_system!(format!("--- Installing Toolchain {}@{} ---", tool, toolchain_version));
+                    log_system!(format!(
+                        "--- Installing Toolchain {}@{} ---",
+                        tool, toolchain_version
+                    ));
                     let app_data_dir = std::env::current_dir().unwrap_or_default().join("app_data");
-                    let proto_bin = app_data_dir.join("bin").join(if cfg!(target_os = "windows") { "proto.exe" } else { "proto" });
+                    let proto_bin = app_data_dir
+                        .join("bin")
+                        .join(if cfg!(target_os = "windows") {
+                            "proto.exe"
+                        } else {
+                            "proto"
+                        });
 
                     let status = tokio::process::Command::new(&proto_bin)
                         .env("PROTO_HOME", &proto_home)
@@ -98,21 +111,23 @@ impl ProcessManager {
                         .await;
                     if let Ok(st) = status {
                         if !st.success() {
-                            let reason = format!("Failed to install toolchain {}@{}", tool, toolchain_version);
+                            let reason = format!(
+                                "Failed to install toolchain {}@{}",
+                                tool, toolchain_version
+                            );
                             log_system!(format!("--- ERROR: {} ---", reason));
                             state_updater.update(ProcessState::Fatal { reason });
                             return;
                         }
                     } else {
-                         log_system!("--- WARNING: Private proto executable not found. Proceeding without strict toolchain installation. ---");
+                        log_system!("--- WARNING: Private proto executable not found. Proceeding without strict toolchain installation. ---");
                     }
                 }
             }
 
-            // Run Setup Command if defined
             if let Some(ref setup_cmd) = config.setup_command {
                 let setup_args = config.setup_args.clone().unwrap_or_default();
-                
+
                 #[cfg(target_os = "windows")]
                 let mut cmd = {
                     let mut c = tokio::process::Command::new("cmd.exe");
@@ -157,7 +172,6 @@ impl ProcessManager {
                 }
             }
 
-            // Main Process Execution Loop with Backoff
             let mut retry_count = 0;
             let max_retries = 5;
 
@@ -228,7 +242,9 @@ impl ProcessManager {
                         let mut tunnel_pid: Option<u32> = None;
                         if config.enable_tunnel == Some(true) {
                             let (mode, token, active_port) = {
-                                let path = std::path::Path::new("d:/alouette-server/core_engine/app_data/cloudflare_config.yml");
+                                let path = std::path::Path::new(
+                                    "d:/alouette-server/core_engine/app_data/cloudflare_config.yml",
+                                );
                                 if path.exists() {
                                     let mut mode = "default".to_string();
                                     let mut global_token = None;
@@ -243,36 +259,78 @@ impl ProcessManager {
                                         for line in content.lines() {
                                             let trimmed = line.trim();
                                             if trimmed.starts_with("mode:") {
-                                                mode = trimmed.replace("mode:", "").replace('"', "").replace('\'', "").trim().to_string();
-                                            } else if trimmed.starts_with("tunnel_token:") || trimmed.starts_with("api_key:") {
-                                                let val = trimmed.replace("tunnel_token:", "").replace("api_key:", "").replace('"', "").replace('\'', "").trim().to_string();
+                                                mode = trimmed
+                                                    .replace("mode:", "")
+                                                    .replace('"', "")
+                                                    .replace('\'', "")
+                                                    .trim()
+                                                    .to_string();
+                                            } else if trimmed.starts_with("tunnel_token:")
+                                                || trimmed.starts_with("api_key:")
+                                            {
+                                                let val = trimmed
+                                                    .replace("tunnel_token:", "")
+                                                    .replace("api_key:", "")
+                                                    .replace('"', "")
+                                                    .replace('\'', "")
+                                                    .trim()
+                                                    .to_string();
                                                 if !val.is_empty() {
                                                     global_token = Some(val);
                                                 }
-                                            } else if trimmed.starts_with("- id:") || trimmed.starts_with("id:") {
-                                                if !current_id.is_empty() && current_project_id == project_id_str && current_active {
+                                            } else if trimmed.starts_with("- id:")
+                                                || trimmed.starts_with("id:")
+                                            {
+                                                if !current_id.is_empty()
+                                                    && current_project_id == project_id_str
+                                                    && current_active
+                                                {
                                                     active_port = current_port;
                                                     active_token = current_token.clone();
                                                 }
-                                                current_id = trimmed.replace("- id:", "").replace("id:", "").replace('"', "").replace('\'', "").trim().to_string();
+                                                current_id = trimmed
+                                                    .replace("- id:", "")
+                                                    .replace("id:", "")
+                                                    .replace('"', "")
+                                                    .replace('\'', "")
+                                                    .trim()
+                                                    .to_string();
                                                 current_project_id.clear();
                                                 current_port = None;
                                                 current_token = None;
                                                 current_active = false;
                                             } else if trimmed.starts_with("project_id:") {
-                                                current_project_id = trimmed.replace("project_id:", "").replace('"', "").replace('\'', "").trim().to_string();
+                                                current_project_id = trimmed
+                                                    .replace("project_id:", "")
+                                                    .replace('"', "")
+                                                    .replace('\'', "")
+                                                    .trim()
+                                                    .to_string();
                                             } else if trimmed.starts_with("port:") {
-                                                current_port = trimmed.replace("port:", "").trim().parse::<u16>().ok();
+                                                current_port = trimmed
+                                                    .replace("port:", "")
+                                                    .trim()
+                                                    .parse::<u16>()
+                                                    .ok();
                                             } else if trimmed.starts_with("token:") {
-                                                let val = trimmed.replace("token:", "").replace('"', "").replace('\'', "").trim().to_string();
+                                                let val = trimmed
+                                                    .replace("token:", "")
+                                                    .replace('"', "")
+                                                    .replace('\'', "")
+                                                    .trim()
+                                                    .to_string();
                                                 if !val.is_empty() {
                                                     current_token = Some(val);
                                                 }
                                             } else if trimmed.starts_with("active:") {
-                                                current_active = trimmed.replace("active:", "").trim() == "true";
+                                                current_active =
+                                                    trimmed.replace("active:", "").trim() == "true";
                                             }
                                         }
-                                        if !current_id.is_empty() && current_project_id == project_id_str && current_active {
+                                        if !current_id.is_empty()
+                                            && current_project_id == project_id_str
+                                            && current_active
+                                        {
                                             active_port = current_port;
                                             active_token = current_token;
                                         }
@@ -285,9 +343,16 @@ impl ProcessManager {
 
                             let port = active_port.unwrap_or(config.port.unwrap_or(3000));
                             log_system!(format!("Watchdog: Khởi động Cloudflare Tunnel (Chế độ: {}) trên cổng: {}...", mode, port));
-                            
-                            let pass_token = if mode == "token" || mode == "api" { token } else { None };
-                            match cloudflared_manager.spawn_tunnel(port, pass_token, &project_id_str).await {
+
+                            let pass_token = if mode == "token" || mode == "api" {
+                                token
+                            } else {
+                                None
+                            };
+                            match cloudflared_manager
+                                .spawn_tunnel(port, pass_token, &project_id_str)
+                                .await
+                            {
                                 Ok((t_pid, mut url_rx)) => {
                                     tunnel_pid = Some(t_pid);
                                     let log_sender_c = log_sender.clone();
@@ -297,18 +362,24 @@ impl ProcessManager {
                                     tokio::spawn(async move {
                                         if let Ok(url) = url_rx.recv().await {
                                             let text = format!("Watchdog: Cloudflare Tunnel hoạt động thành công! Đường truyền công khai của bạn: \n👉 {} 👈", url);
-                                            let _ = append_log_line(&log_file_c, &text, max_log_size).await;
+                                            let _ =
+                                                append_log_line(&log_file_c, &text, max_log_size)
+                                                    .await;
                                             let _ = log_sender_c.send(ProcessLog {
                                                 project_id: project_id_c,
                                                 stream: "system".to_string(),
                                                 text,
-                                                timestamp: chrono::Utc::now().timestamp_millis() as u64,
+                                                timestamp: chrono::Utc::now().timestamp_millis()
+                                                    as u64,
                                             });
                                         }
                                     });
                                 }
                                 Err(e) => {
-                                    log_system!(format!("Watchdog ERROR: Khởi động Cloudflare Tunnel thất bại: {}", e));
+                                    log_system!(format!(
+                                        "Watchdog ERROR: Khởi động Cloudflare Tunnel thất bại: {}",
+                                        e
+                                    ));
                                 }
                             }
                         }
@@ -405,7 +476,9 @@ impl ProcessManager {
 
     /// Stops a running project process instance and tears down its child tree.
     pub async fn stop_process(&mut self, project_id: &str) -> Result<(), String> {
-        let inst = self.instances.get_mut(project_id)
+        let inst = self
+            .instances
+            .get_mut(project_id)
             .ok_or_else(|| format!("Project '{}' not found", project_id))?;
 
         if let Some(stop_tx) = inst.stop_sender.take() {
@@ -424,8 +497,14 @@ impl ProcessManager {
     }
 
     /// Forcefully terminates a running project and puts it into a Fatal state.
-    pub async fn force_fatal_stop(&mut self, project_id: &str, reason: String) -> Result<(), String> {
-        let inst = self.instances.get_mut(project_id)
+    pub async fn force_fatal_stop(
+        &mut self,
+        project_id: &str,
+        reason: String,
+    ) -> Result<(), String> {
+        let inst = self
+            .instances
+            .get_mut(project_id)
             .ok_or_else(|| format!("Project '{}' not found", project_id))?;
 
         let log_file = self.log_dir.join(format!("{}.log", inst.config.name));
@@ -438,9 +517,13 @@ impl ProcessManager {
         // Write Fatal status into the log file
         let _ = append_log_line(
             &log_file,
-            &format!("Watchdog: Process terminated because it exceeded resource limits: {}", reason),
+            &format!(
+                "Watchdog: Process terminated because it exceeded resource limits: {}",
+                reason
+            ),
             max_log_size,
-        ).await;
+        )
+        .await;
 
         // Force transition to Fatal
         self.update_state(project_id, ProcessState::Fatal { reason });
@@ -452,8 +535,8 @@ impl ProcessManager {
 mod tests {
     use super::*;
     use crate::config::ProjectConfig;
-    use std::time::Duration;
     use std::collections::HashMap;
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_process_execution_flow() {
@@ -463,7 +546,10 @@ mod tests {
 
         // Cross-platform echo command
         #[cfg(target_os = "windows")]
-        let (cmd, args) = ("cmd", vec!["/c".to_string(), "echo test_logs_pipeline".to_string()]);
+        let (cmd, args) = (
+            "cmd",
+            vec!["/c".to_string(), "echo test_logs_pipeline".to_string()],
+        );
         #[cfg(not(target_os = "windows"))]
         let (cmd, args) = ("echo", vec!["test_logs_pipeline".to_string()]);
 
@@ -500,7 +586,9 @@ mod tests {
         // Read status transitions
         let mut states_seen = Vec::new();
         for _ in 0..3 {
-            if let Ok(Ok((id, state))) = tokio::time::timeout(Duration::from_millis(2000), status_rx.recv()).await {
+            if let Ok(Ok((id, state))) =
+                tokio::time::timeout(Duration::from_millis(2000), status_rx.recv()).await
+            {
                 if id == "test-echo" {
                     states_seen.push(state);
                 }
@@ -515,7 +603,9 @@ mod tests {
         // Read logs to make sure output captures and pipes correctly
         let mut log_received = false;
         for _ in 0..5 {
-            if let Ok(Ok(log)) = tokio::time::timeout(Duration::from_millis(2000), log_rx.recv()).await {
+            if let Ok(Ok(log)) =
+                tokio::time::timeout(Duration::from_millis(2000), log_rx.recv()).await
+            {
                 if log.project_id == "test-echo" {
                     log_received = true;
                     break;
@@ -569,7 +659,9 @@ mod tests {
 
         let mut states = Vec::new();
         for _ in 0..5 {
-            if let Ok(Ok((id, state))) = tokio::time::timeout(Duration::from_millis(1500), status_rx.recv()).await {
+            if let Ok(Ok((id, state))) =
+                tokio::time::timeout(Duration::from_millis(1500), status_rx.recv()).await
+            {
                 if id == "nonexistent" {
                     states.push(state);
                 }
@@ -579,8 +671,14 @@ mod tests {
         }
 
         assert!(states.contains(&ProcessState::Setup));
-        let has_fatal = states.iter().any(|s| matches!(s, ProcessState::Fatal { .. }));
-        assert!(has_fatal, "Process should have entered Fatal state, but got: {:?}", states);
+        let has_fatal = states
+            .iter()
+            .any(|s| matches!(s, ProcessState::Fatal { .. }));
+        assert!(
+            has_fatal,
+            "Process should have entered Fatal state, but got: {:?}",
+            states
+        );
 
         let _ = std::fs::remove_dir_all(log_dir);
     }
@@ -625,7 +723,9 @@ mod tests {
 
         let mut states = Vec::new();
         for _ in 0..5 {
-            if let Ok(Ok((id, state))) = tokio::time::timeout(Duration::from_millis(1500), status_rx.recv()).await {
+            if let Ok(Ok((id, state))) =
+                tokio::time::timeout(Duration::from_millis(1500), status_rx.recv()).await
+            {
                 if id == "setup-fail" {
                     states.push(state);
                 }
@@ -635,8 +735,14 @@ mod tests {
         }
 
         assert!(states.contains(&ProcessState::Setup));
-        let has_fatal = states.iter().any(|s| matches!(s, ProcessState::Fatal { .. }));
-        assert!(has_fatal, "Process should have entered Fatal state due to setup failure, but got: {:?}", states);
+        let has_fatal = states
+            .iter()
+            .any(|s| matches!(s, ProcessState::Fatal { .. }));
+        assert!(
+            has_fatal,
+            "Process should have entered Fatal state due to setup failure, but got: {:?}",
+            states
+        );
 
         let _ = std::fs::remove_dir_all(log_dir);
     }
@@ -699,9 +805,15 @@ mod tests {
         let mut pm = ProcessManager::new(&log_dir);
 
         #[cfg(target_os = "windows")]
-        let (cmd, args) = ("cmd", vec!["/c".to_string(), "echo %MY_TEST_VAR%".to_string()]);
+        let (cmd, args) = (
+            "cmd",
+            vec!["/c".to_string(), "echo %MY_TEST_VAR%".to_string()],
+        );
         #[cfg(not(target_os = "windows"))]
-        let (cmd, args) = ("sh", vec!["-c".to_string(), "echo $MY_TEST_VAR".to_string()]);
+        let (cmd, args) = (
+            "sh",
+            vec!["-c".to_string(), "echo $MY_TEST_VAR".to_string()],
+        );
 
         let mut env_map = HashMap::new();
         env_map.insert("MY_TEST_VAR".to_string(), "ALOUETTE_ENV_OK".to_string());
@@ -735,7 +847,9 @@ mod tests {
 
         let mut found_env_output = false;
         for _ in 0..10 {
-            if let Ok(Ok(log)) = tokio::time::timeout(Duration::from_millis(2000), log_rx.recv()).await {
+            if let Ok(Ok(log)) =
+                tokio::time::timeout(Duration::from_millis(2000), log_rx.recv()).await
+            {
                 if log.project_id == "test-env" && log.text.contains("ALOUETTE_ENV_OK") {
                     found_env_output = true;
                     break;
@@ -745,7 +859,10 @@ mod tests {
             }
         }
 
-        assert!(found_env_output, "Environment variables were not successfully injected and captured");
+        assert!(
+            found_env_output,
+            "Environment variables were not successfully injected and captured"
+        );
         let _ = std::fs::remove_dir_all(log_dir);
     }
 }

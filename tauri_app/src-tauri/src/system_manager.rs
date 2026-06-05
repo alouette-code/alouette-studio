@@ -1,8 +1,8 @@
+use core_engine::AppSettings;
 use std::path::PathBuf;
 use std::process::Command;
 use std::time::Instant;
 use tauri::WebviewWindow;
-use core_engine::AppSettings;
 
 fn settings_path() -> PathBuf {
     std::env::current_dir()
@@ -13,15 +13,15 @@ fn settings_path() -> PathBuf {
 
 /// Initialize all system-level configurations (autostart, background run, close interception)
 pub fn init_system(window: &WebviewWindow) {
-
-
-
     let window_clone = window.clone();
-    // 2. Intercept close window event to hide instead of quit
+    // Intercept close window event to hide instead of quit
     window.on_window_event(move |event| {
         if let tauri::WindowEvent::CloseRequested { api, .. } = event {
             let current_settings = AppSettings::load_from_file(settings_path()).unwrap_or_default();
-            println!("WINDOW CLOSE REQUESTED! keep_alive: {}", current_settings.keep_alive);
+            println!(
+                "WINDOW CLOSE REQUESTED! keep_alive: {}",
+                current_settings.keep_alive
+            );
             if current_settings.keep_alive {
                 api.prevent_close();
                 println!("Prevented close! Hiding window instead.");
@@ -32,7 +32,7 @@ pub fn init_system(window: &WebviewWindow) {
         }
     });
 
-    // 3. Spawn background Auto-Restart Monitor Task
+    // Spawn background Auto-Restart Monitor Task
     tauri::async_runtime::spawn(async move {
         let start_time = Instant::now();
         loop {
@@ -68,7 +68,7 @@ pub fn configure_autostart(enabled: bool) -> Result<(), String> {
                     "REG_SZ",
                     "/d",
                     exe_path.to_str().unwrap_or(""),
-                    "/f"
+                    "/f",
                 ])
                 .status();
         } else {
@@ -78,7 +78,7 @@ pub fn configure_autostart(enabled: bool) -> Result<(), String> {
                     "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
                     "/v",
                     "AlouetteServer",
-                    "/f"
+                    "/f",
                 ])
                 .status();
         }

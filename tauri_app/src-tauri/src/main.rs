@@ -1,4 +1,4 @@
-// Prevents additional console window on Windows in release (Trigger recompile: 2026-05-24 11:02)
+// Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod alouette_open;

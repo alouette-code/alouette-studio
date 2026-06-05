@@ -1,15 +1,50 @@
+# ── Rust Build Output ──
 /target
-tauri_app/src-tauri/target
+**/target/
+
+# ── Node.js ──
+tauri_app/ui/node_modules/
 tauri_app/ui/node_modules
-tauri_app/src-tauri/app_data/
+
+# ── Build Output (UI) ──
+tauri_app/ui/dist/
+
+# ── Logs ──
+logs/
+**/logs/
+*.log
+*.log.*
+
+# ── IDE / OS ──
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── App Data (runtime-generated) ──
+core_engine/app_data/
+**/app_data/**
+
+# ── Runtime Environment ──
 .env
-ai.json
+.env.local
 nul
 **/nul
-tauri_app/zen_bundle/zen
-tauri_app/zen_bundle
-core_engine/app_data/ai_config.yml
 
+# ── Temporary / Ad-hoc Files ──
+fix.js
+git_diff_admin.txt
+AI.json
+
+# ── Proto Toolchains ──
+tauri_app/zen_bundle/zen
+tauri_app/zen_bundle/
+
+# ── Generated Reports ──
 core_engine/src/agent_harness/report_C/
 
-.env    
+# ── Test Artifacts ──
+**/alouette_test_*

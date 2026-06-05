@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
+use sysinfo::{Pid, System};
 use tokio::sync::broadcast;
-use sysinfo::{System, Pid};
 
 use super::models::ProcessState;
 
@@ -28,7 +28,6 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
     ret
 }
 
-// Struct to handle background status broadcasts cleanly
 pub(crate) struct StateUpdater {
     pub project_id: String,
     pub sender: broadcast::Sender<(String, ProcessState)>,
@@ -40,7 +39,6 @@ impl StateUpdater {
     }
 }
 
-/// Recursive Rust-native process tree termination using `sysinfo`.
 fn kill_tree_sysinfo(root_pid: u32) -> Result<(), String> {
     let mut sys = System::new();
     sys.refresh_processes();
@@ -48,7 +46,6 @@ fn kill_tree_sysinfo(root_pid: u32) -> Result<(), String> {
     let target_pid = Pid::from(root_pid as usize);
     let mut pids_to_kill = Vec::new();
 
-    // Perform BFS to aggregate all grandchild processes
     let mut queue = vec![target_pid];
     let mut index = 0;
 
@@ -76,7 +73,6 @@ fn kill_tree_sysinfo(root_pid: u32) -> Result<(), String> {
     Ok(())
 }
 
-/// Dynamic Process Tree Teardown Entry point.
 pub async fn terminate_process_tree(pid: u32) {
     // First try the native Rust recursive system-crawling teardown
     if let Err(e) = kill_tree_sysinfo(pid) {
