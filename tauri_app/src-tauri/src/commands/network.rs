@@ -1171,11 +1171,18 @@ pub async fn hash_tool(text: String) -> Result<HashOutput, String> {
     use sha2::{Sha256, Digest as Sha2Digest};
 
     let md5_hash = format!("{:x}", md5::compute(text.as_bytes()));
-    let sha1_hash = format!("{:x}", sha1::Sha1::digest(text.as_bytes()));
+    let sha1_hash = sha1::Sha1::digest(text.as_bytes())
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
 
     let mut hasher = Sha256::new();
     hasher.update(text.as_bytes());
-    let sha256_hash = format!("{:x}", hasher.finalize());
+    let sha256_hash = hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect::<String>();
 
     Ok(HashOutput {
         md5: md5_hash,

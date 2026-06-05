@@ -89,7 +89,7 @@ fn run_monitor_loop(
             continue;
         }
 
-        sys.refresh_processes();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
         for (project_id, &parent_pid) in &active_projects {
             let root_pid = Pid::from(parent_pid as usize);

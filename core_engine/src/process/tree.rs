@@ -41,7 +41,7 @@ impl StateUpdater {
 
 fn kill_tree_sysinfo(root_pid: u32) -> Result<(), String> {
     let mut sys = System::new();
-    sys.refresh_processes();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
     let target_pid = Pid::from(root_pid as usize);
     let mut pids_to_kill = Vec::new();

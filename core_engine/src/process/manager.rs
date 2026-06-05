@@ -1,12 +1,12 @@
-use crate::config::ProjectConfig;
-use crate::workspace_manager::WorkspaceManager;
-use crate::proto_manager::ProtoManager;
 use crate::cloudflared_manager::CloudflaredManager;
+use crate::config::ProjectConfig;
+use crate::proto_manager::ProtoManager;
+use crate::workspace_manager::WorkspaceManager;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tokio::sync::broadcast;
 
-use super::models::{ProcessState, ProcessLog, TerminalOutput, TerminalSession, ProjectInstance};
+use super::models::{ProcessLog, ProcessState, ProjectInstance, TerminalOutput, TerminalSession};
 
 pub struct ProcessManager {
     pub instances: HashMap<String, ProjectInstance>,
@@ -15,6 +15,7 @@ pub struct ProcessManager {
     pub terminal_sender: broadcast::Sender<TerminalOutput>,
     pub terminal_sessions: HashMap<String, TerminalSession>,
     pub(crate) log_dir: PathBuf,
+    pub app_data_dir: PathBuf,
     pub max_log_size: Option<u64>,
     pub workspace_manager: WorkspaceManager,
     pub proto_manager: ProtoManager,
@@ -30,21 +31,30 @@ pub struct ProcessManager {
 
 impl ProcessManager {
     pub fn new<P: AsRef<Path>>(log_dir: P) -> Self {
-        let (log_sender, _) = broadcast::channel(1000);
-        let (status_sender, _) = broadcast::channel(100);
-        let (terminal_sender, _) = broadcast::channel(1000);
-
         let log_dir_buf = log_dir.as_ref().to_path_buf();
-        let _ = std::fs::create_dir_all(&log_dir_buf);
-
         let is_test = log_dir_buf.to_string_lossy().contains("test");
         let app_data_dir = if is_test {
             log_dir_buf.clone()
         } else {
-            std::env::current_dir().unwrap_or_default().join("app_data")
+            // Derive app_data from log_dir's parent (the working directory)
+            log_dir_buf
+                .parent()
+                .unwrap_or(&Path::new("."))
+                .join("app_data")
         };
+        Self::with_paths(log_dir_buf, app_data_dir)
+    }
+
+    /// Internal constructor that accepts explicit log_dir and app_data_dir.
+    fn with_paths(log_dir_buf: PathBuf, app_data_dir: PathBuf) -> Self {
+        let (log_sender, _) = broadcast::channel(1000);
+        let (status_sender, _) = broadcast::channel(100);
+        let (terminal_sender, _) = broadcast::channel(1000);
+
+        let _ = std::fs::create_dir_all(&log_dir_buf);
         let _ = std::fs::create_dir_all(&app_data_dir);
         let db_path = app_data_dir.join("alouette.db");
+        let is_test = log_dir_buf.to_string_lossy().contains("test");
         if is_test {
             let _ = std::fs::remove_file(&db_path);
             let _ = std::fs::remove_file(db_path.with_extension("db-journal"));
@@ -54,13 +64,20 @@ impl ProcessManager {
 
         let workspaces_dir = app_data_dir.join("workspaces");
         let proto_home = app_data_dir.join("alouette_toolchains");
-        let cloudflared_exe = app_data_dir.join("bin").join(
-            if cfg!(target_os = "windows") { "cloudflared.exe" } else { "cloudflared" }
-        );
+        let cloudflared_exe = app_data_dir
+            .join("bin")
+            .join(if cfg!(target_os = "windows") {
+                "cloudflared.exe"
+            } else {
+                "cloudflared"
+            });
 
         let db_manager = crate::db::DbManager::new(&db_path);
         if let Err(e) = db_manager.init() {
-            eprintln!("CRITICAL ERROR: Failed to initialize SQLite database: {}", e);
+            eprintln!(
+                "CRITICAL ERROR: Failed to initialize SQLite database: {}",
+                e
+            );
         }
 
         let mut instances = HashMap::new();
@@ -78,7 +95,10 @@ impl ProcessManager {
                 }
             }
             Err(e) => {
-                eprintln!("ERROR: Failed to load project configurations from database: {}", e);
+                eprintln!(
+                    "ERROR: Failed to load project configurations from database: {}",
+                    e
+                );
             }
         }
 
@@ -90,7 +110,9 @@ impl ProcessManager {
                 while let Ok(log) = log_rx.recv().await {
                     let db = db_clone.clone();
                     let _ = tokio::task::spawn_blocking(move || {
-                        if let Err(e) = db.insert_log(&log.project_id, &log.stream, &log.text, log.timestamp) {
+                        if let Err(e) =
+                            db.insert_log(&log.project_id, &log.stream, &log.text, log.timestamp)
+                        {
                             eprintln!("SQLite log insert error: {}", e);
                         }
                         let limit = match db.get_project_max_log_lines(&log.project_id) {
@@ -100,7 +122,8 @@ impl ProcessManager {
                         if let Err(e) = db.prune_logs(&log.project_id, limit) {
                             eprintln!("SQLite log pruning error: {}", e);
                         }
-                    }).await;
+                    })
+                    .await;
                 }
             });
         }
@@ -112,6 +135,7 @@ impl ProcessManager {
             terminal_sender,
             terminal_sessions: HashMap::new(),
             log_dir: log_dir_buf,
+            app_data_dir,
             max_log_size: None,
             workspace_manager: WorkspaceManager::new(workspaces_dir),
             proto_manager: ProtoManager::new(proto_home),
@@ -127,11 +151,12 @@ impl ProcessManager {
     }
 
     pub async fn initialize_environment(&mut self) -> Result<(), String> {
-        let app_data_dir = std::env::current_dir().unwrap_or_default().join("app_data");
-        let bin_dir = app_data_dir.join("bin");
+        let bin_dir = self.app_data_dir.join("bin");
         let proto_bin = self.proto_manager.ensure_proto_cli(&bin_dir).await?;
         println!("Private proto CLI resides at: {:?}", proto_bin);
-        self.proto_manager.ensure_stable_toolchains(&proto_bin).await?;
+        self.proto_manager
+            .ensure_stable_toolchains(&proto_bin)
+            .await?;
         let cloudflared_bin = CloudflaredManager::update_tunnel_binary(&bin_dir).await?;
         self.cloudflared_manager.executable_path = cloudflared_bin;
         Ok(())
@@ -142,7 +167,10 @@ impl ProcessManager {
         let mut updated_config = config;
         if let Some(ref source) = updated_config.source {
             if !source.trim().is_empty() {
-                let dest = self.workspace_manager.prepare_workspace(&id, source).await?;
+                let dest = self
+                    .workspace_manager
+                    .prepare_workspace(&id, source)
+                    .await?;
                 updated_config.cwd = Some(dest.to_string_lossy().to_string());
             }
         }
@@ -166,15 +194,22 @@ impl ProcessManager {
     }
 
     pub fn get_configs(&self) -> Vec<ProjectConfig> {
-        self.instances.values().map(|inst| inst.config.clone()).collect()
+        self.instances
+            .values()
+            .map(|inst| inst.config.clone())
+            .collect()
     }
 
     pub fn get_config(&self, project_id: &str) -> Option<ProjectConfig> {
-        self.instances.get(project_id).map(|inst| inst.config.clone())
+        self.instances
+            .get(project_id)
+            .map(|inst| inst.config.clone())
     }
 
     pub fn get_state(&self, project_id: &str) -> Option<ProcessState> {
-        self.instances.get(project_id).map(|inst| inst.state.clone())
+        self.instances
+            .get(project_id)
+            .map(|inst| inst.state.clone())
     }
 
     pub fn subscribe_logs(&self) -> broadcast::Receiver<ProcessLog> {
@@ -193,7 +228,9 @@ impl ProcessManager {
             while let Ok(log) = log_rx.recv().await {
                 let db = db_clone.clone();
                 let _ = tokio::task::spawn_blocking(move || {
-                    if let Err(e) = db.insert_log(&log.project_id, &log.stream, &log.text, log.timestamp) {
+                    if let Err(e) =
+                        db.insert_log(&log.project_id, &log.stream, &log.text, log.timestamp)
+                    {
                         eprintln!("SQLite log insert error: {}", e);
                     }
                     let limit = match db.get_project_max_log_lines(&log.project_id) {
@@ -203,7 +240,8 @@ impl ProcessManager {
                     if let Err(e) = db.prune_logs(&log.project_id, limit) {
                         eprintln!("SQLite log pruning error: {}", e);
                     }
-                }).await;
+                })
+                .await;
             }
         });
     }

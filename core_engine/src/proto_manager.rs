@@ -96,9 +96,9 @@ impl ProtoManager {
         } else {
             // For macOS / Linux, run the official installer script, then copy it to bin_dir if needed
             println!("Installing proto CLI via official moonrepo shell script...");
-            let install_script = Command::new("sh")
+            let install_script = Command::new("bash")
                 .arg("-c")
-                .arg("curl -fsSL https://moonrepo.dev/install/proto.sh | sh")
+                .arg("curl -fsSL https://moonrepo.dev/install/proto.sh | bash")
                 .status()
                 .await
                 .map_err(|e| format!("Failed to execute proto install script: {}", e))?;

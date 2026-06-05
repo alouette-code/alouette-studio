@@ -152,7 +152,7 @@ impl DbManager {
                 auto_restart_int,
                 env_json,
                 config.max_cpu_percent,
-                config.max_ram_mb,
+                config.max_ram_mb.map(|v| v as i64),
                 config.port,
                 config.source,
                 config.terminal_mode,
@@ -207,7 +207,8 @@ impl DbManager {
                 let auto_restart_int: Option<i32> = row.get(7)?;
                 let env_raw: Option<String> = row.get(8)?;
                 let max_cpu_percent: Option<u32> = row.get(9)?;
-                let max_ram_mb: Option<u64> = row.get(10)?;
+                let max_ram_mb_i64: Option<i64> = row.get(10)?;
+                let max_ram_mb = max_ram_mb_i64.map(|v| v as u64);
                 let port: Option<u16> = row.get(11)?;
                 let source: Option<String> = row.get(12)?;
                 let terminal_mode: Option<String> = row.get(13)?;

@@ -1,4 +1,4 @@
-use crate::state::AppState;
+use crate::state::{app_data_dir, AppState};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -33,9 +33,7 @@ pub fn spawn_alouette_open_monitor(app_handle: AppHandle) {
         sleep(Duration::from_secs(5)).await;
 
         // Try loading the ONNX model once to verify it works
-        let model_path = std::env::current_dir()
-            .unwrap_or_default()
-            .join("app_data")
+        let model_path = app_data_dir()
             .join("model_alouette_open")
             .join("alouette_open-A1 v1.0.onnx");
 
@@ -43,7 +41,7 @@ pub fn spawn_alouette_open_monitor(app_handle: AppHandle) {
         let tract_model = match load_onnx_model(&model_path) {
             Ok(m) => {
                 println!("[Alouette Open] Successfully loaded ONNX model!");
-                Some(Arc::new(m))
+                Some(m)
             }
             Err(e) => {
                 eprintln!("[Alouette Open] Warning: Failed to load ONNX model: {}. Using lightweight heuristic fallback.", e);
@@ -145,17 +143,13 @@ pub fn spawn_alouette_open_monitor(app_handle: AppHandle) {
 }
 
 // Struct to represent runnable tract model
-type TractModel = tract_onnx::prelude::SimplePlan<
-    tract_onnx::prelude::TypedFact,
-    Box<dyn tract_onnx::prelude::TypedOp>,
-    tract_onnx::prelude::TypedModel,
->;
+type TractModel = tract_onnx::prelude::TypedRunnableModel;
 
 /// Tries to load the alouette_open-A1 ONNX model.
 /// Uses multiple strategies because tract-onnx has limitations with some ops:
 /// 1. into_optimized → into_runnable (fastest, may fail with ChangeAxes)
 /// 2. into_typed → into_runnable (fallback, may fail with Gather)
-fn load_onnx_model(path: &std::path::Path) -> Result<TractModel, String> {
+fn load_onnx_model(path: &std::path::Path) -> Result<Arc<TractModel>, String> {
     use tract_onnx::prelude::*;
 
     // Attempt 1: into_optimized -> into_runnable (fastest execution)
@@ -218,7 +212,7 @@ fn run_inference(model: Arc<TractModel>, text: &str) -> Result<bool, String> {
 
     // Analyze output logits (assume first output is binary classifier: index 1 is error probability)
     if let Some(output_tensor) = result.get(0) {
-        if let Ok(logits) = output_tensor.to_array_view::<f32>() {
+        if let Ok(logits) = output_tensor.to_plain_array_view::<f32>() {
             let slice = logits.as_slice().unwrap_or(&[]);
             if slice.len() >= 2 {
                 let no_err_logit = slice[0];

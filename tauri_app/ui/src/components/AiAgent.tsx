@@ -12,7 +12,6 @@ import {
   Cpu,
   Activity,
   Hammer,
-  Chrome,
   Lock,
   Unlock,
   Zap,
@@ -1647,7 +1646,7 @@ export default function AiAgent({
     {
       key: "browser",
       label: "Browser",
-      icon: Chrome,
+      icon: Globe,
       isActive: capabilities.browser,
     },
     {

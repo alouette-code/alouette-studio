@@ -7,10 +7,23 @@ pub struct AppState {
     pub resource_monitor: Arc<ResourceMonitor>,
 }
 
-pub fn log_to_app_file(msg: &str) {
-    let log_dir = std::env::current_dir()
+/// Resolve the project root (parent of src-tauri) so that
+/// app_data, logs, etc. live outside Tauri's dev file watcher scope.
+pub fn project_root() -> std::path::PathBuf {
+    std::env::current_dir()
         .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("logs");
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_path_buf()
+}
+
+/// Convenience: get the app_data directory path.
+pub fn app_data_dir() -> std::path::PathBuf {
+    project_root().join("app_data")
+}
+
+pub fn log_to_app_file(msg: &str) {
+    let log_dir = project_root().join("logs");
     let _ = std::fs::create_dir_all(&log_dir);
     let log_file = log_dir.join("app.log");
 

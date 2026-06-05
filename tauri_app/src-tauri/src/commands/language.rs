@@ -18,13 +18,11 @@ pub async fn get_language_runtimes(
     let db = &pm.db_manager;
 
     let mut runtimes = db.load_all_language_runtimes()?;
-    let existing_ids: HashSet<String> =
-        runtimes.iter().map(|r| r.id.to_lowercase()).collect();
+    let existing_ids: HashSet<String> = runtimes.iter().map(|r| r.id.to_lowercase()).collect();
 
     // 1. Scan Proto installed tools (file system)
     let proto_installed = pm.proto_manager.list_installed_tools();
-    let installed_set: HashSet<String> =
-        proto_installed.iter().map(|t| t.to_lowercase()).collect();
+    let installed_set: HashSet<String> = proto_installed.iter().map(|t| t.to_lowercase()).collect();
 
     // 2. Add known languages not yet in DB
     for (id, display_name, pkg_managers) in PROTO_KNOWN_LANGUAGES {
@@ -106,15 +104,20 @@ pub async fn install_proto_tool(
     version: String,
 ) -> Result<(), String> {
     let pm = state.process_manager.lock().await;
-    let app_data_dir = std::env::current_dir().unwrap_or_default().join("app_data");
-    let bin_dir = app_data_dir.join("bin");
-    let proto_exe_name = if cfg!(target_os = "windows") { "proto.exe" } else { "proto" };
+    let bin_dir = pm.app_data_dir.join("bin");
+    let proto_exe_name = if cfg!(target_os = "windows") {
+        "proto.exe"
+    } else {
+        "proto"
+    };
     let proto_bin = bin_dir.join(proto_exe_name);
 
     if !proto_bin.exists() {
         return Err("Proto CLI binary is not installed yet".to_string());
     }
 
-    pm.proto_manager.install_tool(&proto_bin, &tool_name, &version).await?;
+    pm.proto_manager
+        .install_tool(&proto_bin, &tool_name, &version)
+        .await?;
     Ok(())
 }

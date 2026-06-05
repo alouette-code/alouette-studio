@@ -64,6 +64,7 @@ impl ProcessManager {
             }
         }
         let proto_home = self.proto_manager.proto_home.clone();
+        let app_data_dir = self.app_data_dir.clone();
 
         tokio::spawn(async move {
             let mut state_updater = StateUpdater {
@@ -95,7 +96,6 @@ impl ProcessManager {
                         "--- Installing Toolchain {}@{} ---",
                         tool, toolchain_version
                     ));
-                    let app_data_dir = std::env::current_dir().unwrap_or_default().join("app_data");
                     let proto_bin = app_data_dir
                         .join("bin")
                         .join(if cfg!(target_os = "windows") {

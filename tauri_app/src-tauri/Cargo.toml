@@ -4,29 +4,29 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tauri = { version = "2.0", features = ["unstable", "tray-icon", "image-png"] }
+tauri = { version = "2.11.2", features = ["unstable", "tray-icon", "image-png"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.52", features = ["full"] }
 core_engine = { path = "../../core_engine" }
 chrono = "0.4"
-base64 = "0.21"
-rusqlite = { version = "0.31.0", features = ["bundled"] }
-reqwest = { version = "0.11", features = ["json", "multipart", "cookies"] }
-sha2 = "0.10"
-sha1 = "0.10"
-md5 = "0.7"
+base64 = "0.22"
+rusqlite = { version = "0.40.0", features = ["bundled"] }
+reqwest = { version = "0.13", features = ["json", "multipart", "cookies"] }
+sha2 = "0.11"
+sha1 = "0.11"
+md5 = "0.8"
 regex-lite = "0.1"
 url = "2"
-quick-xml = "0.31"
-jsonschema = "0.18"
-tract-onnx = "0.21.3"
-rig-core = { version = "0.37", features = ["derive"] }
+quick-xml = "0.40"
+jsonschema = "0.46"
+tract-onnx = "0.23.0"
+rig-core = { version = "0.38", features = ["derive"] }
 futures-util = "0.3"
 
 
 
 
 [build-dependencies]
-tauri-build = { version = "2.0", features = [] }
+tauri-build = { version = "2.6", features = [] }

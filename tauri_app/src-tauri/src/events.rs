@@ -1,4 +1,4 @@
-use crate::state::log_to_app_file;
+use crate::state::{app_data_dir, log_to_app_file};
 use core_engine::ProcessState;
 use std::sync::Arc;
 use tauri::{Emitter, WebviewWindow};
@@ -14,8 +14,7 @@ pub fn spawn_environment_init(pm_clone: Arc<Mutex<core_engine::ProcessManager>>)
         // 1. Brief lock to extract the config paths
         let (proto_home, bin_dir) = {
             let pm = pm_clone.lock().await;
-            let app_data_dir = std::env::current_dir().unwrap_or_default().join("app_data");
-            let bin_dir = app_data_dir.join("bin");
+            let bin_dir = app_data_dir().join("bin");
             (pm.proto_manager.proto_home.clone(), bin_dir)
         };
 
@@ -42,15 +41,20 @@ pub fn spawn_environment_init(pm_clone: Arc<Mutex<core_engine::ProcessManager>>)
 
         log_to_app_file("Toolchains checked / verified stable.");
 
-        let cloudflared_bin = match core_engine::cloudflared_manager::CloudflaredManager::update_tunnel_binary(&bin_dir).await {
-            Ok(bin) => bin,
-            Err(e) => {
-                let err_msg = format!("ENVIRONMENT INIT ERROR (update_tunnel_binary): {}", e);
-                eprintln!("{}", err_msg);
-                log_to_app_file(&err_msg);
-                return;
-            }
-        };
+        let cloudflared_bin =
+            match core_engine::cloudflared_manager::CloudflaredManager::update_tunnel_binary(
+                &bin_dir,
+            )
+            .await
+            {
+                Ok(bin) => bin,
+                Err(e) => {
+                    let err_msg = format!("ENVIRONMENT INIT ERROR (update_tunnel_binary): {}", e);
+                    eprintln!("{}", err_msg);
+                    log_to_app_file(&err_msg);
+                    return;
+                }
+            };
 
         log_to_app_file("Cloudflared binary verified / updated successfully.");
 
@@ -115,13 +119,7 @@ pub fn spawn_status_router(
                 project_id: String,
                 state: ProcessState,
             }
-            let _ = window.emit(
-                "process-status",
-                StatusPayload {
-                    project_id,
-                    state,
-                },
-            );
+            let _ = window.emit("process-status", StatusPayload { project_id, state });
         }
     });
 }
@@ -134,19 +132,17 @@ pub fn spawn_resource_stats_router(
 ) {
     tauri::async_runtime::spawn(async move {
         let mut stats_rx = rm_clone.subscribe();
-        let mut exceeded_since: std::collections::HashMap<String, std::time::Instant> = std::collections::HashMap::new();
+        let mut exceeded_since: std::collections::HashMap<String, std::time::Instant> =
+            std::collections::HashMap::new();
 
         while let Ok(stats) = stats_rx.recv().await {
             // Always broadcast stats to frontend
             let _ = window.emit("resource-update", stats.clone());
 
             // Read thresholds from project config and global settings
-            let settings = core_engine::AppSettings::load_from_file(
-                std::env::current_dir()
-                    .unwrap_or_default()
-                    .join("app_data")
-                    .join("settings.json")
-            ).unwrap_or_default();
+            let settings =
+                core_engine::AppSettings::load_from_file(app_data_dir().join("settings.json"))
+                    .unwrap_or_default();
 
             let limits = {
                 let pm = pm_clone.lock().await;
@@ -166,20 +162,32 @@ pub fn spawn_resource_stats_router(
             }
 
             if cpu_limit.is_some() || ram_limit_mb.is_some() {
-                let cpu_exceeded = cpu_limit.map(|limit| stats.cpu_percentage > limit as f32).unwrap_or(false);
-                let ram_exceeded = ram_limit_mb.map(|limit| stats.ram_bytes > limit * 1024 * 1024).unwrap_or(false);
+                let cpu_exceeded = cpu_limit
+                    .map(|limit| stats.cpu_percentage > limit as f32)
+                    .unwrap_or(false);
+                let ram_exceeded = ram_limit_mb
+                    .map(|limit| stats.ram_bytes > limit * 1024 * 1024)
+                    .unwrap_or(false);
 
                 if cpu_exceeded || ram_exceeded {
-                    let entry_time = *exceeded_since.entry(stats.project_id.clone()).or_insert_with(std::time::Instant::now);
+                    let entry_time = *exceeded_since
+                        .entry(stats.project_id.clone())
+                        .or_insert_with(std::time::Instant::now);
                     if entry_time.elapsed() >= std::time::Duration::from_secs(30) {
                         // Breach persisted for 30s -> Force kill & fatal state
                         let mut pm = pm_clone.lock().await;
                         let reason = if cpu_exceeded && ram_exceeded {
                             format!("CPU limit ({}%) and RAM limit ({}MB) exceeded continuously for 30 seconds", cpu_limit.unwrap(), ram_limit_mb.unwrap())
                         } else if cpu_exceeded {
-                            format!("CPU limit ({}%) exceeded continuously for 30 seconds", cpu_limit.unwrap())
+                            format!(
+                                "CPU limit ({}%) exceeded continuously for 30 seconds",
+                                cpu_limit.unwrap()
+                            )
                         } else {
-                            format!("RAM limit ({}MB) exceeded continuously for 30 seconds", ram_limit_mb.unwrap())
+                            format!(
+                                "RAM limit ({}MB) exceeded continuously for 30 seconds",
+                                ram_limit_mb.unwrap()
+                            )
                         };
 
                         let _ = pm.force_fatal_stop(&stats.project_id, reason).await;
@@ -196,7 +204,10 @@ pub fn spawn_resource_stats_router(
 }
 
 /// Spawn the Terminal Event Router Task.
-pub fn spawn_terminal_router(pm_clone: Arc<Mutex<core_engine::ProcessManager>>, window: WebviewWindow) {
+pub fn spawn_terminal_router(
+    pm_clone: Arc<Mutex<core_engine::ProcessManager>>,
+    window: WebviewWindow,
+) {
     tauri::async_runtime::spawn(async move {
         let mut term_rx = {
             let pm_lock = pm_clone.lock().await;

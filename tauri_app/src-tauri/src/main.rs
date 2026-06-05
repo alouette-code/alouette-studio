@@ -8,15 +8,15 @@ mod state;
 mod system_manager;
 
 use core_engine::{ProcessManager, ProcessState, ProjectConfig, ResourceMonitor};
-use state::AppState;
+use state::{project_root, AppState};
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::Mutex;
 
 fn main() {
-    let log_dir = std::env::current_dir()
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
-        .join("logs");
+    // Resolve paths relative to the project root (parent of src-tauri)
+    // to keep app_data out of Tauri's file watcher scope.
+    let log_dir = project_root().join("logs");
     let mut pm = ProcessManager::new(&log_dir);
 
     // Pre-populate a standard System Connection diagnostics task for ease of testing
