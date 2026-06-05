@@ -2,8 +2,6 @@ import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   LayoutGrid,
-  Activity,
-  User,
   Terminal as TerminalIcon,
   Plus,
   X,
@@ -27,6 +25,7 @@ import {
 
 // Components
 import Header from "./components/Header";
+import WindowResizer from "./components/WindowResizer";
 import CodeEditor from "./components/CodeEditor";
 import ConfigSetup from "./components/ConfigSetup";
 import TabList from "./components/TabList";
@@ -790,6 +789,7 @@ export default function App() {
   // ── Render ──
   return (
     <div className="app-container">
+      <WindowResizer />
       <Header
         theme={theme}
         setTheme={setTheme}

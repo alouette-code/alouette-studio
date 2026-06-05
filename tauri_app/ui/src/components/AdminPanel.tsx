@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow, WebviewWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
+import WindowResizer from "./WindowResizer";
 function ZenIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
@@ -130,8 +131,8 @@ export function CustomCheckbox({
 }
 
 export default function AdminPanel() {
-  const appWindowRef = useRef<WebviewWindow | null>(null);
-  const [winReady, setWinReady] = useState(false);
+  const appWindowRef = useRef<Window | null>(null);
+  const [_winReady, _setWinReady] = useState(false);
   const [activeDock, setActiveDock] = useState("project");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -140,7 +141,7 @@ export default function AdminPanel() {
   useEffect(() => {
     try {
       appWindowRef.current = getCurrentWindow();
-      setWinReady(true);
+      _setWinReady(true);
     } catch (e) {
       console.error("AdminPanel: getCurrentWindow() failed", e);
     }
@@ -228,6 +229,7 @@ export default function AdminPanel() {
 
   return (
     <div className="admin-container">
+      <WindowResizer />
       {/* ── Left Dock ── */}
       <nav className="admin-dock">
         <div className="admin-dock-header">
@@ -558,17 +560,6 @@ const STATIC_PREDEFINED_MODELS: PredefinedModel[] = [
   },
 ];
 
-interface CustomModel {
-  id: string;
-  provider: string;
-  name: string;
-  endpoint: string;
-  apiKey: string;
-  contextLimit: string;
-  supportsVision: boolean;
-  apiStandard: string; // "openai" | "claude"
-}
-
 function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
   const [predefinedModels, setPredefinedModels] = useState<PredefinedModel[]>(
     STATIC_PREDEFINED_MODELS,
@@ -657,7 +648,6 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
     "claude-opus-4.7",
     "gemini-3.5-flash",
   ]);
-  const customModels: CustomModel[] = [];
 
   // Load configurations
   useEffect(() => {
@@ -1658,7 +1648,7 @@ function BuildSection() {
 function SandboxSection() {
   const [activeSubTab, setActiveSubTab] = useState("terminal");
   const [searchProject, setSearchProject] = useState("");
-  const [applyToAll, setApplyToAll] = useState(false);
+  const [_applyToAll, _setApplyToAll] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>("");
 
   // Projects Configurations State Store

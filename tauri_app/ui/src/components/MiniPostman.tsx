@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import WindowResizer from "./WindowResizer";
 import {
   Send,
   Trash2,
@@ -1211,6 +1212,7 @@ export default function MiniPostman() {
      ===================================================================== */
   return (
     <div className="postman-container" style={{ flexDirection: "column" }}>
+      <WindowResizer />
       {/* ================================================================ */}
       {/* CUSTOM TITLEBAR                                                 */}
       {/* ================================================================ */}

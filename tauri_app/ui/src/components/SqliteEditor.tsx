@@ -1,16 +1,16 @@
 import { useState, useEffect } from "react";
-import { 
-  Database, 
-  Plus, 
-  Trash2, 
-  RefreshCw, 
-  AlertCircle, 
-  Check, 
-  PlusCircle, 
-  Key, 
-  FileSpreadsheet, 
+import {
+  Database,
+  Plus,
+  Trash2,
+  RefreshCw,
+  AlertCircle,
+  Check,
+  // PlusCircle,
+  Key,
+  FileSpreadsheet,
   HelpCircle,
-  Columns
+  Columns,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -31,7 +31,11 @@ interface SqliteEditorProps {
   triggerToast?: (message: string, type: "success" | "error" | "info") => void;
 }
 
-export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }: SqliteEditorProps) {
+export default function SqliteEditor({
+  filePath,
+  triggerConfirm,
+  triggerToast,
+}: SqliteEditorProps) {
   const [tables, setTables] = useState<string[]>([]);
   const [activeTable, setActiveTable] = useState<string | null>(null);
   const [data, setData] = useState<SqliteTableData | null>(null);
@@ -39,7 +43,10 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
   const [error, setError] = useState<string | null>(null);
 
   // Cell editing state
-  const [editingCell, setEditingCell] = useState<{ rowIndex: number; colName: string } | null>(null);
+  const [editingCell, setEditingCell] = useState<{
+    rowIndex: number;
+    colName: string;
+  } | null>(null);
   const [editValue, setEditValue] = useState<string>("");
 
   // Add column form state
@@ -48,7 +55,9 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
   const [newColType, setNewColType] = useState<string>("TEXT");
 
   // Save status toast
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "success" | "error"
+  >("idle");
   const [statusMessage, setStatusMessage] = useState<string>("");
 
   const fileName = filePath.split(/[\\/]/).pop() || "";
@@ -58,7 +67,9 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
     setLoading(true);
     setError(null);
     try {
-      const res = await invoke<string[]>("get_sqlite_tables", { path: filePath });
+      const res = await invoke<string[]>("get_sqlite_tables", {
+        path: filePath,
+      });
       setTables(res);
       if (res.length > 0) {
         // Auto-select first table if none is active, or preserve active table if it still exists
@@ -82,9 +93,9 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
     setLoading(true);
     setError(null);
     try {
-      const res = await invoke<SqliteTableData>("get_sqlite_table_data", { 
-        path: filePath, 
-        table: tableName 
+      const res = await invoke<SqliteTableData>("get_sqlite_table_data", {
+        path: filePath,
+        table: tableName,
       });
       setData(res);
     } catch (err: any) {
@@ -111,7 +122,10 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
   }, [activeTable]);
 
   // Show dynamic status message
-  const triggerStatus = (status: "saving" | "success" | "error", message: string) => {
+  const triggerStatus = (
+    status: "saving" | "success" | "error",
+    message: string,
+  ) => {
     setSaveStatus(status);
     setStatusMessage(message);
     if (status !== "saving") {
@@ -120,11 +134,15 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
   };
 
   // Find primary key column info
-  const pkColumn = data?.columns.find(c => c.is_pk);
-  const pkIndex = data?.columns.findIndex(c => c.is_pk) ?? -1;
+  const pkColumn = data?.columns.find((c) => c.is_pk);
+  const pkIndex = data?.columns.findIndex((c) => c.is_pk) ?? -1;
 
   // Handle cell edit commit
-  const handleCellSave = async (rowIndex: number, colName: string, originalValue: any) => {
+  const handleCellSave = async (
+    rowIndex: number,
+    colName: string,
+    originalValue: any,
+  ) => {
     setEditingCell(null);
     if (!activeTable || !data || !pkColumn || pkIndex === -1) return;
 
@@ -132,7 +150,7 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
     const pkValue = row[pkIndex];
 
     // Determine type and format value
-    const colInfo = data.columns.find(c => c.name === colName);
+    const colInfo = data.columns.find((c) => c.name === colName);
     let formattedValue: any = editValue;
 
     if (editValue === "" || editValue.toLowerCase() === "null") {
@@ -142,7 +160,11 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
       if (type.includes("INT") || type.includes("NUM")) {
         const parsed = parseInt(editValue, 10);
         formattedValue = isNaN(parsed) ? editValue : parsed;
-      } else if (type.includes("REAL") || type.includes("FLOAT") || type.includes("DOUBLE")) {
+      } else if (
+        type.includes("REAL") ||
+        type.includes("FLOAT") ||
+        type.includes("DOUBLE")
+      ) {
         const parsed = parseFloat(editValue);
         formattedValue = isNaN(parsed) ? editValue : parsed;
       }
@@ -159,7 +181,7 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
         column: colName,
         value: formattedValue,
         pkColumn: pkColumn.name,
-        pkValue: pkValue
+        pkValue: pkValue,
       });
       triggerStatus("success", "Saved successfully!");
       // Refresh local table data
@@ -177,7 +199,7 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
     try {
       await invoke("insert_sqlite_row", {
         path: filePath,
-        table: activeTable
+        table: activeTable,
       });
       triggerStatus("success", "New row added!");
       loadTableData(activeTable);
@@ -190,7 +212,7 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
   // Delete a row
   const handleDeleteRow = async (rowIndex: number) => {
     if (!activeTable || !data || !pkColumn || pkIndex === -1) return;
-    
+
     const row = data.rows[rowIndex];
     const pkValue = row[pkIndex];
 
@@ -201,7 +223,7 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
           path: filePath,
           table: activeTable,
           pkColumn: pkColumn.name,
-          pkValue: pkValue
+          pkValue: pkValue,
         });
         triggerStatus("success", "Row deleted!");
         if (triggerToast) triggerToast("Row deleted successfully!", "success");
@@ -214,9 +236,15 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
     };
 
     if (triggerConfirm) {
-      triggerConfirm(`Are you sure you want to delete this row (ID: ${pkValue})?`, performDelete);
+      triggerConfirm(
+        `Are you sure you want to delete this row (ID: ${pkValue})?`,
+        performDelete,
+      );
     } else {
-      if (!confirm(`Are you sure you want to delete this row (ID: ${pkValue})?`)) return;
+      if (
+        !confirm(`Are you sure you want to delete this row (ID: ${pkValue})?`)
+      )
+        return;
       await performDelete();
     }
   };
@@ -232,7 +260,7 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
         path: filePath,
         table: activeTable,
         colName: newColName.trim().replace(/[^a-zA-Z0-9_]/g, "_"), // safe column name
-        colType: newColType
+        colType: newColType,
       });
       triggerStatus("success", `Column "${newColName}" added successfully!`);
       setNewColName("");
@@ -254,7 +282,7 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
           <span className="db-badge">SQLite DB</span>
           <span className="db-path text-muted">{filePath}</span>
         </div>
-        
+
         {/* Save Status Indicators */}
         <div className="status-indicator-zone">
           {saveStatus === "saving" && (
@@ -269,7 +297,10 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
           )}
           {saveStatus === "error" && (
             <span className="status-badge text-danger" title={statusMessage}>
-              <AlertCircle size={12} /> {statusMessage.length > 30 ? statusMessage.slice(0, 30) + "..." : statusMessage}
+              <AlertCircle size={12} />{" "}
+              {statusMessage.length > 30
+                ? statusMessage.slice(0, 30) + "..."
+                : statusMessage}
             </span>
           )}
         </div>
@@ -282,16 +313,16 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
           <div className="sidebar-title">
             <FileSpreadsheet size={13} />
             <span>Tables ({tables.length})</span>
-            <button 
-              className="refresh-btn" 
-              onClick={loadTables} 
+            <button
+              className="refresh-btn"
+              onClick={loadTables}
               title="Refresh database structure"
             >
               <RefreshCw size={12} />
             </button>
           </div>
           <div className="tables-list">
-            {tables.map(tbl => (
+            {tables.map((tbl) => (
               <button
                 key={tbl}
                 className={`table-list-item ${activeTable === tbl ? "active" : ""}`}
@@ -321,15 +352,19 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
               {/* Grid Control Toolbar */}
               <div className="grid-toolbar">
                 <div className="table-meta">
-                  <span className="table-title font-semibold">{activeTable}</span>
-                  <span className="row-count text-muted">{data?.rows.length ?? 0} rows</span>
+                  <span className="table-title font-semibold">
+                    {activeTable}
+                  </span>
+                  <span className="row-count text-muted">
+                    {data?.rows.length ?? 0} rows
+                  </span>
                 </div>
-                
+
                 {/* Visual Direct Actions */}
                 <div className="toolbar-actions">
                   {pkColumn ? (
-                    <button 
-                      className="btn-toolbar btn-primary" 
+                    <button
+                      className="btn-toolbar btn-primary"
                       onClick={handleAddRow}
                       title="Add a new empty row to this table"
                     >
@@ -337,13 +372,16 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
                       <span>Add Row</span>
                     </button>
                   ) : (
-                    <div className="no-pk-warning" title="Primary key is required to add or edit rows.">
+                    <div
+                      className="no-pk-warning"
+                      title="Primary key is required to add or edit rows."
+                    >
                       <HelpCircle size={12} />
                       <span>Read-only Mode (No PK)</span>
                     </div>
                   )}
 
-                  <button 
+                  <button
                     className={`btn-toolbar ${showAddColumn ? "active" : ""}`}
                     onClick={() => setShowAddColumn(!showAddColumn)}
                     title="Add a new column visually to this table"
@@ -352,8 +390,8 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
                     <span>Add Column</span>
                   </button>
 
-                  <button 
-                    className="btn-toolbar" 
+                  <button
+                    className="btn-toolbar"
                     onClick={() => loadTableData(activeTable)}
                     title="Reload data"
                   >
@@ -364,28 +402,42 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
 
               {/* Add Column Dropdown Panel */}
               {showAddColumn && (
-                <form className="add-column-panel animate-fade-in" onSubmit={handleAddColumnSubmit}>
+                <form
+                  className="add-column-panel animate-fade-in"
+                  onSubmit={handleAddColumnSubmit}
+                >
                   <div className="form-group">
                     <label>Column Name</label>
-                    <input 
-                      type="text" 
-                      placeholder="e.g. created_at" 
-                      value={newColName} 
-                      onChange={e => setNewColName(e.target.value)}
+                    <input
+                      type="text"
+                      placeholder="e.g. created_at"
+                      value={newColName}
+                      onChange={(e) => setNewColName(e.target.value)}
                       required
                     />
                   </div>
                   <div className="form-group">
                     <label>Type</label>
-                    <select value={newColType} onChange={e => setNewColType(e.target.value)}>
+                    <select
+                      value={newColType}
+                      onChange={(e) => setNewColType(e.target.value)}
+                    >
                       <option value="TEXT">TEXT</option>
                       <option value="INTEGER">INTEGER</option>
                       <option value="REAL">REAL</option>
                     </select>
                   </div>
                   <div className="form-buttons">
-                    <button type="submit" className="btn-form btn-primary">Add</button>
-                    <button type="button" className="btn-form btn-cancel" onClick={() => setShowAddColumn(false)}>Cancel</button>
+                    <button type="submit" className="btn-form btn-primary">
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-form btn-cancel"
+                      onClick={() => setShowAddColumn(false)}
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </form>
               )}
@@ -401,16 +453,28 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
                   <table>
                     <thead>
                       <tr>
-                        {data.columns.map(col => (
-                          <th key={col.name} className={col.is_pk ? "pk-header" : ""}>
+                        {data.columns.map((col) => (
+                          <th
+                            key={col.name}
+                            className={col.is_pk ? "pk-header" : ""}
+                          >
                             <div className="header-cell">
-                              {col.is_pk && <Key size={11} className="pk-icon text-accent" title="Primary Key" />}
+                              {col.is_pk && (
+                                <Key
+                                  size={11}
+                                  className="pk-icon text-accent"
+                                />
+                              )}
                               <span className="col-name">{col.name}</span>
-                              <span className="col-type text-muted">{col.data_type.toLowerCase()}</span>
+                              <span className="col-type text-muted">
+                                {col.data_type.toLowerCase()}
+                              </span>
                             </div>
                           </th>
                         ))}
-                        {pkColumn && <th className="actions-header">Actions</th>}
+                        {pkColumn && (
+                          <th className="actions-header">Actions</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -418,48 +482,64 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
                         <tr key={rIdx}>
                           {row.map((val, cIdx) => {
                             const colName = data.columns[cIdx].name;
-                            const isEditing = editingCell?.rowIndex === rIdx && editingCell?.colName === colName;
+                            const isEditing =
+                              editingCell?.rowIndex === rIdx &&
+                              editingCell?.colName === colName;
 
                             return (
-                              <td 
-                                key={cIdx} 
+                              <td
+                                key={cIdx}
                                 className={`grid-cell ${val === null ? "cell-null" : ""} ${typeof val === "number" ? "text-right" : ""}`}
                                 onDoubleClick={() => {
                                   // Can only edit if there is a primary key in the table
                                   if (pkColumn) {
                                     setEditingCell({ rowIndex: rIdx, colName });
-                                    setEditValue(val === null ? "" : String(val));
+                                    setEditValue(
+                                      val === null ? "" : String(val),
+                                    );
                                   }
                                 }}
-                                title={pkColumn ? "Double-click to edit cell" : "Read-only table"}
+                                title={
+                                  pkColumn
+                                    ? "Double-click to edit cell"
+                                    : "Read-only table"
+                                }
                               >
                                 {isEditing ? (
                                   <input
                                     type="text"
                                     className="cell-input"
                                     value={editValue}
-                                    onChange={e => setEditValue(e.target.value)}
-                                    onBlur={() => handleCellSave(rIdx, colName, val)}
-                                    onKeyDown={e => {
-                                      if (e.key === "Enter") handleCellSave(rIdx, colName, val);
-                                      if (e.key === "Escape") setEditingCell(null);
+                                    onChange={(e) =>
+                                      setEditValue(e.target.value)
+                                    }
+                                    onBlur={() =>
+                                      handleCellSave(rIdx, colName, val)
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter")
+                                        handleCellSave(rIdx, colName, val);
+                                      if (e.key === "Escape")
+                                        setEditingCell(null);
                                     }}
                                     autoFocus
                                   />
                                 ) : val === null ? (
                                   <span className="null-tag">NULL</span>
                                 ) : (
-                                  <span className="cell-value">{String(val)}</span>
+                                  <span className="cell-value">
+                                    {String(val)}
+                                  </span>
                                 )}
                               </td>
                             );
                           })}
-                          
+
                           {/* Visual Actions (Delete Row) */}
                           {pkColumn && (
                             <td className="actions-cell">
-                              <button 
-                                className="delete-row-btn" 
+                              <button
+                                className="delete-row-btn"
                                 onClick={() => handleDeleteRow(rIdx)}
                                 title="Delete this row"
                               >
@@ -471,8 +551,12 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
                       ))}
                       {data.rows.length === 0 && (
                         <tr>
-                          <td colSpan={data.columns.length + (pkColumn ? 1 : 0)} className="empty-rows text-muted">
-                            Table contains no records. Click "Add Row" to insert data.
+                          <td
+                            colSpan={data.columns.length + (pkColumn ? 1 : 0)}
+                            className="empty-rows text-muted"
+                          >
+                            Table contains no records. Click "Add Row" to insert
+                            data.
                           </td>
                         </tr>
                       )}
@@ -485,7 +569,10 @@ export default function SqliteEditor({ filePath, triggerConfirm, triggerToast }:
             <div className="grid-empty-state">
               <Database size={32} className="empty-icon text-muted" />
               <h3>No Table Selected</h3>
-              <p>Choose a table from the sidebar to view and edit its records directly.</p>
+              <p>
+                Choose a table from the sidebar to view and edit its records
+                directly.
+              </p>
             </div>
           )}
         </div>

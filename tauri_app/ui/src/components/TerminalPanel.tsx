@@ -796,7 +796,7 @@ export default function TerminalPanel({
           // ROOT-CRITICAL: ONLY flush remaining buffer, NEVER invoke.
           // compositionupdate already sent all text via bufferWrite.
           // Sending again via invoke would cause DUPLICATE text.
-          textarea.addEventListener("compositionend", (e) => {
+          textarea.addEventListener("compositionend", (_e) => {
             isComposing = false;
 
             if (flushTimer !== null) {

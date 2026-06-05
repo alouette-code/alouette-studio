@@ -1978,7 +1978,7 @@ export default function AiAgent({
 
               <button
                 onClick={() => {
-                  onBack();
+                  onBack?.();
                   setMenuOpen(false);
                 }}
                 className="agent-dropdown-item"

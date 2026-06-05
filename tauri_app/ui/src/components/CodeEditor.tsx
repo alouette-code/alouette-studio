@@ -13,18 +13,20 @@ interface CodeEditorProps {
   onChange?: (val: string) => void;
   onSave?: (val: string) => void;
   scrollPositionsRef: React.MutableRefObject<{ [path: string]: number }>;
-  cursorPositionsRef: React.MutableRefObject<{ [path: string]: { start: number; end: number } }>;
+  cursorPositionsRef: React.MutableRefObject<{
+    [path: string]: { start: number; end: number };
+  }>;
 }
 
 const getLanguageFromPath = (path: string | null): string => {
   if (!path) return "plaintext";
   const fileName = path.split(/[\\/]/).pop()?.toLowerCase() || "";
-  
+
   if (fileName.startsWith(".env")) {
     return "ini";
   }
-  
-  const ext = fileName.split('.').pop()?.toLowerCase();
+
+  const ext = fileName.split(".").pop()?.toLowerCase();
   switch (ext) {
     case "js":
     case "jsx":
@@ -83,11 +85,13 @@ export default function CodeEditor({
   onChange,
   onSave,
   scrollPositionsRef,
-  cursorPositionsRef
+  cursorPositionsRef,
 }: CodeEditorProps) {
   const [content, setContent] = useState<string>("");
   const [originalContent, setOriginalContent] = useState<string>("");
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [saveStatus, setSaveStatus] = useState<
+    "idle" | "saving" | "success" | "error"
+  >("idle");
   const editorRef = useRef<any>(null);
   const lastPathRef = useRef<string | null>(null);
 
@@ -102,8 +106,14 @@ export default function CodeEditor({
           const selection = editor.getSelection();
           if (selection) {
             cursorPositionsRef.current[filePath] = {
-              start: model.getOffsetAt({ lineNumber: selection.startLineNumber, column: selection.startColumn }),
-              end: model.getOffsetAt({ lineNumber: selection.endLineNumber, column: selection.endColumn })
+              start: model.getOffsetAt({
+                lineNumber: selection.startLineNumber,
+                column: selection.startColumn,
+              }),
+              end: model.getOffsetAt({
+                lineNumber: selection.endLineNumber,
+                column: selection.endColumn,
+              }),
             };
           }
         }
@@ -113,7 +123,10 @@ export default function CodeEditor({
 
   // Sync internal content with parent's decoded content without cursor jumping
   useEffect(() => {
-    if (filePath !== lastPathRef.current || (initialContent !== null && originalContent === "")) {
+    if (
+      filePath !== lastPathRef.current ||
+      (initialContent !== null && originalContent === "")
+    ) {
       if (initialContent !== null) {
         setContent(initialContent);
         setOriginalContent(initialContent);
@@ -151,7 +164,7 @@ export default function CodeEditor({
     setSaveStatus("idle");
   }, [initialContent, filePath]);
 
-  const handleEditorDidMount = (editor: any, monaco: any) => {
+  const handleEditorDidMount = (editor: any, _monaco: any) => {
     editorRef.current = editor;
 
     // Restore scroll and cursor for the active file path
@@ -181,8 +194,13 @@ export default function CodeEditor({
     setSaveStatus("saving");
     try {
       // Get latest content from editor if available, to make sure it is 100% in sync
-      const latestContent = editorRef.current ? editorRef.current.getValue() : content;
-      await invoke("write_file_content", { path: filePath, content: latestContent });
+      const latestContent = editorRef.current
+        ? editorRef.current.getValue()
+        : content;
+      await invoke("write_file_content", {
+        path: filePath,
+        content: latestContent,
+      });
       setOriginalContent(latestContent);
       setSaveStatus("success");
       if (onFileSaved) onFileSaved();
@@ -215,7 +233,10 @@ export default function CodeEditor({
       <div className="code-editor-empty">
         <FileCode size={32} className="empty-icon" />
         <h3>No File Selected</h3>
-        <p>Click on any file in the Project Explorer to read and edit it directly here.</p>
+        <p>
+          Click on any file in the Project Explorer to read and edit it directly
+          here.
+        </p>
       </div>
     );
   }
@@ -278,7 +299,8 @@ export default function CodeEditor({
             onMount={handleEditorDidMount}
             options={{
               fontSize: 12,
-              fontFamily: "'JetBrains Mono', Consolas, 'Courier New', monospace",
+              fontFamily:
+                "'JetBrains Mono', Consolas, 'Courier New', monospace",
               minimap: { enabled: false },
               automaticLayout: true,
               scrollBeyondLastLine: false,
@@ -294,7 +316,7 @@ export default function CodeEditor({
                 horizontal: "visible",
                 verticalScrollbarSize: 10,
                 horizontalScrollbarSize: 10,
-              }
+              },
             }}
           />
         </div>

@@ -53,7 +53,7 @@ export function useProjects(deps: UseProjectsDeps) {
   // File Editing State
   const [openFilePath, setOpenFilePath] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<string[]>([]);
-  const [openFileContent, setOpenFileContent] = useState<string | null>(null);
+  const [openFileContent, _setOpenFileContent] = useState<string | null>(null);
   const [isFileLoading, setIsFileLoading] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [isSqliteFile, setIsSqliteFile] = useState(false);
@@ -223,7 +223,7 @@ export function useProjects(deps: UseProjectsDeps) {
         setNewProjToolchainVersion(activeProj.toolchain_version || "stable");
         setNewProjEnableTunnel(!!activeProj.enable_tunnel);
         setNewProjMaxLogLines(
-          activeProj.max_log_lines ? String(activeProj.max_log_lines) : ""
+          activeProj.max_log_lines ? String(activeProj.max_log_lines) : "",
         );
         if (activeProj.env) {
           setNewProjEnv(
@@ -311,13 +311,15 @@ export function useProjects(deps: UseProjectsDeps) {
             timestamp: payload.timestamp,
           },
         ];
-        
-        const project = projectsRef.current.find((p) => p.id === payload.project_id);
+
+        const project = projectsRef.current.find(
+          (p) => p.id === payload.project_id,
+        );
         const limitVal = project?.max_log_lines || MAX_LOG_LINES;
         if (newLines.length > limitVal) {
           newLines.splice(0, newLines.length - limitVal);
         }
-        
+
         return {
           ...prev,
           [payload.project_id]: newLines,
@@ -476,7 +478,9 @@ export function useProjects(deps: UseProjectsDeps) {
     const maxCpuVal = newProjCpu ? parseInt(newProjCpu, 10) : undefined;
     const maxRamVal = newProjRam ? parseInt(newProjRam, 10) : undefined;
     const portVal = newProjPort ? parseInt(newProjPort, 10) : undefined;
-    const maxLogLinesVal = newProjMaxLogLines ? parseInt(newProjMaxLogLines, 10) : undefined;
+    const maxLogLinesVal = newProjMaxLogLines
+      ? parseInt(newProjMaxLogLines, 10)
+      : undefined;
 
     const newConfig: Project = {
       id:
@@ -517,40 +521,43 @@ export function useProjects(deps: UseProjectsDeps) {
       setActiveProjectId("");
       return;
     }
-    triggerConfirm("Are you sure you want to delete this tab/project?", async () => {
-      try {
-        const terms = projectTerminals[id] || [];
-        for (const t of terms) {
-          await invoke("kill_terminal_session", { sessionId: t.id }).catch(
-            () => {},
-          );
-          setTermOutputs((prev) => {
+    triggerConfirm(
+      "Are you sure you want to delete this tab/project?",
+      async () => {
+        try {
+          const terms = projectTerminals[id] || [];
+          for (const t of terms) {
+            await invoke("kill_terminal_session", { sessionId: t.id }).catch(
+              () => {},
+            );
+            setTermOutputs((prev) => {
+              const copy = { ...prev };
+              delete copy[t.id];
+              return copy;
+            });
+          }
+
+          await invoke("deregister_project", { projectId: id });
+          await loadProjects();
+          if (activeProjectId === id) {
+            setActiveProjectId("");
+          }
+
+          setProjectTerminals((prev) => {
             const copy = { ...prev };
-            delete copy[t.id];
+            delete copy[id];
             return copy;
           });
+          setActiveTerminalIds((prev) => {
+            const copy = { ...prev };
+            delete copy[id];
+            return copy;
+          });
+        } catch (e: any) {
+          triggerToast(`Failed to delete: ${e}`, "error");
         }
-
-        await invoke("deregister_project", { projectId: id });
-        await loadProjects();
-        if (activeProjectId === id) {
-          setActiveProjectId("");
-        }
-
-        setProjectTerminals((prev) => {
-          const copy = { ...prev };
-          delete copy[id];
-          return copy;
-        });
-        setActiveTerminalIds((prev) => {
-          const copy = { ...prev };
-          delete copy[id];
-          return copy;
-        });
-      } catch (e: any) {
-        triggerToast(`Failed to delete: ${e}`, "error");
-      }
-    });
+      },
+    );
   };
 
   const handleFileOpen = (path: string) => {

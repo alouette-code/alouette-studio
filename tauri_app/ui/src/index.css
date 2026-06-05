@@ -97,6 +97,84 @@ body {
     overflow: hidden;
 }
 
+/* ── Window Resize Handles (for decorations: false) ── */
+.window-resize-handle {
+    position: fixed;
+    z-index: 9999;
+    -webkit-app-region: no-drag;
+    transition: background-color 0.15s ease;
+}
+.window-resize-handle:hover {
+    background-color: var(--color-accent);
+    opacity: 0.5;
+}
+
+/* Edges */
+.resize-north {
+    top: 0;
+    left: 5px;
+    right: 5px;
+    height: 7px;
+    cursor: n-resize;
+}
+
+.resize-south {
+    bottom: 0;
+    left: 5px;
+    right: 5px;
+    height: 7px;
+    cursor: s-resize;
+}
+
+.resize-east {
+    right: 0;
+    top: 5px;
+    bottom: 5px;
+    width: 7px;
+    cursor: e-resize;
+}
+
+.resize-west {
+    left: 0;
+    top: 5px;
+    bottom: 5px;
+    width: 7px;
+    cursor: w-resize;
+}
+
+/* Corners */
+.resize-northeast {
+    top: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    cursor: ne-resize;
+}
+
+.resize-northwest {
+    top: 0;
+    left: 0;
+    width: 12px;
+    height: 12px;
+    cursor: nw-resize;
+}
+
+.resize-southeast {
+    bottom: 0;
+    right: 0;
+    width: 12px;
+    height: 12px;
+    cursor: se-resize;
+}
+
+.resize-southwest {
+    bottom: 0;
+    left: 0;
+    width: 12px;
+    height: 12px;
+    cursor: sw-resize;
+}
+
 /* 1. Global Header Bar (Acts as Custom Titlebar) */
 .global-header {
     height: 40px;
