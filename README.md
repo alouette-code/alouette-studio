@@ -532,74 +532,76 @@ On exit, the application gracefully terminates all running processes and termina
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| tokio | 1.35 (full) | Async runtime |
-| sysinfo | 0.30 | System resource information |
+| tokio | 1.52 (full) | Async runtime |
+| sysinfo | 0.39 | System resource information |
 | serde | 1.0 (derive) | Serialization framework |
 | serde_json | 1.0 | JSON serialization |
-| toml | 0.8 | TOML configuration parsing |
+| toml | 0.9 | TOML configuration parsing |
 | chrono | 0.4 | Date/time handling |
 | parking_lot | 0.12 | Fast mutex synchronization |
-| reqwest | 0.11 (json, stream) | HTTP client |
+| reqwest | 0.13 (json, stream) | HTTP client |
 | futures-util | 0.3 | Async stream utilities |
-| bytes | 1.5 | Byte buffer management |
+| bytes | 1.11 | Byte buffer management |
 | flate2 | 1.0 | Gzip compression |
 | tar | 0.4 | Tar archive handling |
-| zip | 0.6 | Zip archive handling |
-| portable-pty | 0.8 | Cross-platform PTY |
+| zip | 8.6 | Zip archive handling |
+| portable-pty | 0.9 | Cross-platform PTY |
 | fs_extra | 1.3 | Extended filesystem operations |
 | async-trait | 0.1 | Async trait support |
-| directories | 5.0 | Platform-specific directories |
-| rusqlite | 0.31.0 (bundled) | SQLite database |
+| directories | 6.0 | Platform-specific directories |
+| rusqlite | 0.40.0 (bundled) | SQLite database |
 | winapi | 0.3 | Windows API bindings |
 
 ### Tauri App (Rust/Cargo)
 
 | Crate | Version | Purpose |
 |-------|---------|---------|
-| tauri | 2.0 (unstable, tray-icon, image-png) | Desktop application framework |
+| tauri | 2.11.2 (unstable, tray-icon, image-png) | Desktop application framework |
 | serde | 1.0 (derive) | Serialization framework |
 | serde_json | 1.0 | JSON serialization |
 | serde_yaml | 0.9 | YAML serialization |
-| tokio | 1.35 (full) | Async runtime |
+| tokio | 1.52 (full) | Async runtime |
 | core_engine | local | Local workspace dependency |
 | chrono | 0.4 | Date/time handling |
-| base64 | 0.21 | Base64 encoding |
-| rusqlite | 0.31.0 (bundled) | SQLite database |
-| reqwest | 0.11 (json, multipart, cookies) | HTTP client |
-| sha2 | 0.10 | SHA-256 hashing |
-| sha1 | 0.10 | SHA-1 hashing |
-| md5 | 0.7 | MD5 hashing |
+| base64 | 0.22 | Base64 encoding |
+| rusqlite | 0.40.0 (bundled) | SQLite database |
+| reqwest | 0.13 (json, multipart, cookies) | HTTP client |
+| sha2 | 0.11 | SHA-256 hashing |
+| sha1 | 0.11 | SHA-1 hashing |
+| md5 | 0.8 | MD5 hashing |
 | regex-lite | 0.1 | Lightweight regex |
 | url | 2 | URL parsing |
-| quick-xml | 0.31 | XML parsing |
-| jsonschema | 0.18 | JSON Schema validation |
-| tract-onnx | 0.21.3 | ONNX inference engine (Alouette Open) |
-| rig-core | 0.37 (derive) | LLM provider abstraction / Agent framework |
+| quick-xml | 0.40 | XML parsing |
+| jsonschema | 0.46 | JSON Schema validation |
+| tract-onnx | 0.23.0 | ONNX inference engine (Alouette Open) |
+| rig-core | 0.38 (derive) | LLM provider abstraction / Agent framework |
 | futures-util | 0.3 | Async stream utilities |
-| tauri-build | 2.0 | Tauri build script |
+| tauri-build | 2.6 | Tauri build script |
 
 ### Frontend (npm)
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| react | ^18.2.0 | UI framework |
-| react-dom | ^18.2.0 | React DOM renderer |
-| @tauri-apps/api | ^2.0.0 | Tauri IPC bridge |
+| react | ^19.2.7 | UI framework |
+| react-dom | ^19.2.7 | React DOM renderer |
+| @tauri-apps/api | ^2.11.0 | Tauri IPC bridge |
 | @monaco-editor/react | ^4.7.0 | Monaco code editor |
-| xterm | ^5.3.0 | Terminal emulator |
 | @xterm/addon-fit | ^0.11.0 | xterm.js auto-fit addon |
-| lucide-react | ^0.300.0 | Icon library |
+| fuse.js | ^7.4.1 | Fuzzy search |
+| lucide-react | ^1.17.0 | Icon library |
+| xterm | ^5.3.0 | Terminal emulator |
 
 **Dev dependencies:**
 
 | Package | Version | Purpose |
 |---------|---------|---------|
-| typescript | ^5.2.0 | Type checking |
-| vite | ^5.0.0 | Build tool |
-| @vitejs/plugin-react | ^4.2.0 | Vite React plugin |
-| @tauri-apps/cli | ^2.1.0 | Tauri CLI |
-| @types/react | ^18.2.0 | React type definitions |
-| @types/react-dom | ^18.2.0 | React DOM type definitions |
+| esbuild | ^0.28.0 | Fast bundler |
+| typescript | ^6.0.3 | Type checking |
+| vite | ^8.0.16 | Build tool |
+| @vitejs/plugin-react | ^6.0.2 | Vite React plugin |
+| @tauri-apps/cli | ^2.11.2 | Tauri CLI |
+| @types/react | ^19.2.16 | React type definitions |
+| @types/react-dom | ^19.2.3 | React DOM type definitions |
 
 ---
 
