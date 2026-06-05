@@ -39,6 +39,7 @@ import MiniPostman from "./components/MiniPostman";
 import AiAgent from "./components/AiAgent";
 import ProjectResources from "./components/ProjectResources";
 import CloudflareTunnel from "./components/CloudflareTunnel";
+import GitPanel from "./components/GitPanel";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 // Search Engine
@@ -278,6 +279,7 @@ export default function App() {
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [isAiViewActive, setIsAiViewActive] = useState(false);
+  const [isGitViewActive, setIsGitViewActive] = useState(false);
   const [initialAgentSessionData, setInitialAgentSessionData] =
     useState<any>(null);
   const [agentHistoryList, setAgentHistoryList] = useState<any[]>([]);
@@ -1284,6 +1286,8 @@ export default function App() {
                 handleFileOpenCustom(path);
               }}
             />
+          ) : isGitViewActive ? (
+            <GitPanel activeProject={activeProject || null} triggerToast={triggerToast} />
           ) : (
             <>
               {/* Zone 3: Configuration & Watchdog Setup */}
@@ -1475,7 +1479,25 @@ export default function App() {
         </div>
 
         <div className="navbar-tool-buttons">
-          <button className="tool-btn tool-git" title="1. Git">
+          <button 
+            className={`tool-btn tool-git ${isGitViewActive && isRightSidebarOpen ? "active" : ""}`}
+            title="1. Git"
+            onClick={() => {
+              if (!isRightSidebarOpen) {
+                setIsRightSidebarOpen(true);
+                setIsGitViewActive(true);
+                setIsAiViewActive(false);
+              } else {
+                if (isGitViewActive) {
+                  setIsRightSidebarOpen(false);
+                  setIsGitViewActive(false);
+                } else {
+                  setIsGitViewActive(true);
+                  setIsAiViewActive(false);
+                }
+              }
+            }}
+          >
             <GitBranch size={14} />
           </button>
           <button
@@ -1485,8 +1507,15 @@ export default function App() {
               if (!isRightSidebarOpen) {
                 setIsRightSidebarOpen(true);
                 setIsAiViewActive(true);
+                setIsGitViewActive(false);
               } else {
-                setIsAiViewActive(!isAiViewActive);
+                if (isAiViewActive) {
+                  setIsRightSidebarOpen(false);
+                  setIsAiViewActive(false);
+                } else {
+                  setIsAiViewActive(true);
+                  setIsGitViewActive(false);
+                }
               }
             }}
           >

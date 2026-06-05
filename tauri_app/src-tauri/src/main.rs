@@ -217,6 +217,17 @@ fn main() {
             commands::agent::agent_delete_session,
             toggle_alouette_open,
             is_alouette_open_active,
+            commands::git::git_get_status,
+            commands::git::git_stage_file,
+            commands::git::git_stage_all,
+            commands::git::git_unstage_file,
+            commands::git::git_unstage_all,
+            commands::git::git_discard_file,
+            commands::git::git_commit,
+            commands::git::git_push,
+            commands::git::git_pull,
+            commands::git::git_get_log,
+            commands::git::git_get_commit_files,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

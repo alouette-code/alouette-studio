@@ -22,17 +22,37 @@ const getParentPath = (path: string, isDir: boolean) => {
   return path.substring(0, lastSlash);
 };
 
+// Helper to get relative path
+const getRelativePath = (absolutePath: string, baseCwd: string | undefined) => {
+  if (!baseCwd) return absolutePath;
+  const absNormalized = absolutePath.replace(/\\/g, "/");
+  const baseNormalized = baseCwd.replace(/\\/g, "/");
+  
+  if (absNormalized.startsWith(baseNormalized)) {
+    let rel = absNormalized.substring(baseNormalized.length);
+    if (rel.startsWith("/")) {
+      rel = rel.substring(1);
+    }
+    return rel;
+  }
+  return absolutePath;
+};
+
 // Sub-component to render directory tree nodes recursively
 function TreeNode({
   node,
   onFileSelect,
   onNodeContextMenu,
   onNodeChildrenLoaded,
+  gitFileStatuses,
+  activeCwd,
 }: {
   node: FileNode;
   onFileSelect: (filePath: string) => void;
   onNodeContextMenu: (x: number, y: number, path: string, isDir: boolean) => void;
   onNodeChildrenLoaded: (path: string, children: FileNode[]) => void;
+  gitFileStatuses: {[relPath: string]: string};
+  activeCwd: string | undefined;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLazyLoading, setIsLazyLoading] = useState(false);
@@ -89,9 +109,12 @@ function TreeNode({
     onNodeContextMenu(e.clientX, e.clientY, node.path, node.is_dir);
   };
 
+  const relPath = getRelativePath(node.path, activeCwd).replace(/\\/g, "/");
+  const gitStatus = gitFileStatuses[relPath];
+
   return (
     <div style={{ display: "flex", flexDirection: "column" }} onContextMenu={handleContextMenu}>
-      <div className="tree-node-row" onClick={handleRowClick}>
+      <div className="tree-node-row" onClick={handleRowClick} style={{ display: "flex", alignItems: "center", width: "100%" }}>
         {node.is_dir ? (
           <span style={{ display: "inline-flex", marginRight: "2px" }}>
             {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
@@ -100,7 +123,37 @@ function TreeNode({
           <span style={{ width: "13px", display: "inline-block" }} />
         )}
         {getFileIcon(node.name, node.is_dir)}
-        <span className="tree-node-name">{node.name}</span>
+        <span 
+          className="tree-node-name"
+          style={{ 
+            color: gitStatus === "modified" 
+              ? "var(--git-modified, #eab308)" 
+              : gitStatus === "untracked" || gitStatus === "added"
+                ? "var(--git-added, #10b981)" 
+                : "inherit",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap"
+          }}
+        >
+          {node.name}
+        </span>
+        {gitStatus && (
+          <span 
+            style={{ 
+              fontSize: "9px", 
+              fontWeight: "bold",
+              marginLeft: "auto",
+              marginRight: "8px",
+              color: gitStatus === "modified" 
+                ? "var(--git-modified, #eab308)" 
+                : "var(--git-added, #10b981)",
+              opacity: 0.8
+            }}
+          >
+            {gitStatus === "modified" ? "M" : "U"}
+          </span>
+        )}
       </div>
 
       {node.is_dir && isOpen && (
@@ -113,6 +166,8 @@ function TreeNode({
               onFileSelect={onFileSelect}
               onNodeContextMenu={onNodeContextMenu}
               onNodeChildrenLoaded={onNodeChildrenLoaded}
+              gitFileStatuses={gitFileStatuses}
+              activeCwd={activeCwd}
             />
           ))}
           {!isLazyLoading && (!node.children || node.children.length === 0) && (
@@ -142,6 +197,7 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
   const [files, setFiles] = useState<FileNode[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [gitFileStatuses, setGitFileStatuses] = useState<{[relPath: string]: string}>({});
 
 
   // Context Menu State
@@ -164,6 +220,23 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
   const [promptType, setPromptType] = useState<"file" | "folder">("file");
   const [newItemName, setNewItemName] = useState("");
 
+  const fetchGitStatus = async () => {
+    if (!activeCwd) return;
+    try {
+      const status: any = await invoke("git_get_status", { cwd: activeCwd });
+      const statusMap: {[relPath: string]: string} = {};
+      status.staged.forEach((f: any) => {
+        statusMap[f.path.replace(/\\/g, "/")] = f.status;
+      });
+      status.unstaged.forEach((f: any) => {
+        statusMap[f.path.replace(/\\/g, "/")] = f.status;
+      });
+      setGitFileStatuses(statusMap);
+    } catch (e) {
+      setGitFileStatuses({});
+    }
+  };
+
   const fetchFiles = async (silent = false) => {
     if (!silent && files.length === 0) setLoading(true);
     setError(null);
@@ -172,6 +245,7 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
         dirPath: activeCwd || null,
       });
       setFiles(prev => mergeTrees(data, prev));
+      await fetchGitStatus();
     } catch (e: any) {
       console.error("Failed to load project files tree:", e);
       setError(e.toString());
@@ -366,6 +440,8 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
                 onFileSelect={onFileSelect}
                 onNodeContextMenu={handleNodeContextMenu}
                 onNodeChildrenLoaded={handleNodeChildrenLoaded}
+                gitFileStatuses={gitFileStatuses}
+                activeCwd={activeCwd}
               />
             ))}
           </div>

@@ -9,3 +9,4 @@ pub mod sandbox;
 pub mod settings;
 pub mod sqlite;
 pub mod terminal;
+pub mod git;
