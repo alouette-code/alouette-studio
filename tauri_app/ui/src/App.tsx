@@ -15,10 +15,7 @@ import {
   Sparkles,
   Wifi,
   Server,
-  Cpu,
   Settings,
-  SlidersHorizontal,
-  Hammer,
   Database,
   Cloud,
 } from "lucide-react";
@@ -31,7 +28,6 @@ import ConfigSetup from "./components/ConfigSetup";
 import TabList from "./components/TabList";
 import TerminalPanel from "./components/TerminalPanel";
 import ProcessManager from "./components/ProcessManager";
-import BuildPanel from "./components/BuildPanel";
 import AdminPanel from "./components/AdminPanel";
 import FileExplorer from "./components/FileExplorer";
 import SqliteEditor from "./components/SqliteEditor";
@@ -250,12 +246,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [settingMenuOpen, setSettingMenuOpen] = useState(false);
-  const [uptimeSeconds, setUptimeSeconds] = useState(0);
 
-  // Bottom nav tab (for right-bottom panel between manager / build)
-  const [rightBottomTab, setRightBottomTab] = useState<"manager" | "build">(
-    "manager",
-  );
+
 
   // Canvas Refs for CPU/RAM Charts
   const cpuCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -599,13 +591,7 @@ export default function App() {
     setOpenFilePath(path);
   };
 
-  // ── System Uptime Counter ──
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setUptimeSeconds((prev) => prev + 1);
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
+
 
   // ── Window click listener to close dropdowns ──
   useEffect(() => {
@@ -1340,40 +1326,21 @@ export default function App() {
                 </div>
               )}
 
-              {/* Zone 5: Running Processes / Diagnostics — with tab switcher */}
+              {/* Zone 5: Running Processes / Diagnostics */}
               <div className="zone zone-5" style={{ flex: 1 }}>
-                <div className="zone5-tab-bar">
-                  <button
-                    className={`zone5-tab-btn ${rightBottomTab === "manager" ? "active" : ""}`}
-                    onClick={() => setRightBottomTab("manager")}
-                  >
-                    <span>Manager</span>
-                  </button>
-                  <button
-                    className={`zone5-tab-btn ${rightBottomTab === "build" ? "active" : ""}`}
-                    onClick={() => setRightBottomTab("build")}
-                  >
-                    <span>Build Setup</span>
-                  </button>
-                </div>
                 <div className="zone5-content">
-                  {rightBottomTab === "manager" && (
-                    <ProcessManager
-                      projects={projects}
-                      activeProjectId={activeProjectId}
-                      setActiveProjectId={setActiveProjectId}
-                      projectStates={projectStates}
-                      resourceHistory={resourceHistory}
-                      handleStartProject={handleStartProject}
-                      handleStopProject={handleStopProject}
-                      forceKillProcess={forceKillProcess}
-                      triggerConfirm={triggerConfirm}
-                      triggerToast={triggerToast}
-                    />
-                  )}
-                  {rightBottomTab === "build" && (
-                    <BuildPanel uptimeSeconds={uptimeSeconds} />
-                  )}
+                  <ProcessManager
+                    projects={projects}
+                    activeProjectId={activeProjectId}
+                    setActiveProjectId={setActiveProjectId}
+                    projectStates={projectStates}
+                    resourceHistory={resourceHistory}
+                    handleStartProject={handleStartProject}
+                    handleStopProject={handleStopProject}
+                    forceKillProcess={forceKillProcess}
+                    triggerConfirm={triggerConfirm}
+                    triggerToast={triggerToast}
+                  />
                 </div>
               </div>
             </>
@@ -1407,22 +1374,6 @@ export default function App() {
             title="Terminal"
           >
             <TerminalIcon size={16} />
-          </button>
-
-          <button
-            className={`nav-tab-btn ${rightBottomTab === "manager" ? "active" : ""}`}
-            onClick={() => setRightBottomTab("manager")}
-            title="Manager"
-          >
-            <SlidersHorizontal size={16} />
-          </button>
-
-          <button
-            className={`nav-tab-btn ${rightBottomTab === "build" ? "active" : ""}`}
-            onClick={() => setRightBottomTab("build")}
-            title="Build"
-          >
-            <Hammer size={16} />
           </button>
 
           {/* Divider line before premium layout toggles */}
@@ -1559,9 +1510,7 @@ export default function App() {
           >
             <Server size={14} />
           </button>
-          <button className="tool-btn tool-build" title="6. Build">
-            <Cpu size={14} />
-          </button>
+
           <button
             className="tool-btn tool-settings"
             title="7. Setting"
