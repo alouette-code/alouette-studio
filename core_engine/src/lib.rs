@@ -18,6 +18,6 @@ pub use monitor::{ResourceMonitor, ResourceStats};
 pub use process::{
     check_command, is_os_sandbox_supported, process_and_send_terminal_input,
     terminate_process_tree, ProcessLog, ProcessManager, ProcessState, SandboxVerdict,
-    TerminalOutput, TerminalWriteContext,
+    TerminalOutput, TerminalWriteContext, ChildProcessInfo, collect_child_processes,
 };
 pub use settings::AppSettings;

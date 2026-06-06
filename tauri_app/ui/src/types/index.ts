@@ -41,6 +41,20 @@ export interface ProcessState {
   data?: any; // PID or error reasons
 }
 
+export interface ChildProcessInfo {
+  pid: number;
+  name: string;
+  cmd: string;
+  cwd: string;
+  status: string;
+  cpu_percentage: number;
+  ram_bytes: number;
+  thread_count: number;
+  ports: number[];
+  loaded_modules: string[];
+  parent_pid?: number;
+}
+
 export interface LogLine {
   text: string;
   stream: "stdout" | "stderr" | "system";
@@ -51,6 +65,7 @@ export interface ResourceHistory {
   [projectId: string]: {
     cpu: number[];
     ram: number[];
+    processes?: ChildProcessInfo[];
   };
 }
 

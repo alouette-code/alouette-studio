@@ -13,9 +13,63 @@ impl ProtoManager {
         Self { proto_home: home }
     }
 
+    pub fn clean_mismatched_platform_files(&self, bin_dir: &Path) {
+        let is_windows = cfg!(target_os = "windows");
+        
+        // Clean bin_dir (app_data/bin)
+        if let Ok(entries) = std::fs::read_dir(bin_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let filename = path.file_name().unwrap_or_default().to_string_lossy();
+                    let has_exe = filename.ends_with(".exe");
+                    if (is_windows && !has_exe) || (!is_windows && has_exe) {
+                        println!("Deleting platform-mismatched file in bin_dir: {:?}", path);
+                        let _ = std::fs::remove_file(path);
+                    }
+                }
+            }
+        }
+
+        // Clean PROTO_HOME
+        // Check if there are shims with mismatched extensions
+        let shims_dir = self.proto_home.join("shims");
+        let mut mismatch_detected = false;
+        if let Ok(entries) = std::fs::read_dir(&shims_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    let filename = path.file_name().unwrap_or_default().to_string_lossy();
+                    if filename == "registry.json" {
+                        continue;
+                    }
+                    let has_exe = filename.ends_with(".exe");
+                    if (is_windows && !has_exe) || (!is_windows && has_exe) {
+                        mismatch_detected = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if mismatch_detected {
+            println!("Platform mismatch detected in PROTO_HOME shims. Cleaning up PROTO_HOME directories...");
+            let _ = std::fs::remove_dir_all(self.proto_home.join("shims"));
+            let _ = std::fs::remove_dir_all(self.proto_home.join("bin"));
+            let _ = std::fs::remove_dir_all(self.proto_home.join("tools"));
+            
+            // Recreate directory structures
+            let _ = std::fs::create_dir_all(self.proto_home.join("shims"));
+            let _ = std::fs::create_dir_all(self.proto_home.join("bin"));
+            let _ = std::fs::create_dir_all(self.proto_home.join("tools"));
+        }
+    }
+
     /// Checks if proto CLI is installed in bin_dir, downloads and extracts the latest zip if missing on Windows,
     /// or runs shell install script on Unix.
     pub async fn ensure_proto_cli(&self, bin_dir: &Path) -> Result<PathBuf, String> {
+        self.clean_mismatched_platform_files(bin_dir);
+
         let proto_exe_name = if cfg!(target_os = "windows") { "proto.exe" } else { "proto" };
         let proto_path = bin_dir.join(proto_exe_name);
 
@@ -98,7 +152,7 @@ impl ProtoManager {
             println!("Installing proto CLI via official moonrepo shell script...");
             let install_script = Command::new("bash")
                 .arg("-c")
-                .arg("curl -fsSL https://moonrepo.dev/install/proto.sh | bash")
+                .arg("curl -fsSL https://moonrepo.dev/install/proto.sh | bash -s -- --yes --no-profile")
                 .status()
                 .await
                 .map_err(|e| format!("Failed to execute proto install script: {}", e))?;

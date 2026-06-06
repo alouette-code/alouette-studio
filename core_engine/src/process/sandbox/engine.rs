@@ -240,7 +240,10 @@ mod tests {
 
     #[test]
     fn test_check_block_abs_path() {
+        #[cfg(target_os = "windows")]
         let v = check("echo C:\\Windows", Path::new("C:\\ws"), Path::new("C:\\ws"));
+        #[cfg(not(target_os = "windows"))]
+        let v = check("echo /etc/passwd", Path::new("/tmp/ws"), Path::new("/tmp/ws"));
         assert!(matches!(v, Verdict::Block { .. }));
     }
 

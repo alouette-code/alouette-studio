@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{Pid, System};
+use sysinfo::System;
 use tokio::sync::broadcast;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -10,6 +10,7 @@ pub struct ResourceStats {
     pub project_id: String,
     pub cpu_percentage: f32,
     pub ram_bytes: u64,
+    pub processes: Vec<crate::process::ChildProcessInfo>,
 }
 
 pub enum MonitorCommand {
@@ -92,42 +93,15 @@ fn run_monitor_loop(
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
         for (project_id, &parent_pid) in &active_projects {
-            let root_pid = Pid::from(parent_pid as usize);
-            let mut tree_pids = HashSet::new();
-            let mut queue = vec![root_pid];
-            let mut index = 0;
-
-            while index < queue.len() {
-                let current = queue[index];
-                index += 1;
-                tree_pids.insert(current);
-
-                for (&pid, process) in sys.processes() {
-                    if let Some(ppid) = process.parent() {
-                        if ppid == current && !tree_pids.contains(&pid) {
-                            queue.push(pid);
-                        }
-                    }
-                }
-            }
-
-            let mut total_ram = 0u64;
-            let mut total_cpu = 0.0f32;
-
-            for pid in tree_pids {
-                if let Some(process) = sys.process(pid) {
-                    total_ram += process.memory();
-                    total_cpu += process.cpu_usage();
-                }
-            }
-
-            // Normalize aggregated CPU percentage across logical cores (range: 0% - 100%)
-            let normalized_cpu = total_cpu / core_count;
+            let processes = crate::process::collect_child_processes(parent_pid, &sys, core_count);
+            let total_ram: u64 = processes.iter().map(|p| p.ram_bytes).sum();
+            let normalized_cpu: f32 = processes.iter().map(|p| p.cpu_percentage).sum();
 
             let stats = ResourceStats {
                 project_id: project_id.clone(),
                 cpu_percentage: normalized_cpu,
                 ram_bytes: total_ram,
+                processes,
             };
 
             let _ = stats_tx.send(stats);

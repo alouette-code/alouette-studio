@@ -28,7 +28,7 @@ export function useResources(
       const ramMb = payload.ram_bytes / (1024 * 1024);
 
       setResourceHistory((prev) => {
-        const pHistory = prev[payload.project_id] || { cpu: [], ram: [] };
+        const pHistory = prev[payload.project_id] || { cpu: [], ram: [], processes: [] };
         const newCpu = [...pHistory.cpu, payload.cpu_percentage].slice(
           -MAX_HISTORY_POINTS,
         );
@@ -38,6 +38,7 @@ export function useResources(
           [payload.project_id]: {
             cpu: newCpu,
             ram: newRam,
+            processes: payload.processes || [],
           },
         };
       });
