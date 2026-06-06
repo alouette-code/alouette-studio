@@ -19,6 +19,10 @@ pub async fn spawn_terminal_session(
     let mut pm = state.process_manager.lock().await;
     pm.spawn_terminal(&session_id, cwd.as_deref(), block_internet.unwrap_or(false))
         .await?;
+    if let Some(session) = pm.terminal_sessions.get(&session_id) {
+        let project_id = session_id.split("-term-").next().unwrap_or(&session_id).to_string();
+        state.resource_monitor.register(project_id, session.pid);
+    }
     Ok(())
 }
 
@@ -149,7 +153,12 @@ pub async fn kill_terminal_session(
     session_id: String,
 ) -> Result<(), String> {
     let mut pm = state.process_manager.lock().await;
+    let pid = pm.terminal_sessions.get(&session_id).map(|s| s.pid);
     pm.kill_terminal(&session_id).await?;
+    if let Some(pid) = pid {
+        let project_id = session_id.split("-term-").next().unwrap_or(&session_id).to_string();
+        state.resource_monitor.deregister_pid(project_id, pid);
+    }
     Ok(())
 }
 

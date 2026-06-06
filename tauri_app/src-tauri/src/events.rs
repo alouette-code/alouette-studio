@@ -96,9 +96,13 @@ pub fn spawn_status_router(
         };
         while let Ok((project_id, state)) = status_rx.recv().await {
             // Update state inside ProcessManager
+            let mut old_pid = None;
             {
                 let mut pm = pm_clone.lock().await;
                 if let Some(inst) = pm.instances.get_mut(&project_id) {
+                    if let ProcessState::Running { pid } = inst.state {
+                        old_pid = Some(pid);
+                    }
                     inst.state = state.clone();
                 }
             }
@@ -109,7 +113,9 @@ pub fn spawn_status_router(
                     rm_clone.register(project_id.clone(), pid);
                 }
                 ProcessState::Stopped | ProcessState::Fatal { .. } | ProcessState::Terminated => {
-                    rm_clone.deregister(project_id.clone());
+                    if let Some(pid) = old_pid {
+                        rm_clone.deregister_pid(project_id.clone(), pid);
+                    }
                 }
                 _ => {}
             }

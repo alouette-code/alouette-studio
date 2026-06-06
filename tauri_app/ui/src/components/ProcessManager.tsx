@@ -94,7 +94,7 @@ export default function ProcessManager({
                   {/* Project Main Row */}
                   <tr key={p.id} className={isProjectActive ? "active-row" : ""} style={{ borderBottom: '1px solid var(--border-secondary)', transition: 'background 0.2s' }}>
                     <td style={{ padding: '8px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 600 }}>
-                      {state.type === "Running" ? (
+                      {state.type === "Running" || childProcesses.length > 0 ? (
                         <button 
                           onClick={() => toggleProjectExpand(p.id)} 
                           style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center' }}
@@ -109,15 +109,15 @@ export default function ProcessManager({
                       </span>
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <span className={`status-pill status-${state.type.toLowerCase()}`} style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
-                        {state.type}
+                      <span className={`status-pill status-${(state.type === "Running" || childProcesses.length > 0) ? "running" : "stopped"}`} style={{ fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
+                        {state.type === "Running" || childProcesses.length > 0 ? "Running" : "Stopped"}
                       </span>
                     </td>
                     <td className="mono" style={{ padding: '8px' }}>
-                      {state.type === "Running" ? `${cpu.toFixed(1)}%` : "0.0%"}
+                      {state.type === "Running" || childProcesses.length > 0 ? `${cpu.toFixed(1)}%` : "0.0%"}
                     </td>
                     <td className="mono" style={{ padding: '8px' }}>
-                      {state.type === "Running" ? `${ram.toFixed(1)} MB` : "0.0 MB"}
+                      {state.type === "Running" || childProcesses.length > 0 ? `${ram.toFixed(1)} MB` : "0.0 MB"}
                     </td>
                     <td style={{ padding: '8px', textAlign: 'right' }}>
                       <div style={{ display: "flex", gap: "6px", justifyContent: 'flex-end' }}>
@@ -149,7 +149,7 @@ export default function ProcessManager({
                   </tr>
 
                   {/* Child Processes View (Nested Tree) */}
-                  {state.type === "Running" && isExpanded && (
+                  {(state.type === "Running" || childProcesses.length > 0) && isExpanded && (
                     <>
                       {childProcesses.length === 0 ? (
                         <tr>

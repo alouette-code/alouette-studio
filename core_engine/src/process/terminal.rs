@@ -251,6 +251,7 @@ impl ProcessManager {
         for (k, v) in &envs {
             cmd.env(k, v);
         }
+        cmd.env_remove("npm_config_prefix");
 
         let shell_name = if cfg!(target_os = "windows") {
             "powershell.exe"

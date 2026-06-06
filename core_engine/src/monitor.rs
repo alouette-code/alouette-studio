@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::thread;
 use std::time::Duration;
 use sysinfo::System;
@@ -15,6 +15,7 @@ pub struct ResourceStats {
 
 pub enum MonitorCommand {
     Register { project_id: String, pid: u32 },
+    DeregisterPid { project_id: String, pid: u32 },
     Deregister { project_id: String },
 }
 
@@ -44,6 +45,13 @@ impl ResourceMonitor {
             .send(MonitorCommand::Register { project_id, pid });
     }
 
+    /// Stops tracking resource metrics for a specific PID under a project.
+    pub fn deregister_pid(&self, project_id: String, pid: u32) {
+        let _ = self
+            .cmd_tx
+            .send(MonitorCommand::DeregisterPid { project_id, pid });
+    }
+
     /// Stops tracking resource metrics for a specific project tab.
     pub fn deregister(&self, project_id: String) {
         let _ = self.cmd_tx.send(MonitorCommand::Deregister { project_id });
@@ -61,7 +69,7 @@ fn run_monitor_loop(
     stats_tx: broadcast::Sender<ResourceStats>,
 ) {
     let mut sys = System::new_all();
-    let mut active_projects: HashMap<String, u32> = HashMap::new();
+    let mut active_projects: HashMap<String, HashSet<u32>> = HashMap::new();
 
     // Query core count for core normalization of raw CPU percentages
     let cpus = sys.cpus();
@@ -75,7 +83,15 @@ fn run_monitor_loop(
         while let Ok(cmd) = cmd_rx.try_recv() {
             match cmd {
                 MonitorCommand::Register { project_id, pid } => {
-                    active_projects.insert(project_id, pid);
+                    active_projects.entry(project_id).or_default().insert(pid);
+                }
+                MonitorCommand::DeregisterPid { project_id, pid } => {
+                    if let Some(pids) = active_projects.get_mut(&project_id) {
+                        pids.remove(&pid);
+                        if pids.is_empty() {
+                            active_projects.remove(&project_id);
+                        }
+                    }
                 }
                 MonitorCommand::Deregister { project_id } => {
                     active_projects.remove(&project_id);
@@ -92,8 +108,15 @@ fn run_monitor_loop(
 
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
 
-        for (project_id, &parent_pid) in &active_projects {
-            let processes = crate::process::collect_child_processes(parent_pid, &sys, core_count);
+        for (project_id, parent_pids) in &active_projects {
+            let mut processes = Vec::new();
+            for &parent_pid in parent_pids {
+                let p_list = crate::process::collect_child_processes(parent_pid, &sys, core_count);
+                processes.extend(p_list);
+            }
+            processes.sort_by_key(|p| p.pid);
+            processes.dedup_by_key(|p| p.pid);
+
             let total_ram: u64 = processes.iter().map(|p| p.ram_bytes).sum();
             let normalized_cpu: f32 = processes.iter().map(|p| p.cpu_percentage).sum();
 
