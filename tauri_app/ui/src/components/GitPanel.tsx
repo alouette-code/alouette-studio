@@ -180,56 +180,355 @@ export default function GitPanel({ activeProject, triggerToast }: GitPanelProps)
     }
   };
 
-  if (!activeProject) {
-    return (
-      <div className="git-panel-empty-state">
-        <GitBranch size={40} className="empty-iconPulse" />
-        <h3>Chưa Chọn Dự Án</h3>
-        <p>Vui lòng mở một dự án hoạt động trong Workspace để hiển thị trạng thái Git.</p>
-      </div>
-    );
-  }
+  const renderContent = () => {
+    if (!activeProject) {
+      return (
+        <div className="git-panel-empty-state">
+          <GitBranch size={32} className="empty-icon-monochromatic" />
+          <h3>Chưa Chọn Dự Án</h3>
+          <p>
+            Vui lòng mở một dự án đang hoạt động trong Workspace để hiển thị trạng thái Git.
+          </p>
+        </div>
+      );
+    }
 
-  if (!cwd) {
-    return (
-      <div className="git-panel-empty-state">
-        <FolderOpen size={40} className="empty-iconPulse" />
-        <h3>Thư Mục Không Hợp Lệ</h3>
-        <p>Dự án hiện tại chưa được định cấu hình đường dẫn thư mục làm việc (CWD).</p>
-      </div>
-    );
-  }
+    if (!cwd) {
+      return (
+        <div className="git-panel-empty-state">
+          <FolderOpen size={32} className="empty-icon-monochromatic" />
+          <h3>Thư Mục Không Hợp Lệ</h3>
+          <p>
+            Dự án hiện tại chưa được định cấu hình đường dẫn thư mục làm việc (CWD).
+          </p>
+        </div>
+      );
+    }
 
-  if (isLoading) {
-    return (
-      <div className="git-panel-loading-state">
-        <Loader2 size={24} className="spin-animation loader-accent" />
-        <span>Đang quét kho lưu trữ Git...</span>
-      </div>
-    );
-  }
+    if (isLoading) {
+      return (
+        <div className="git-panel-loading-state">
+          <Loader2 size={16} className="spin-animation loader-monochromatic" />
+          <span className="loading-text">Đang quét kho lưu trữ Git...</span>
+        </div>
+      );
+    }
 
-  // Not a Git repo
-  if (!gitStatus) {
+    // Not a Git repo
+    if (!gitStatus) {
+      return (
+        <div className="git-panel-empty-state">
+          <GitBranch size={32} className="empty-icon-monochromatic" />
+          <div className="warning-badge-monochromatic">⚠️ Non-Git</div>
+          <h3>Chưa Khởi Tạo Git</h3>
+          <p>
+            Thư mục này hiện tại chưa được khởi tạo dưới dạng một kho lưu trữ Git.
+          </p>
+          <button 
+            className="btn-init-git-mono"
+            onClick={() => fetchGitData()}
+          >
+            Tải lại trạng thái
+          </button>
+        </div>
+      );
+    }
+
     return (
-      <div className="git-panel-empty-state">
-        <div className="warning-badge">⚠️ Non-Git</div>
-        <h3>Chưa Khởi Tạo Git</h3>
-        <p>Thư mục này hiện tại chưa được khởi tạo dưới dạng một kho lưu trữ Git.</p>
-        <button 
-          className="btn-init-git"
-          onClick={() => fetchGitData()}
-        >
-          Tải lại trạng thái
-        </button>
-      </div>
+      <>
+        {/* Repository Header */}
+        <div className="git-header-card">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "10px" }}>
+            <div className="git-header-info">
+              <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                <div className="git-branch-badge">
+                  <GitBranch size={11} />
+                  <span>{gitStatus.branch}</span>
+                </div>
+                <span className="git-remote-txt">{gitStatus.remote}</span>
+              </div>
+            </div>
+            
+            <div className="git-header-toolbar">
+              <button 
+                className="git-tool-btn" 
+                title="Pull changes" 
+                onClick={handlePull}
+                disabled={isActionLoading}
+              >
+                <ArrowDown size={12} />
+                <span>Pull</span>
+              </button>
+              <button 
+                className="git-tool-btn" 
+                title="Push changes" 
+                onClick={handlePush}
+                disabled={isActionLoading}
+              >
+                <ArrowUp size={12} />
+                <span>Push</span>
+              </button>
+              <button 
+                className="git-tool-btn" 
+                title="Refresh status" 
+                onClick={() => fetchGitData()}
+                disabled={isActionLoading}
+                style={{ padding: "6px" }}
+              >
+                <RefreshCw size={12} className={isActionLoading ? "spin-animation" : ""} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Main Body */}
+        <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          
+          {/* Commit Composer */}
+          <div className="git-commit-container">
+            <div className="git-textarea-wrapper">
+              <textarea
+                className="git-commit-textarea"
+                placeholder="Nhập nội dung commit..."
+                value={commitMessage}
+                onChange={(e) => setCommitMessage(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                    e.preventDefault();
+                    handleCommit();
+                  }
+                }}
+              />
+              <span className="git-commit-shortcut">Ctrl+Enter</span>
+            </div>
+            <button 
+              className="btn-git-commit-submit"
+              onClick={handleCommit}
+              disabled={isActionLoading || !commitMessage.trim()}
+            >
+              <Check size={14} />
+              <span>Commit</span>
+            </button>
+          </div>
+
+          {/* Staged Changes Section */}
+          {gitStatus.staged.length > 0 && (
+            <div>
+              <div className="git-section-header" onClick={() => setShowStaged(!showStaged)}>
+                <div className="git-section-title">
+                  {showStaged ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  <span>ĐÃ STAGE</span>
+                  <span className="git-section-count">{gitStatus.staged.length}</span>
+                </div>
+                {showStaged && (
+                  <button 
+                    className="git-section-action-text"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleUnstageAll();
+                    }}
+                  >
+                    Unstage All
+                  </button>
+                )}
+              </div>
+
+              {showStaged && (
+                <div className="git-file-list">
+                  {gitStatus.staged.map((file) => (
+                    <div key={`staged-${file.path}`} className="git-file-card">
+                      <div className="file-info-col">
+                        <div className="git-status-indicator" style={{
+                          background: `${getStatusColor(file.status)}1e`,
+                          border: `1px solid ${getStatusColor(file.status)}40`,
+                          color: getStatusColor(file.status)
+                        }}>
+                          {getStatusLetter(file.status)}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                          <span className="git-file-name" title={file.path}>
+                            {file.path.split("/").pop()}
+                          </span>
+                          <span className="git-file-path" title={file.path} style={{ display: "block", color: "var(--text-muted)", fontSize: "9.5px", marginTop: "2px" }}>
+                            {file.path}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="git-row-actions">
+                        <button 
+                          className="git-circle-action-btn"
+                          title="Unstage changes"
+                          onClick={() => handleUnstageFile(file.path)}
+                        >
+                          <Minus size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Changes Section */}
+          <div>
+            <div className="git-section-header" onClick={() => setShowUnstaged(!showUnstaged)}>
+              <div className="git-section-title">
+                {showUnstaged ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                <span>THAY ĐỔI CHƯA COMMIT</span>
+                <span className="git-section-count">{gitStatus.unstaged.length}</span>
+              </div>
+              {showUnstaged && gitStatus.unstaged.length > 0 && (
+                <button 
+                  className="git-section-action-text"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleStageAll();
+                  }}
+                >
+                  Stage All
+                </button>
+              )}
+            </div>
+
+            {showUnstaged && (
+              <div className="git-file-list">
+                {gitStatus.unstaged.length === 0 ? (
+                  <div style={{ fontSize: "11px", color: "#475569", padding: "8px 16px", fontStyle: "italic" }}>
+                    Không có thay đổi nào chưa stage.
+                  </div>
+                ) : (
+                  gitStatus.unstaged.map((file) => (
+                    <div key={`unstaged-${file.path}`} className="git-file-card">
+                      <div className="file-info-col">
+                        <div className="git-status-indicator" style={{
+                          background: `${getStatusColor(file.status)}1e`,
+                          border: `1px solid ${getStatusColor(file.status)}40`,
+                          color: getStatusColor(file.status)
+                        }}>
+                          {getStatusLetter(file.status)}
+                        </div>
+                        <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                          <span className="git-file-name" title={file.path}>
+                            {file.path.split("/").pop()}
+                          </span>
+                          <span className="git-file-path" title={file.path} style={{ display: "block", color: "var(--text-muted)", fontSize: "9.5px", marginTop: "2px" }}>
+                            {file.path}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div className="git-row-actions">
+                        <button 
+                          className="git-circle-action-btn"
+                          title="Hoàn tác thay đổi"
+                          onClick={() => handleDiscardFile(file.path, file.status)}
+                        >
+                          <RotateCcw size={11} />
+                        </button>
+                        <button 
+                          className="git-circle-action-btn"
+                          title="Stage changes"
+                          onClick={() => handleStageFile(file.path)}
+                        >
+                          <Plus size={11} />
+                        </button>
+                      </div>
+                    </div>
+                  )))}
+                </div>
+              )}
+            </div>
+
+            {/* Git History Timeline */}
+            <div>
+              <div className="git-section-header" onClick={() => setShowHistory(!showHistory)}>
+                <div className="git-section-title">
+                  {showHistory ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                  <History size={12} style={{ color: "#6366f1" }} />
+                  <span>LỊCH SỬ COMMIT</span>
+                  <span className="git-section-count">{commits.length}</span>
+                </div>
+              </div>
+
+              {showHistory && (
+                <div className="git-timeline">
+                  <div className="git-timeline-line" />
+                  {commits.length === 0 ? (
+                    <div style={{ fontSize: "11px", color: "#475569", fontStyle: "italic", paddingLeft: "12px" }}>
+                      Chưa có commit cục bộ nào.
+                    </div>
+                  ) : (
+                    commits.map((c) => (
+                      <div 
+                        key={c.hash} 
+                        className="git-timeline-item"
+                        onDoubleClick={() => handleCommitDoubleClick(c.hash)}
+                        style={{ cursor: "pointer" }}
+                        title="Nhấp đúp để xem các file thay đổi"
+                      >
+                        <div className="git-timeline-dot-wrapper">
+                          <div className="git-timeline-node" />
+                        </div>
+                        <div className="git-timeline-body">
+                          <div className="git-commit-meta">
+                            <span className="git-commit-hash">{c.hash}</span>
+                            <span className="git-commit-author">{c.author}</span>
+                          </div>
+                          <div className="git-commit-subject">{c.subject}</div>
+                          
+                          {loadingCommits[c.hash] && (
+                            <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "var(--text-muted)", marginTop: "4px" }}>
+                              <Loader2 size={10} className="spin-animation" />
+                              <span>Đang tải danh sách file...</span>
+                            </div>
+                          )}
+
+                          {expandedCommits[c.hash] && (
+                            <div style={{ 
+                              marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px", 
+                              borderTop: "1px solid var(--border-primary)", paddingTop: "6px" 
+                            }}>
+                              {expandedCommits[c.hash].length === 0 ? (
+                                <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Không có file thay đổi.</span>
+                              ) : (
+                                expandedCommits[c.hash].map((file) => (
+                                  <div key={`${c.hash}-${file.path}`} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "10px" }}>
+                                    <span style={{
+                                      fontSize: "8.5px", fontWeight: 700, padding: "1px 3px", borderRadius: "2px",
+                                      textTransform: "uppercase",
+                                      backgroundColor: file.status === "added" ? "rgba(16, 185, 129, 0.15)" : file.status === "deleted" ? "rgba(239, 68, 68, 0.15)" : "rgba(245, 158, 11, 0.15)",
+                                      color: file.status === "added" ? "#10b981" : file.status === "deleted" ? "#ef4444" : "#f59e0b"
+                                    }}>
+                                      {file.status[0]}
+                                    </span>
+                                    <span style={{ color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={file.path}>
+                                      {file.path}
+                                    </span>
+                                  </div>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
+            </div>
+
+          </div>
+      </>
     );
-  }
+  };
 
   return (
     <div className="premium-git-panel">
       <style>{`
         .premium-git-panel {
+
           display: flex;
           flex-direction: column;
           height: 100%;
@@ -579,33 +878,44 @@ export default function GitPanel({ activeProject, triggerToast }: GitPanelProps)
           align-items: center;
           justify-content: center;
           height: 100%;
-          padding: 24px;
+          padding: 32px 24px;
           text-align: center;
-          color: var(--text-muted);
+          background: transparent;
         }
+
         .git-panel-empty-state h3 {
-          font-size: 13px;
+          font-size: 12.5px;
           font-weight: 600;
           color: var(--text-primary);
           margin: 12px 0 6px 0;
         }
+
         .git-panel-empty-state p {
           font-size: 11px;
           color: var(--text-muted);
-          line-height: 1.4;
+          line-height: 1.5;
           margin: 0;
+          max-width: 240px;
         }
-        .warning-badge {
+
+        .empty-icon-monochromatic {
+          color: var(--text-muted);
+          opacity: 0.6;
+        }
+
+        .warning-badge-monochromatic {
+          margin-top: 8px;
+          font-size: 9px;
+          font-weight: 600;
+          color: var(--text-muted);
           background: var(--bg-tertiary);
           border: 1px solid var(--border-primary);
-          color: var(--color-danger);
-          padding: 2px 6px;
-          border-radius: 10px;
-          font-size: 9.5px;
-          font-weight: 700;
+          padding: 2px 8px;
+          border-radius: 3px;
         }
-        .btn-init-git {
-          margin-top: 12px;
+
+        .btn-init-git-mono {
+          margin-top: 14px;
           background: var(--bg-tertiary);
           border: 1px solid var(--border-primary);
           color: var(--text-secondary);
@@ -613,8 +923,10 @@ export default function GitPanel({ activeProject, triggerToast }: GitPanelProps)
           border-radius: 4px;
           font-size: 11px;
           cursor: pointer;
+          transition: background-color var(--transition-fast), color var(--transition-fast);
         }
-        .btn-init-git:hover {
+
+        .btn-init-git-mono:hover {
           color: var(--text-primary);
           background: var(--bg-primary);
         }
@@ -629,296 +941,18 @@ export default function GitPanel({ activeProject, triggerToast }: GitPanelProps)
           color: var(--text-muted);
           gap: 8px;
         }
-        .loader-accent {
-          color: var(--color-accent, #6366f1);
+
+        .loader-monochromatic {
+          color: var(--text-muted);
+        }
+
+        .loading-text {
+          font-size: 11px;
+          color: var(--text-muted);
         }
       `}</style>
 
-
-      {/* Repository Header */}
-      <div className="git-header-card">
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: "10px" }}>
-          <div className="git-header-info">
-            <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-              <div className="git-branch-badge">
-                <GitBranch size={11} />
-                <span>{gitStatus.branch}</span>
-              </div>
-              <span className="git-remote-txt">{gitStatus.remote}</span>
-            </div>
-          </div>
-          
-          <div className="git-header-toolbar">
-            <button 
-              className="git-tool-btn" 
-              title="Pull changes" 
-              onClick={handlePull}
-              disabled={isActionLoading}
-            >
-              <ArrowDown size={12} />
-              <span>Pull</span>
-            </button>
-            <button 
-              className="git-tool-btn" 
-              title="Push changes" 
-              onClick={handlePush}
-              disabled={isActionLoading}
-            >
-              <ArrowUp size={12} />
-              <span>Push</span>
-            </button>
-            <button 
-              className="git-tool-btn" 
-              title="Refresh status" 
-              onClick={() => fetchGitData()}
-              disabled={isActionLoading}
-              style={{ padding: "6px" }}
-            >
-              <RefreshCw size={12} className={isActionLoading ? "spin-animation" : ""} />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Body */}
-      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-        
-        {/* Commit Composer */}
-        <div className="git-commit-container">
-          <div className="git-textarea-wrapper">
-            <textarea
-              className="git-commit-textarea"
-              placeholder="Nhập nội dung commit..."
-              value={commitMessage}
-              onChange={(e) => setCommitMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault();
-                  handleCommit();
-                }
-              }}
-            />
-            <span className="git-commit-shortcut">Ctrl+Enter</span>
-          </div>
-          <button 
-            className="btn-git-commit-submit"
-            onClick={handleCommit}
-            disabled={isActionLoading || !commitMessage.trim()}
-          >
-            <Check size={14} />
-            <span>Commit</span>
-          </button>
-        </div>
-
-        {/* Staged Changes Section */}
-        {gitStatus.staged.length > 0 && (
-          <div>
-            <div className="git-section-header" onClick={() => setShowStaged(!showStaged)}>
-              <div className="git-section-title">
-                {showStaged ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <span>ĐÃ STAGE</span>
-                <span className="git-section-count">{gitStatus.staged.length}</span>
-              </div>
-              {showStaged && (
-                <button 
-                  className="git-section-action-text"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleUnstageAll();
-                  }}
-                >
-                  Unstage All
-                </button>
-              )}
-            </div>
-
-            {showStaged && (
-              <div className="git-file-list">
-                {gitStatus.staged.map((file) => (
-                  <div key={`staged-${file.path}`} className="git-file-card">
-                    <div className="file-info-col">
-                      <div className="git-status-indicator" style={{
-                        background: `${getStatusColor(file.status)}1e`,
-                        border: `1px solid ${getStatusColor(file.status)}40`,
-                        color: getStatusColor(file.status)
-                      }}>
-                        {getStatusLetter(file.status)}
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                        <span className="git-file-name" title={file.path}>
-                          {file.path.split("/").pop()}
-                        </span>
-                        <span className="git-file-path" title={file.path} style={{ display: "block", color: "var(--text-muted)", fontSize: "9.5px", marginTop: "2px" }}>
-                          {file.path}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="git-row-actions">
-                      <button 
-                        className="git-circle-action-btn"
-                        title="Unstage changes"
-                        onClick={() => handleUnstageFile(file.path)}
-                      >
-                        <Minus size={12} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Changes Section */}
-        <div>
-          <div className="git-section-header" onClick={() => setShowUnstaged(!showUnstaged)}>
-            <div className="git-section-title">
-              {showUnstaged ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-              <span>THAY ĐỔI CHƯA COMMIT</span>
-              <span className="git-section-count">{gitStatus.unstaged.length}</span>
-            </div>
-            {showUnstaged && gitStatus.unstaged.length > 0 && (
-              <button 
-                className="git-section-action-text"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleStageAll();
-                }}
-              >
-                Stage All
-              </button>
-            )}
-          </div>
-
-          {showUnstaged && (
-            <div className="git-file-list">
-              {gitStatus.unstaged.length === 0 ? (
-                <div style={{ fontSize: "11px", color: "#475569", padding: "8px 16px", fontStyle: "italic" }}>
-                  Không có thay đổi nào chưa stage.
-                </div>
-              ) : (
-                gitStatus.unstaged.map((file) => (
-                  <div key={`unstaged-${file.path}`} className="git-file-card">
-                    <div className="file-info-col">
-                      <div className="git-status-indicator" style={{
-                        background: `${getStatusColor(file.status)}1e`,
-                        border: `1px solid ${getStatusColor(file.status)}40`,
-                        color: getStatusColor(file.status)
-                      }}>
-                        {getStatusLetter(file.status)}
-                      </div>
-                      <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
-                        <span className="git-file-name" title={file.path}>
-                          {file.path.split("/").pop()}
-                        </span>
-                        <span className="git-file-path" title={file.path} style={{ display: "block", color: "var(--text-muted)", fontSize: "9.5px", marginTop: "2px" }}>
-                          {file.path}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="git-row-actions">
-                      <button 
-                        className="git-circle-action-btn"
-                        title="Hoàn tác thay đổi"
-                        onClick={() => handleDiscardFile(file.path, file.status)}
-                      >
-                        <RotateCcw size={11} />
-                      </button>
-                      <button 
-                        className="git-circle-action-btn"
-                        title="Stage changes"
-                        onClick={() => handleStageFile(file.path)}
-                      >
-                        <Plus size={11} />
-                      </button>
-                    </div>
-                  </div>
-                )))}
-              </div>
-            )}
-          </div>
-
-          {/* Git History Timeline */}
-          <div>
-            <div className="git-section-header" onClick={() => setShowHistory(!showHistory)}>
-              <div className="git-section-title">
-                {showHistory ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-                <History size={12} style={{ color: "#6366f1" }} />
-                <span>LỊCH SỬ COMMIT</span>
-                <span className="git-section-count">{commits.length}</span>
-              </div>
-            </div>
-
-            {showHistory && (
-              <div className="git-timeline">
-                <div className="git-timeline-line" />
-                {commits.length === 0 ? (
-                  <div style={{ fontSize: "11px", color: "#475569", fontStyle: "italic", paddingLeft: "12px" }}>
-                    Chưa có commit cục bộ nào.
-                  </div>
-                ) : (
-                  commits.map((c) => (
-                    <div 
-                      key={c.hash} 
-                      className="git-timeline-item"
-                      onDoubleClick={() => handleCommitDoubleClick(c.hash)}
-                      style={{ cursor: "pointer" }}
-                      title="Nhấp đúp để xem các file thay đổi"
-                    >
-                      <div className="git-timeline-dot-wrapper">
-                        <div className="git-timeline-node" />
-                      </div>
-                      <div className="git-timeline-body">
-                        <div className="git-commit-meta">
-                          <span className="git-commit-hash">{c.hash}</span>
-                          <span className="git-commit-author">{c.author}</span>
-                        </div>
-                        <div className="git-commit-subject">{c.subject}</div>
-                        
-                        {loadingCommits[c.hash] && (
-                          <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "10px", color: "var(--text-muted)", marginTop: "4px" }}>
-                            <Loader2 size={10} className="spin-animation" />
-                            <span>Đang tải danh sách file...</span>
-                          </div>
-                        )}
-
-                        {expandedCommits[c.hash] && (
-                          <div style={{ 
-                            marginTop: "6px", display: "flex", flexDirection: "column", gap: "4px", 
-                            borderTop: "1px solid var(--border-primary)", paddingTop: "6px" 
-                          }}>
-                            {expandedCommits[c.hash].length === 0 ? (
-                              <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Không có file thay đổi.</span>
-                            ) : (
-                              expandedCommits[c.hash].map((file) => (
-                                <div key={`${c.hash}-${file.path}`} style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "10px" }}>
-                                  <span style={{
-                                    fontSize: "8.5px", fontWeight: 700, padding: "1px 3px", borderRadius: "2px",
-                                    textTransform: "uppercase",
-                                    backgroundColor: file.status === "added" ? "rgba(16, 185, 129, 0.15)" : file.status === "deleted" ? "rgba(239, 68, 68, 0.15)" : "rgba(245, 158, 11, 0.15)",
-                                    color: file.status === "added" ? "#10b981" : file.status === "deleted" ? "#ef4444" : "#f59e0b"
-                                  }}>
-                                    {file.status[0]}
-                                  </span>
-                                  <span style={{ color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={file.path}>
-                                    {file.path}
-                                  </span>
-                                </div>
-                              ))
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-
-        </div>
-      </div>
-    );
+      {renderContent()}
+    </div>
+  );
 }
