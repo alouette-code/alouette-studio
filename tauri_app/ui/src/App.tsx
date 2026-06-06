@@ -13,7 +13,7 @@ import {
   HelpCircle,
   GitBranch,
   Sparkles,
-  Wifi,
+  ArrowLeftRight,
   Server,
   Settings,
   Database,
@@ -1501,7 +1501,7 @@ export default function App() {
               }
             }}
           >
-            <Wifi size={14} />
+            <ArrowLeftRight size={14} />
           </button>
           <button
             className="tool-btn tool-zen"
