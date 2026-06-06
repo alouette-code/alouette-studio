@@ -106,4 +106,91 @@ pub fn get_directory_contents(dir_path: String) -> Result<Vec<FileNode>, String>
     Ok(entries)
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+pub struct SearchFileItem {
+    pub name: String,
+    pub path: String,
+    pub is_dir: bool,
+}
+
+#[tauri::command]
+pub fn get_all_files_and_folders(dir_path: Option<String>) -> Result<Vec<SearchFileItem>, String> {
+    let path_str = dir_path.unwrap_or_else(|| {
+        std::env::current_dir()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string()
+    });
+
+    let root_path = Path::new(&path_str);
+    if !root_path.exists() {
+        return Err("Directory does not exist".to_string());
+    }
+
+    let mut items = Vec::new();
+    collect_files_and_folders_recursive(root_path, root_path, &mut items)?;
+
+    // Sort to have shorter paths and directories first, which usually feels cleaner
+    items.sort_by(|a, b| {
+        let depth_a = a.path.matches('/').count();
+        let depth_b = b.path.matches('/').count();
+        if depth_a != depth_b {
+            depth_a.cmp(&depth_b)
+        } else if a.is_dir != b.is_dir {
+            b.is_dir.cmp(&a.is_dir)
+        } else {
+            a.name.to_lowercase().cmp(&b.name.to_lowercase())
+        }
+    });
+
+    Ok(items)
+}
+
+fn collect_files_and_folders_recursive(
+    root: &Path,
+    dir: &Path,
+    items: &mut Vec<SearchFileItem>,
+) -> Result<(), String> {
+    if dir.is_dir() {
+        let read_entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
+        for entry_result in read_entries {
+            if let Ok(entry) = entry_result {
+                let entry_path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+
+                if name == ".git"
+                    || name == ".idea"
+                    || name == "target"
+                    || name == "node_modules"
+                    || name == "dist"
+                    || name == "build"
+                    || name == "logs"
+                    || name == ".tauri"
+                {
+                    continue;
+                }
+
+                let is_dir = entry_path.is_dir();
+                let rel_path = match entry_path.strip_prefix(root) {
+                    Ok(p) => p.to_string_lossy().to_string(),
+                    Err(_) => entry_path.to_string_lossy().to_string(),
+                };
+                let normalized_path = rel_path.replace("\\", "/");
+
+                items.push(SearchFileItem {
+                    name,
+                    path: normalized_path,
+                    is_dir,
+                });
+
+                if is_dir {
+                    collect_files_and_folders_recursive(root, &entry_path, items)?;
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+
 

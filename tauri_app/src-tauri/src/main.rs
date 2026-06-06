@@ -162,6 +162,7 @@ fn main() {
             commands::terminal::check_terminal_session,
             commands::terminal::resize_terminal_session,
             commands::files::get_project_files,
+            commands::files::get_all_files_and_folders,
             commands::files::read_file_content,
             commands::files::write_file_content,
             commands::files::create_file,

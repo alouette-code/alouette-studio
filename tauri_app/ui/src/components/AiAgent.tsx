@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   Plus,
   RefreshCw,
@@ -30,6 +30,8 @@ import {
   FileText,
   Search,
   FolderOpen,
+  Folder,
+  File,
   Tag,
   Save,
   Brain,
@@ -536,6 +538,201 @@ export default function AiAgent({
   const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
     {},
   );
+
+  // Mentions (@) Autocomplete states
+  const [allWorkspaceFiles, setAllWorkspaceFiles] = useState<Array<{ name: string; path: string; is_dir: boolean }>>([]);
+  const [showMentions, setShowMentions] = useState(false);
+  const [mentionQuery, setMentionQuery] = useState("");
+  const [mentionTriggerIndex, setMentionTriggerIndex] = useState(-1);
+  const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
+  const [selectedContextItems, setSelectedContextItems] = useState<Array<{ name: string; path: string; is_dir: boolean }>>([]);
+
+  // Fetch all files and directories on mount or CWD change
+  useEffect(() => {
+    const loadFiles = async () => {
+      try {
+        const items = await invoke<any[]>("get_all_files_and_folders", {
+          dirPath: activeProjectCwd || null,
+        });
+        setAllWorkspaceFiles(items);
+      } catch (err) {
+        console.error("Failed to load workspace files for mentions:", err);
+      }
+    };
+    loadFiles();
+  }, [activeProjectCwd]);
+
+  // Fuzzy match scoring function
+  const getFuzzyScore = (text: string, query: string): number => {
+    const t = text.toLowerCase();
+    const q = query.toLowerCase();
+    if (t === q) return 1000;
+    if (t.includes(q)) {
+      return 500 - t.indexOf(q);
+    }
+
+    let qIdx = 0;
+    let tIdx = 0;
+    let score = 0;
+    let lastMatchIdx = -1;
+
+    while (tIdx < t.length && qIdx < q.length) {
+      if (t[tIdx] === q[qIdx]) {
+        if (lastMatchIdx !== -1) {
+          const gap = tIdx - lastMatchIdx;
+          if (gap === 1) score += 10;
+          else if (gap <= 3) score += 5;
+          else score += 1;
+        } else {
+          score += 5;
+        }
+        lastMatchIdx = tIdx;
+        qIdx++;
+      }
+      tIdx++;
+    }
+
+    return qIdx === q.length ? score : 0;
+  };
+
+  // Memoized filter list of matching files and folders
+  const filteredMentions = useMemo(() => {
+    if (!showMentions) return [];
+    if (!mentionQuery) {
+      return allWorkspaceFiles.slice(0, 30);
+    }
+    return allWorkspaceFiles
+      .map((item) => ({
+        item,
+        score: Math.max(
+          getFuzzyScore(item.name, mentionQuery) * 1.5,
+          getFuzzyScore(item.path, mentionQuery),
+        ),
+      }))
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.item)
+      .slice(0, 30);
+  }, [showMentions, mentionQuery, allWorkspaceFiles]);
+
+  const checkMentionTrigger = (text: string, selectionStart: number) => {
+    let atIndex = -1;
+    for (let i = selectionStart - 1; i >= 0; i--) {
+      if (text[i] === "@") {
+        if (i === 0 || text[i - 1] === " " || text[i - 1] === "\n") {
+          atIndex = i;
+          break;
+        }
+      }
+      if (text[i] === " " || text[i] === "\n") {
+        break;
+      }
+    }
+
+    if (atIndex !== -1) {
+      const query = text.substring(atIndex + 1, selectionStart);
+      setShowMentions(true);
+      setMentionQuery(query);
+      setMentionTriggerIndex(atIndex);
+      setMentionSelectedIndex((prev) => {
+        // Keep selected index within bounds if size changed
+        const listLength = filteredMentions.length || 30;
+        return prev >= listLength ? 0 : prev;
+      });
+    } else {
+      setShowMentions(false);
+      setMentionQuery("");
+      setMentionTriggerIndex(-1);
+    }
+  };
+
+  const handleSelectMention = (item: { name: string; path: string; is_dir: boolean }) => {
+    if (!textareaRef.current) return;
+    const text = inputVal;
+    const start = mentionTriggerIndex;
+    const end = textareaRef.current.selectionStart || start;
+
+    const before = text.substring(0, start);
+    const after = text.substring(end);
+    const newVal = before + after;
+
+    setInputVal(newVal);
+    setShowMentions(false);
+
+    setSelectedContextItems((prev) => {
+      if (prev.some((x) => x.path === item.path)) return prev;
+      return [...prev, item];
+    });
+
+    setTimeout(() => {
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(start, start);
+        textareaRef.current.style.height = "auto";
+        textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+      }
+    }, 0);
+  };
+
+  const renderFormattedText = (text: string) => {
+    if (!text) return "";
+
+    const regex = /`@([^`]+)`|@([a-zA-Z0-9_\-\.\/]+)/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = regex.exec(text)) !== null) {
+      const matchIndex = match.index;
+      if (matchIndex > lastIndex) {
+        parts.push(text.substring(lastIndex, matchIndex));
+      }
+
+      const matchedPath = match[1] || match[2];
+      const fileItem = allWorkspaceFiles.find((f) => f.path === matchedPath);
+      const isDir = fileItem ? fileItem.is_dir : !matchedPath.includes(".");
+
+      const badgeBg = "rgba(255, 255, 255, 0.05)";
+      const badgeBorder = "rgba(255, 255, 255, 0.12)";
+      const badgeColor = "rgba(255, 255, 255, 0.85)";
+
+      parts.push(
+        <span
+          key={matchIndex}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "4px",
+            background: badgeBg,
+            border: `1px solid ${badgeBorder}`,
+            color: badgeColor,
+            padding: "1px 6px",
+            borderRadius: "4px",
+            fontFamily: "var(--font-mono)",
+            fontSize: "11.5px",
+            margin: "0 2px",
+            verticalAlign: "middle",
+          }}
+        >
+          {isDir ? (
+            <Folder size={11} style={{ color: "rgba(255, 255, 255, 0.5)", flexShrink: 0 }} />
+          ) : (
+            <File size={11} style={{ color: "rgba(255, 255, 255, 0.5)", flexShrink: 0 }} />
+          )}
+          {matchedPath}
+        </span>
+      );
+
+      lastIndex = regex.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
+
 
   const saveSession = async (
     history: ChatItem[],
@@ -1292,9 +1489,18 @@ export default function AiAgent({
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!inputVal.trim()) return;
-    const text = inputVal;
+    const hasText = !!inputVal.trim();
+    const hasContext = selectedContextItems.length > 0;
+    if (!hasText && !hasContext) return;
+
+    let text = inputVal;
+    if (hasContext) {
+      const contextPrefix = selectedContextItems.map((item) => `\`@${item.path}\``).join(" ");
+      text = contextPrefix + (text.trim() ? "\n\n" + text : "");
+    }
+
     setInputVal("");
+    setSelectedContextItems([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -1591,6 +1797,26 @@ export default function AiAgent({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showMentions && filteredMentions.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (prev + 1) % filteredMentions.length);
+        return;
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionSelectedIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+        return;
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        handleSelectMention(filteredMentions[mentionSelectedIndex]);
+        return;
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setShowMentions(false);
+        return;
+      }
+    }
+
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSend(e);
@@ -2472,9 +2698,9 @@ export default function AiAgent({
                 }}
               >
                 {item.sender === "agent" && item.text?.startsWith("Lỗi") ? (
-                  <div style={{ color: "#ef4444" }}>{item.text}</div>
+                  <div style={{ color: "#ef4444" }}>{renderFormattedText(item.text)}</div>
                 ) : (
-                  <div>{item.text}</div>
+                  <div>{renderFormattedText(item.text || "")}</div>
                 )}
 
                 {/* Copy button for agent messages */}
@@ -2965,13 +3191,152 @@ export default function AiAgent({
             </div>
           )}
 
+          {/* Mentions Autocomplete Dropdown */}
+          {showMentions && filteredMentions.length > 0 && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: "100%",
+                left: "18px",
+                right: "18px",
+                marginBottom: "8px",
+                background: "#242424",
+                border: "1px solid rgba(255, 255, 255, 0.1)",
+                borderRadius: "8px",
+                boxShadow: "0 -8px 24px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5)",
+                zIndex: 1000,
+                maxHeight: "220px",
+                overflowY: "auto",
+                padding: "6px",
+                display: "flex",
+                flexDirection: "column",
+                gap: "2px",
+              }}
+            >
+              {filteredMentions.map((item, idx) => {
+                const isSelected = idx === mentionSelectedIndex;
+                return (
+                  <button
+                    key={item.path}
+                    type="button"
+                    onClick={() => handleSelectMention(item)}
+                    onMouseEnter={() => setMentionSelectedIndex(idx)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      width: "100%",
+                      padding: "6px 10px",
+                      background: isSelected ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                      border: "none",
+                      borderRadius: "6px",
+                      color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      outline: "none",
+                      transition: "background 0.15s, color 0.15s",
+                    }}
+                  >
+                    {item.is_dir ? (
+                      <Folder size={13} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                    ) : (
+                      <File size={13} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                    )}
+                    <span style={{ fontWeight: 500, flexShrink: 0 }}>{item.name}</span>
+                    <span
+                      style={{
+                        color: "rgba(255, 255, 255, 0.35)",
+                        fontSize: "10.5px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        marginLeft: "4px",
+                      }}
+                    >
+                      {item.path}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Selected Mentions Pills */}
+          {selectedContextItems.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "6px",
+                padding: "4px 0 8px 0",
+              }}
+            >
+              {selectedContextItems.map((item) => (
+                <div
+                  key={item.path}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    background: "rgba(255, 255, 255, 0.06)",
+                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    borderRadius: "16px",
+                    padding: "3px 10px",
+                    fontSize: "11px",
+                    color: "rgba(255, 255, 255, 0.8)",
+                    fontFamily: "var(--font-sans)",
+                    userSelect: "none",
+                  }}
+                >
+                  {item.is_dir ? (
+                    <Folder size={11} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                  ) : (
+                    <File size={11} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                  )}
+                  <span style={{ fontWeight: 500 }}>{item.name}</span>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedContextItems((prev) => prev.filter((x) => x.path !== item.path))
+                    }
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "inherit",
+                      cursor: "pointer",
+                      display: "flex",
+                      padding: 0,
+                      opacity: 0.6,
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "opacity 0.15s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.6")}
+                    title="Remove context"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Text Area */}
           <textarea
             ref={textareaRef}
             rows={1}
             placeholder="Ask anything, '@' to add context"
             value={inputVal}
-            onChange={(e) => setInputVal(e.target.value)}
+            onChange={(e) => {
+              setInputVal(e.target.value);
+              checkMentionTrigger(e.target.value, e.target.selectionStart);
+            }}
+            onSelect={(e) => {
+              const target = e.target as HTMLTextAreaElement;
+              checkMentionTrigger(target.value, target.selectionStart);
+            }}
             onKeyDown={handleKeyDown}
             disabled={isTyping}
             style={{
