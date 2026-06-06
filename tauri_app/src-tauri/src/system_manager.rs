@@ -53,11 +53,11 @@ pub fn init_system(window: &WebviewWindow) {
 }
 
 /// Configure the OS autostart for the application on Windows
-pub fn configure_autostart(enabled: bool) -> Result<(), String> {
+pub fn configure_autostart(_enabled: bool) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     {
         let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-        if enabled {
+        if _enabled {
             let _ = Command::new("reg")
                 .args(&[
                     "add",

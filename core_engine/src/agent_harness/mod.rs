@@ -272,22 +272,6 @@ impl AgentHarness {
         }
     }
 
-    fn log_debug(&self, msg: &str) {
-        let log_file = std::env::current_dir()
-            .unwrap_or_default()
-            .join("logs/debug_agent.log");
-        if let Some(parent) = log_file.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        if let Ok(mut file) = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(log_file)
-        {
-            use std::io::Write;
-            let _ = writeln!(file, "[HARNESS] [{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f"), msg);
-        }
-    }
 
     /// Set the harness operating mode
     pub fn set_mode(&mut self, mode: HarnessMode) {

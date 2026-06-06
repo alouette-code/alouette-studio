@@ -49,6 +49,7 @@ pub struct AgentResponse {
 // ─── Session & Loop State ───────────────────────────────────────────────
 
 /// Cấu hình loop cho phiên hiện tại
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 struct LoopState {
     pub max_iterations: u32,

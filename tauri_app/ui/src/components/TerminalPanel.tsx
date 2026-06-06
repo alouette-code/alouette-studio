@@ -792,12 +792,12 @@ export default function TerminalPanel({
             lastImeText = rawText;
           });
 
-          // ── IME composition end ───────────────────────────────────────
-          // ROOT-CRITICAL: ONLY flush remaining buffer, NEVER invoke.
-          // compositionupdate already sent all text via bufferWrite.
-          // Sending again via invoke would cause DUPLICATE text.
           textarea.addEventListener("compositionend", (_e) => {
-            isComposing = false;
+            // Delay setting isComposing to false to let any pending/sync input/onData events finish while still marked as composing
+            setTimeout(() => {
+              isComposing = false;
+              lastImeText = "";
+            }, 50);
 
             if (flushTimer !== null) {
               clearTimeout(flushTimer);
@@ -805,7 +805,6 @@ export default function TerminalPanel({
             }
             flushPty();
 
-            lastImeText = "";
             refreshCursorLine();
           });
 
@@ -994,20 +993,7 @@ export default function TerminalPanel({
           });
         }
 
-        if (e.key === "ArrowUp" && e.type === "keydown") {
-          invoke("write_to_terminal_session", {
-            sessionId,
-            input: "\x1b[A",
-          }).catch(() => {});
-          return false;
-        }
-        if (e.key === "ArrowDown" && e.type === "keydown") {
-          invoke("write_to_terminal_session", {
-            sessionId,
-            input: "\x1b[B",
-          }).catch(() => {});
-          return false;
-        }
+
         if (e.key === "Backspace") {
           const activeBuffer = term.buffer.active;
           const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;

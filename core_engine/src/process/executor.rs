@@ -65,7 +65,6 @@ impl ProcessManager {
         }
         let proto_home = self.proto_manager.proto_home.clone();
         let app_data_dir = self.app_data_dir.clone();
-        let db_manager = self.db_manager.clone();
 
         tokio::spawn(async move {
             let mut state_updater = StateUpdater {

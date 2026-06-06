@@ -253,7 +253,6 @@ async fn call_openai_compatible(
                 window,
                 "[ALOUETTE LLM WARNING] Total stream duration exceeded 5 minutes, ending stream.",
             );
-            stream_ended = true;
             break;
         }
 
@@ -286,7 +285,6 @@ async fn call_openai_compatible(
         let chunk = match chunk_opt {
             Some(bytes) => bytes,
             None => {
-                stream_ended = true;
                 break;
             }
         };

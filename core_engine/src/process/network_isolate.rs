@@ -4,10 +4,11 @@
 //! - **Windows**: `netsh advfirewall` per-PID block rule
 //! - **Linux/macOS**: stub (placeholder)
 
-use std::process::Command;
-
 /// Apply network isolation: blocks internet for the given PID.
 pub fn block_pid(session_id: &str, pid: u32) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    use std::process::Command;
+    #[cfg(target_os = "windows")]
     let rule_name = firewall_rule_name(session_id);
 
     #[cfg(target_os = "windows")]
@@ -50,6 +51,9 @@ pub fn block_pid(session_id: &str, pid: u32) -> Result<(), String> {
 
 /// Remove network isolation for the given session.
 pub fn unblock_session(session_id: &str) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    use std::process::Command;
+    #[cfg(target_os = "windows")]
     let rule_name = firewall_rule_name(session_id);
 
     #[cfg(target_os = "windows")]
@@ -75,6 +79,7 @@ pub fn unblock_session(session_id: &str) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn firewall_rule_name(session_id: &str) -> String {
     // Firewall rule names cannot contain special chars, so sanitize
     let safe = session_id.replace(|c: char| !c.is_alphanumeric(), "_");
@@ -85,6 +90,7 @@ fn firewall_rule_name(session_id: &str) -> String {
 /// Uses PowerShell to set a per-process firewall rule via WMI/Security.
 #[cfg(target_os = "windows")]
 fn apply_windows_per_pid_block(rule_name: &str, pid: u32) -> Result<(), String> {
+    use std::process::Command;
     // Get process name from PID
     let ps_script = format!(
         r#"

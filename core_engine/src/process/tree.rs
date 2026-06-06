@@ -1,32 +1,9 @@
-use std::path::{Path, PathBuf};
 use sysinfo::{Pid, System};
 use tokio::sync::broadcast;
 
 use super::models::ProcessState;
 
-// ----------------- Shell Navigation Security Helpers -----------------
-pub(crate) fn normalize_path(path: &Path) -> PathBuf {
-    let components = path.components();
-    let mut ret = PathBuf::new();
-    for component in components {
-        match component {
-            std::path::Component::Prefix(..) => {
-                ret.push(component.as_os_str());
-            }
-            std::path::Component::RootDir => {
-                ret.push(component.as_os_str());
-            }
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                ret.pop();
-            }
-            std::path::Component::Normal(c) => {
-                ret.push(c);
-            }
-        }
-    }
-    ret
-}
+
 
 pub(crate) struct StateUpdater {
     pub project_id: String,

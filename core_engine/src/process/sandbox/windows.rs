@@ -7,7 +7,6 @@
 //! #cfg(windows) — Chỉ compile trên Windows.
 
 use std::path::Path;
-use std::ptr::null_mut;
 
 
 
@@ -30,6 +29,7 @@ pub fn is_supported() -> bool {
 /// Áp dụng Windows Job Object sandbox vào một PID đang chạy nhằm tước quyền Admin và cô lập process.
 #[cfg(windows)]
 pub fn apply_sandbox_to_process(pid: u32) -> Result<Option<usize>, String> {
+    use std::ptr::null_mut;
     use winapi::um::processthreadsapi::OpenProcess;
     use winapi::um::winnt::{PROCESS_SET_QUOTA, PROCESS_TERMINATE};
     use winapi::um::jobapi2::{CreateJobObjectW, AssignProcessToJobObject, SetInformationJobObject};
