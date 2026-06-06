@@ -1,179 +1,98 @@
 # Alouette Studio
 
-**Integrated Development Studio & Native Process Orchestrator** — a high-performance desktop application for managing isolated development environments with enterprise-grade toolchain isolation, real-time resource monitoring, integrated multi-session terminal access, built-in Monaco Editor, SQLite browser, robust API client, AI Agent harness with autonomous loop, and local AI-powered log diagnostic suite.
+**Integrated Development Studio & Native Process Orchestrator** — a high-performance desktop workspace for running and managing isolated development environments. Built with enterprise-grade toolchain isolation, a 3-tier Sandbox command protector, an Environment Simulator (firewall, latency, packet loss, and CPU limits), a Monaco-based Split Editor, a SQLite database browser, a robust MiniPostman API client, and a dedicated "Ping Zero Min" connection diagnostics window.
 
-Built with **Rust + Tauri v2 + React 18 + TypeScript**.
+Built with **Rust + Tauri v2 + React 19 + TypeScript**.
 
 ---
 
 ## Features
 
-### Process Management
-- Register, start, stop, and deregister project processes
-- Automatic restart with exponential backoff (configurable)
-- Setup command execution before main process
-- Force kill with process tree traversal
-- Port scanning (netstat on Windows, lsof on Unix)
-- Network isolation per process
+### 1. Process Management & Workspace Orchestration
+- **Lifecycle Control:** Register, start, stop, and deregister project processes seamlessly.
+- **Process Guard & Restart:** Automatic process health monitoring and restart with exponential backoff (configurable).
+- **Setup Hooks:** Define and run custom setup command chains prior to main process execution.
+- **Deep Termination:** Safe force-kill mechanics utilizing recursive process tree traversal to prevent orphan processes.
+- **Port Scanner:** Automated port diagnostic scanner (`netstat` on Windows, `lsof` on Unix) to identify conflicting bindings.
+- **Network Isolation:** Process-level network interface isolation configuration.
 
-### Resource Monitoring
-- Real-time CPU and RAM usage per process tree
-- Live canvas-based charts via Tauri events
-- Configurable resource limits (max CPU %, max RAM MB)
-- Watchdog enforcement: auto-terminate processes exceeding limits for 30+ seconds
-- GPU performance simulation and port detail tracking
+### 2. Sandbox — 3-Tier Command Protection
+A comprehensive security system designed to prevent destructive command execution (e.g., `rm -rf /`, `Format C:`):
+- **Tier 1a (Semantic Interceptor):** Performs deep semantic parsing on command trees, classifies risk levels, resolves environment variables/relative paths, normalizes Unicode homoglyphs, blocks .NET file operation patterns, parses PowerShell subexpressions, and rejects boundary escape attempts.
+- **Tier 1b (Engine):** Fallback path resolution engine that strips Windows `\\?\` prefixes and performs case-insensitive boundary validations.
+- **Tier 2 (OS-level Isolation):** Integrates system-level sandboxing (AppContainer on Windows, landlock/seccomp placeholders on Linux).
+- **PTY Hooking:** All terminal inputs are intercepted at `terminal.rs` via `sandbox::check_command()` before execution.
 
-### Proto Toolchain Isolation
-- Automatic download of [Proto](https://moonrepo.dev/proto) CLI (moonrepo)
-- Isolated toolchain environments for Node.js, Go, and Python
-- Spoofed PATH environment to prevent system tool conflicts
-- Per-project toolchain version pinning (e.g., `node 20.9.0`)
+#### Sandbox UI Control Center
+The Sandbox dashboard consists of 5 synchronized control modules:
+- *Tab All (Top-Right):* One-click master switch to enable/disable sandbox globally.
+- *Setup Details (Center-Left):* Sub-feature configuration toggles.
+- *Search (Middle-Right):* Instant filtering for imported projects.
+- *Imported Projects List (Bottom-Right):* Per-project activation state checkboxes.
+- *Section Tabs (Top-Left):* Switch between Terminal, Browser, Engine, and Setup configs.
 
-### Interactive Terminals
-- PTY-based interactive shell sessions (Mode A)
-- Piped log stream capture (Mode B)
-- Multiple terminal sessions per project
-- Sandboxed within workspace directories
-- Full stdin/stdout/stderr routing
-- Session resizing support
+### 3. Environment Simulation Panel
+- **Testing Simulator:** Opened via the Server icon in the status bar (routes to a virtual tab `__environment__`).
+- **4 Degradation Groups:**
+  - *Firewall:* Emulate port blocks and custom firewall rules.
+  - *Weak Network:* Introduce artificial packet loss, latency, and throughput caps.
+  - *Unstable Server:* Simulate periodic connection drops and network instability.
+  - *Resource Limits:* Enforce hard hardware utilization boundaries.
+- **Debounced Persistence:** Configurations are automatically saved to the project's `SandboxConfig` using `save_sandbox_config` with an 800ms debounce.
 
-### AI Agent — Autonomous Code Assistant (Agent Loop Engine)
-- **Agent Loop Engine:** Full think-act-observe loop: LLM response → parse → tool call → execute → feed result → repeat
-- **3 operation modes:** Interactive (approve before write), Write (auto-approve read+write), Autonomous (fully auto)
-- **Real-time streaming:** Frontend receives `agent-iteration` events with thought, tool_name, tool_result in real-time
-- **History compaction:** Auto-compacts conversation history when exceeding 80 messages
-- **Skill tools:** `scan_directory_tree`, `scan_subdirectory`, `search_files`, `extract_symbol`, `read_file_range`, `search_symbol`
-- **Memory management:** Long-term and short-term memory tracking for context persistence
-- **Self-healing:** Automatic error recovery and retry logic on tool execution failures
-- **Telemetry:** Execution metrics and performance tracking
-- **Plan system:** Multi-step plan generation and execution
-- **Prompt system:** Custom identity and tool prompts stored in `prompts/identity.txt` and `prompts/tools.txt`
-- **Rig Framework integration:** Uses `rig-core 0.37` for LLM provider abstraction, supporting Google Gemini, OpenAI-compatible APIs, and local LLMs
+### 4. File Editor & Split Editor Panes
+- **Monaco Integration:** Full-featured Monaco Editor with rich syntax highlighting, search, and formatting.
+- **State Recovery:** Automatic scroll position and cursor position preservation when switching between tabs.
+- **Directory Explorer:** Interactive recursive directory tree with file creation, deletion, and search capability.
+- **Split Editors:** Right-click on the Tab bar to split the editor into up to 3 side-by-side active panes. Click to activate focus, and drag-and-drop tabs between panes easily.
+- **Binary Transfer:** Safe Base64 encoding for local binary file transfer over Tauri IPC.
 
-### Alouette Open — AI-Powered Log Monitoring (Alouette A1)
-- **Real-Time Log Monitoring:** High-performance background polling (500ms intervals) of process log outputs and system log streams
-- **ONNX Model & Heuristic Detection:** Integrates local `alouette_open-A1 v1.0.onnx` execution via `tract-onnx` in Rust alongside heuristic fallbacks for robust and instant error detection
-- **Interactive UI Cards:** Displays gorgeous, floating error alerts in the AI Agent chat panel built with Lucide React icons (`Bot`, `X`, `Search`)
-- **Instant Fix Workflow:** One-click "Bắt đầu tìm hiểu" sends diagnostic reports and commands directly to the active AI Agent
+### 5. "Ping Zero Min" Network Diagnostics & MiniPostman API Client
+- **"Ping Zero Min" Diagnostics:** A dedicated diagnostic window (toggled via the Wifi icon in settings or AI chat) running custom native ping tools, tracking packet loss, minimum/maximum/average latency, and host reachability.
+- **MiniPostman API Client:** Fully embedded REST client:
+  - *Methods:* GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD.
+  - *Payloads:* Query params, custom headers, and multipart/form-data/GraphQL/binary request bodies.
+  - *Auth:* Bearer, Basic, API Key, OAuth 2.0, AWS Signature.
+  - *Response Inspector:* Visual formatters, headers/cookies decoder, redirect chains, and timing breakdown.
+  - *Post-request Scripts:* Automation script runner with testing assertions.
+  - *Collections & Environments:* Save requests and manage environment variables.
+  - *cURL Generator:* One-click export of any HTTP request to a cURL command.
+- **Helper Tools:** DNS lookup (records analysis), SSL certificate inspector, JWT decoder, MD5/SHA hash builders, Base64 converter, XML/JSON prettifier, and a HTTP status code guide.
 
-### Sandbox — 3-Tier Command Protection
-Designed to prevent destructive command execution (e.g., `rm -rf /`, `cd ~ && rm -rf .`, `Format C:`):
+### 6. Git Management Panel (Git UI)
+- **Native Sidebar:** Git panel toggled via the branch icon in the status bar.
+- **Metadata Monitor:** Real-time active branch and remote repository tracking.
+- **Staging Area:** Lists files separated into *Staged Changes* and unstaged *Changes*.
+- **Quick Controls:** Direct buttons to Stage (+), Unstage (-), Discard/Revert changes, Commit (with message), Push, and Pull.
 
-| Tier | Component | Mechanism |
-|------|-----------|-----------|
-| **1a** | Interceptor | Semantic analysis — parses command tree, classifies risk, resolves paths (`~`, `$env`, relative), checks workspace boundary |
-| **1b** | Engine | Token-based fallback — path resolution and boundary checking |
-| **2**  | OS-level | AppContainer (Windows), seccomp/landlock (Linux), sandbox_init (macOS) — platform-specific kernel isolation |
+### 7. Resource Monitoring & Hardware Control
+- **Watchdog Enforcement:** Tracks real-time CPU/RAM usage per process tree and displays live canvas-based performance charts.
+- **Limit Enforcement:** Configures CPU % and RAM MB limits. The system watchdog automatically terminates processes exceeding limits for more than 30 seconds.
+- **Title Bar Integration:** Database icon on the title bar grants quick access to uptime, hardware usage, simulated GPU metrics, and active ports.
 
-Commands are intercepted before being sent to the PTY shell. Navigation (`cd`, `sl`, `pushd`) is allowed only within the workspace boundary.
+### 8. SQLite Browser & Storage
+- **WAL Persistence:** High-performance concurrent SQLite operations using WAL (Write-Ahead Logging) mode.
+- **Database Browser:** View all tables, inspect schemas, add columns, insert/delete rows, and edit individual cells directly.
+- **Log Pruning:** Automatic system log truncation, keeping a clean history of the last 5000 lines per project.
 
-### Cloudflared Tunnel Integration
-- Automatic download of latest Cloudflared binary
-- Tunnel URL parsing from stderr output
-- Per-project tunnel enable/disable
-- Supports 2 modes: Tunnel Free (auto port link) and Named Tunnel (Cloudflare Zero Trust Token)
-- Visual toggle in title bar with brand-colored Cloudflare icon
-- Configuration saved in `cloudflare_config.yml`
+### 9. Cloudflared Tunnel Integration
+- **Cloudflare Zero Trust:** Auto-download and parse Cloudflare tunnels from stderr.
+- **Modes:** Tunnel Free (auto-links local project port) or Named Tunnel (Token-based authentication).
+- **Title Bar Status:** Cloudflare cloud icon displays in orange when active, gray when inactive. Quick-click to toggle the tunnel state immediately.
 
-### MiniPostman — Built-in API Client
-A full-featured HTTP client embedded directly in the application:
+### 10. System Manager & Global Configs
+- **System Manager:** Administration panel for process supervision, background services, and core system diagnostics.
+- **Global Settings:** Central configuration dashboard for theme/language, auto-start, keep-alive running in tray, Telegram Bot remote alerts, and history limits.
+- **Zen Browser Integration:** Run sandbox-isolated Zen Browser windows directly from the workspace.
 
-- **Methods:** GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD
-- **Request:** Query params, headers, body (JSON, text, XML, form-data, x-www-form-urlencoded, GraphQL, binary)
-- **Authentication:** Bearer token, Basic Auth, API Key, OAuth 2.0, AWS Signature
-- **Response:** Formatted body viewer, raw view, headers, cookies, timing breakdown, redirect chain
-- **Tests:** Automated test scripts (status code, latency, JSON validity, text matching)
-- **Scripts:** Pre-request and post-response JavaScript-like scripting
-- **Collections:** Organize and save requests
-- **Environments:** Variable management with scoped environments
-- **History:** Full request history with search
-- **Code Generation:** Generate cURL commands and code snippets from any request
-
-### Network Tools
-- **DNS Lookup** — resolve domain names
-- **Ping** — ICMP reachability test
-- **SSL Certificate Info** — inspect certificate chain
-- **cURL Generator** — convert request to cURL command
-- **JWT Decoder** — inspect JWT token payload
-- **Hash Generator** — MD5, SHA1, SHA256, SHA512
-- **Base64 Encoder/Decoder**
-- **Timestamp Converter** — Unix ↔ human-readable
-- **HTTP Status Code Reference**
-- **JSON Schema Validator & Formatter**
-- **XML Prettifier**
-- **Response Diff** — compare two API responses
-
-### SQLite Persistence
-- WAL mode for concurrent read/write safety
-- Automatic log persistence with pruning (5000 lines per project)
-- Full CRUD operations via Tauri commands
-- Foreign key cascading deletes
-
-### File Editor
-- Monaco Editor integration with syntax highlighting
-- File tree explorer with recursive directory traversal
-- Base64 encoding for safe binary file transfer over IPC
-- Save with Ctrl+S shortcut
-- Scroll position and cursor position preservation across file switches
-
-### SQLite Browser
-- List all user tables in any SQLite database
-- View table structure (columns, types, primary keys)
-- Edit individual cell values
-- Insert new rows, delete rows
-- Add columns (TEXT, INTEGER, REAL)
-
-### Project Resources Panel
-- Real-time Uptime tracking for each project
-- Hardware metrics: CPU usage, RAM consumption with configurable limits
-- GPU performance simulation metrics
-- Port mapping and network details
-- Sandbox and tunnel configuration status
-- Quick-access from the database icon in the title bar
-
-### Build Panel
-- Build & deployment dashboard
-- Build process orchestration and output monitoring
-- Integration with project toolchain settings
-
-### System Manager
-- System-level administration and process oversight
-- Background service management
-- System state monitoring and diagnostics
-
-### Split Editor Panes
-- Right-click on Tab bar to split editor into 2-3 side-by-side panes
-- Click any pane to activate focus
-- Files open in the active pane
-- Drag-and-drop tabs between panes
-- Right-click menu with "Close Split Pane" option to merge
-
-### Global Settings
-Persistent application settings stored in `app_data/settings.json`:
-
-| Category | Fields |
-|----------|--------|
-| **General** | Theme (dark/light), language |
-| **Logs** | Max log lines, auto-scroll, active log filter |
-| **Performance** | Max history points, max terminal output length, monitor interval |
-| **Appearance** | Font size, sidebar widths, panel heights |
-| **Application & Startup** | Keep alive (minimize to tray), auto-start with OS, run in background |
-| **Resource Control** | CPU % and RAM MB limits enforcement |
-| **Auto Restart** | Periodic automatic restart scheduling |
-| **Telegram Bot** | Remote alerts via Telegram API Token and Chat ID |
-
-### Thinking Mode
-- **High mode (purple):** Forces deep thinking via API thinking budget configuration
-- **Low mode (gray):** Lets the model decide automatically, optimizing speed and resources
-
-### Agent History
-- Chat history automatically saved to SQLite (`core_engine/app_data/history_agen.sql`)
-- Session titles auto-generated from first 6 words of user's first message
-- Search by typing `history agent` or `agent history` in the search bar
-- Click any history entry to restore full session in the AI Agent sidebar
-
-### Zen Browser Integration
-Launch a Zen Browser window directly from the application with bundled browser resources.
+### 11. Auxiliary AI Diagnostic Companion
+- **AI Log Assistant (Alouette Open):** Background log scanner executing `alouette_open-A1 v1.0.onnx` models via `tract-onnx` and heuristic rules at 500ms intervals. Emits warning alerts and diagnostic cards for quick fix actioning.
+- **Agent Loop Harness:** Think-act-observe harness (`rig-core 0.38` integration) with three operation modes:
+  - *Interactive:* Asks before executing write operations.
+  - *Write:* Auto-approves file modification.
+  - *Autonomous:* Fully auto-executes planned code changes.
+- **Thinking Mode:** Brain icon toggle to activate High mode (forces deep model reasoning with `thinking_budget`) or Low mode (standard execution).
+- **Agent History:** Conversations stored in SQLite (`history_agen.sql`), searchable via global bar query prefix (`history agent <keyword>`), with one-click restore.
 
 ---
 
@@ -197,7 +116,7 @@ Launch a Zen Browser window directly from the application with bundled browser r
 
 | Layer | Technology | Responsibility |
 |-------|-----------|----------------|
-| **UI** | React 18 + TypeScript + Vite + xterm.js + Monaco | Desktop interface with process dashboards, terminals, file editor, SQLite browser, API client, admin panel, AI Agent chat |
+| **UI** | React 19 + TypeScript + Vite + xterm.js + Monaco | Desktop interface with process dashboards, terminals, file editor, SQLite browser, API client, admin panel, AI Agent chat |
 | **Bridge** | Tauri v2 IPC | Type-safe command handlers (13 command modules), event routers (5 routers), state management |
 | **Engine** | Rust (Tokio async) | Process lifecycle, sandbox enforcement, proto toolchain isolation, resource monitoring, SQLite persistence, AI agent loop, ONNX inference, system management |
 
@@ -210,7 +129,6 @@ alouette_studio/
 ├── .gitignore
 ├── .taurignore
 ├── AI.json                            # AI assistant guidelines
-├── CLAUDE.md                          # Project-level AI instructions
 ├── Cargo.toml                         # Rust workspace root (core_engine + tauri_app)
 ├── README.md
 ├── fix.js                             # Utility fix script
@@ -260,7 +178,9 @@ alouette_studio/
 │       │   ├── terminal.rs            # spawn_terminal, write_terminal, kill_terminal
 │       │   ├── logging.rs             # Log rotation, stream piping
 │       │   ├── tree.rs                # Process tree traversal, path utilities
+│       │   ├── details.rs             # Project uptime, memory/CPU statistics details
 │       │   ├── network_isolate.rs     # Network isolation per process
+│       │   ├── network_simulate_proxy.rs # Firewall and network degradation simulator
 │       │   └── sandbox/               # 3-tier command protection
 │       │       ├── mod.rs             # Module entry + orchestration
 │       │       ├── interceptor.rs     # Tier 1a — semantic command analysis
@@ -316,6 +236,7 @@ alouette_studio/
 │   │           ├── agent.rs           # AI Agent commands (run_agent_loop, history management)
 │   │           ├── browser.rs         # Zen Browser window launcher
 │   │           ├── files.rs           # File explorer + read/write file content
+│   │           ├── git.rs             # Git operations command handler (status, diff, commit, push, pull)
 │   │           ├── language.rs        # Language detection & processing commands
 │   │           ├── network.rs         # HTTP requests, DNS, ping, SSL, JWT, hash, etc.
 │   │           ├── process.rs         # Start/stop/register/deregister projects
@@ -350,7 +271,9 @@ alouette_studio/
 │               ├── CodeEditor.tsx             # Monaco file editor with syntax highlighting
 │               ├── ConfigSetup.tsx            # Per-project configuration editor
 │               ├── DiagnosticsPanel.tsx       # Log viewer + system diagnostics
+│               ├── EnvironmentSetup.tsx       # Network and firewall degradation simulator setup dashboard
 │               ├── FileExplorer.tsx           # File tree browser
+│               ├── GitPanel.tsx               # Sidebar interface for staging, committing, and pushing changes
 │               ├── Header.tsx                 # Custom title bar + window controls (drag, min, close)
 │               ├── MiniPostman.tsx            # API Client (Postman-like HTTP client)
 │               ├── MiniPostmanCodeSnippets.tsx # Code generation view for API requests
@@ -364,6 +287,7 @@ alouette_studio/
 │               ├── SqliteEditor.tsx            # SQLite database browser + CRUD
 │               ├── TabList.tsx                 # Project tab navigation
 │               ├── TerminalPanel.tsx           # PTY terminal UI (xterm.js)
+│               ├── WindowResizer.tsx          # Panel resizing handler
 │               └── brand-icon.png              # Brand logo asset
 │
 └── target/                            # Rust build artifacts (gitignored)
@@ -619,6 +543,6 @@ Detailed technical documentation is available in the `docs/` directory:
 | `resource_monitoring.md` | Resource metrics collection and watchdog |
 | `sqlite_storage.md` | Database schema, WAL mode, and persistence strategy |
 
-Additional AI agent configuration is available in `CLAUDE.md` (project-level AI instructions) and `AI.json` (detailed AI assistant guidelines with full directory structure, component purposes, and library inventory).
+Additional AI agent configuration is available in `AI.json` (detailed AI assistant guidelines with full directory structure, component purposes, and library inventory).
 
 ---
