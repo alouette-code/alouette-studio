@@ -848,9 +848,20 @@ export default function TerminalPanel({
         if (!data || data === "\x1b[I" || data === "\x1b[O" || data === "\x00")
           return;
 
-        // During IME composition, xterm's onData may fire with partial keystrokes.
-        // We skip them here because compositionend will send the final composed text.
-        if (isComposing) return;
+        // During IME composition, xterm's onData may fire with the committed text + trailing spaces/newlines.
+        // We skip the composed characters because compositionupdate/compositionend manually send them.
+        // However, we must extract and forward any trailing whitespaces (spaces, tabs, newlines) so they aren't swallowed.
+        if (isComposing) {
+          const wsMatch = data.match(/[\s\r\n]+$/);
+          if (wsMatch) {
+            const whitespace = wsMatch[0];
+            invoke("write_to_terminal_session", {
+              sessionId,
+              input: whitespace,
+            }).catch((err) => console.warn("[term] IME whitespace write FAILED:", err));
+          }
+          return;
+        }
 
         const isEnter = data.includes("\r") || data.includes("\n");
         if (isEnter) {
