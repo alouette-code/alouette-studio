@@ -110,7 +110,7 @@ function LogViewer({ logs }: { logs: LogLine[] }) {
         flex: 1,
         background: "var(--terminal-bg)",
         color: "var(--text-primary)",
-        fontFamily: "'JetBrains Mono', Consolas, monospace",
+        fontFamily: "var(--font-mono)",
         fontSize: "12px",
         padding: "16px",
         overflowY: "auto",
@@ -291,7 +291,7 @@ function SimplePing() {
               borderRadius: "4px",
               padding: "8px 12px",
               fontSize: "12px",
-              fontFamily: "'JetBrains Mono', Consolas, monospace",
+              fontFamily: "var(--font-mono)",
               outline: "none",
               resize: "vertical",
               minHeight: "80px",
@@ -308,7 +308,7 @@ function SimplePing() {
           border: "1px solid var(--border-primary)",
           borderRadius: "6px",
           padding: "12px",
-          fontFamily: "'JetBrains Mono', Consolas, monospace",
+          fontFamily: "var(--font-mono)",
           fontSize: "12px",
           overflowY: "auto",
           display: "flex",
@@ -657,7 +657,7 @@ export default function TerminalPanel({
         lineHeight: 1.35,
         letterSpacing: 0,
         fontFamily:
-          "'JetBrains Mono', 'Noto Sans Mono', 'Noto Sans CJK SC', 'Noto Color Emoji', monospace",
+          "'Ubuntu Mono', 'Noto Sans Mono', 'Noto Sans CJK SC', 'Noto Color Emoji', monospace",
         theme: activeTheme,
         convertEol: true,
         rows: 24,
@@ -1149,7 +1149,7 @@ export default function TerminalPanel({
             const term = instancesRef.current[sid].term;
             // Force re-measurement of characters by toggling fontFamily to clear the metrics cache
             const font =
-              term.options.fontFamily || "'JetBrains Mono', monospace";
+              term.options.fontFamily || "'Ubuntu Mono', monospace";
             term.options.fontFamily = "monospace";
             term.options.fontFamily = font;
 

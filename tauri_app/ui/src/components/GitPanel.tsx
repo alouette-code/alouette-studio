@@ -235,7 +235,7 @@ export default function GitPanel({ activeProject, triggerToast }: GitPanelProps)
           height: 100%;
           background: var(--bg-secondary);
           color: var(--text-primary);
-          font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+          font-family: var(--font-sans);
         }
         
         /* Header section styles */
