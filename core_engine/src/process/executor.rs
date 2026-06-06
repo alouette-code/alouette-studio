@@ -121,13 +121,25 @@ impl ProcessManager {
                         .map(|s| s.trim().parse::<u16>().unwrap_or(500))
                         .collect(),
                 };
-                match super::network_simulate_proxy::start_proxy(params).await {
+                match super::network_simulate_proxy::start_proxy(params.clone()).await {
                     Ok(port) => {
-                        log_system!(format!("Watchdog: Khởi động Proxy Giả lập Môi trường trên cổng {}...", port));
+                        log_system!(format!("Watchdog: Khởi động Outbound Proxy Giả lập Môi trường trên cổng {}...", port));
                         proxy_port_opt = Some(port);
                     }
                     Err(e) => {
-                        log_system!(format!("Watchdog WARNING: Lỗi khởi động Proxy Giả lập: {}", e));
+                        log_system!(format!("Watchdog WARNING: Lỗi khởi động Outbound Proxy Giả lập: {}", e));
+                    }
+                }
+
+                if let Some(port) = config.port {
+                    let internal_port = port + 10000;
+                    match super::network_simulate_proxy::start_reverse_proxy_gateway(port, internal_port, params).await {
+                        Ok(_) => {
+                            log_system!(format!("Watchdog: Khởi động Inbound Reverse Proxy Gateway (Cổng ngoài: {}, Cổng trong: {})...", port, internal_port));
+                        }
+                        Err(e) => {
+                            log_system!(format!("Watchdog WARNING: Lỗi khởi động Inbound Reverse Proxy Gateway: {}", e));
+                        }
                     }
                 }
             }
@@ -248,6 +260,15 @@ impl ProcessManager {
 
                 if let Some(ref envs) = config.env {
                     cmd.envs(envs);
+                }
+
+                if let Some(port) = config.port {
+                    if is_sim_active {
+                        let internal_port = port + 10000;
+                        cmd.env("PORT", internal_port.to_string());
+                    } else {
+                        cmd.env("PORT", port.to_string());
+                    }
                 }
 
                 if let Some(port) = proxy_port_opt {

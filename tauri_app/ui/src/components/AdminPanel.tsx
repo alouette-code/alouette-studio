@@ -23,11 +23,11 @@ function ZenIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+import brandIcon from "./logo_alouette.png";
 import {
   // Dock icons
   Fingerprint,
   User,
-  GitBranch,
   Sparkles,
   Wifi,
   Server,
@@ -67,7 +67,6 @@ const DOCK_ITEMS: DockItem[] = [
     icon: <Fingerprint size={16} />,
   },
   { id: "user", label: "User", icon: <User size={16} /> },
-  { id: "git", label: "Git", icon: <GitBranch size={16} /> },
   { id: "ai", label: "Model AI", icon: <Sparkles size={16} /> },
   { id: "postman", label: "Ping Zero Min", icon: <Wifi size={16} /> },
   { id: "browser", label: "Zen Browser", icon: <ZenIcon size={16} /> },
@@ -229,8 +228,8 @@ export default function AdminPanel() {
       {/* ── Left Dock ── */}
       <nav className="admin-dock">
         <div className="admin-dock-header">
-          <Settings size={18} className="admin-dock-logo" />
-          <span className="admin-dock-title">Admin</span>
+          <img src={brandIcon} className="admin-dock-logo" alt="Logo" style={{ width: 18, height: 18, objectFit: "contain" }} />
+          <span className="admin-dock-title">Setting</span>
         </div>
 
         <div className="admin-dock-items">
@@ -268,7 +267,7 @@ export default function AdminPanel() {
         {/* Titlebar — có drag region để kéo cửa sổ */}
         <header className="admin-titlebar" data-tauri-drag-region>
           <span className="admin-titlebar-label">
-            {DOCK_ITEMS.find((d) => d.id === activeDock)?.label || "Admin"}
+            {DOCK_ITEMS.find((d) => d.id === activeDock)?.label || "Setting"}
           </span>
           <div className="admin-titlebar-actions">
             <button className="admin-win-btn" onClick={handleMinimize}>

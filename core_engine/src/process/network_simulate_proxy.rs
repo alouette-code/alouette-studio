@@ -20,12 +20,11 @@ pub struct SimulationParams {
     pub unstable_server_error_codes: Vec<u16>,
 }
 
-/// Spawns the simulation proxy on localhost. Returns the local port it is listening on
-/// and a sender to stop the server.
+/// Spawns the SOCKS5/HTTP Forward Proxy on localhost. Returns the local port it is listening on.
 pub async fn start_proxy(params: SimulationParams) -> Result<u16, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
-        .map_err(|e| format!("Failed to bind simulation proxy listener: {}", e))?;
+        .map_err(|e| format!("Failed to bind simulation forward proxy listener: {}", e))?;
     
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let params = Arc::new(params);
@@ -36,9 +35,8 @@ pub async fn start_proxy(params: SimulationParams) -> Result<u16, String> {
                 Ok((socket, addr)) => {
                     let params_clone = Arc::clone(&params);
                     tokio::spawn(async move {
-                        if let Err(e) = handle_client(socket, addr, params_clone).await {
-                            // Silence normal connection errors to prevent console spam
-                            log_debug(format!("Proxy connection handler error for {}: {}", addr, e));
+                        if let Err(e) = handle_forward_client(socket, addr, params_clone).await {
+                            log_debug(format!("Forward proxy connection error for {}: {}", addr, e));
                         }
                     });
                 }
@@ -53,18 +51,111 @@ pub async fn start_proxy(params: SimulationParams) -> Result<u16, String> {
     Ok(port)
 }
 
+/// Spawns the Inbound Reverse Proxy Gateway on public_port, forwarding allowed traffic to internal_port.
+pub async fn start_reverse_proxy_gateway(
+    public_port: u16,
+    internal_port: u16,
+    params: SimulationParams,
+) -> Result<(), String> {
+    let listener = TcpListener::bind(format!("0.0.0.0:{}", public_port))
+        .await
+        .map_err(|e| format!("Failed to bind reverse proxy gateway on port {}: {}", public_port, e))?;
+
+    let params = Arc::new(params);
+    let target_addr = format!("127.0.0.1:{}", internal_port);
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((socket, addr)) => {
+                    let params_clone = Arc::clone(&params);
+                    let target_addr_clone = target_addr.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_reverse_client(socket, addr, target_addr_clone, params_clone).await {
+                            log_debug(format!("Reverse proxy gateway error for {}: {}", addr, e));
+                        }
+                    });
+                }
+                Err(e) => {
+                    log_debug(format!("Reverse proxy gateway accept error: {}", e));
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
 fn log_debug(msg: String) {
     #[cfg(debug_assertions)]
     eprintln!("[simulation_proxy] {}", msg);
     let _ = msg;
 }
 
-async fn handle_client(
+/// Helper function to perform data pipe with weak network emulation (latency, jitter, packet loss, bandwidth limit)
+async fn pipe_with_emulation<R, W>(
+    mut reader: R,
+    mut writer: W,
+    params: Arc<SimulationParams>,
+    direction_desc: &'static str,
+) where
+    R: AsyncReadExt + Unpin,
+    W: AsyncWriteExt + Unpin,
+{
+    let mut buf = [0u8; 4096];
+    let bw = params.bandwidth_kbps;
+    let limit_rate = params.weak_network_enabled && bw > 0;
+
+    loop {
+        // 1. Simulate mid-stream Packet Loss
+        if params.weak_network_enabled && params.loss_rate > 0.0 {
+            let mut rng = rand::thread_rng();
+            if rng.gen_range(0.0..100.0) < (params.loss_rate / 15.0) { // Mid-stream chunk drop simulation
+                log_debug(format!("Simulating packet loss drop mid-stream for direction: {}", direction_desc));
+                break;
+            }
+        }
+
+        let n = match reader.read(&mut buf).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(_) => break,
+        };
+
+        // 2. Simulate Latency & Jitter on data transmission
+        if params.weak_network_enabled && (params.latency_ms > 0 || params.jitter_ms > 0) {
+            let jitter = if params.jitter_ms > 0 {
+                let mut rng = rand::thread_rng();
+                rng.gen_range(-(params.jitter_ms as i32)..=(params.jitter_ms as i32))
+            } else {
+                0
+            };
+            let chunk_latency = ((params.latency_ms as i32 + jitter).max(0) as u64) / 2;
+            if chunk_latency > 0 {
+                sleep(Duration::from_millis(chunk_latency)).await;
+            }
+        }
+
+        if writer.write_all(&buf[..n]).await.is_err() {
+            break;
+        }
+
+        // 3. Simulate Bandwidth Throttling
+        if limit_rate {
+            let bits = (n as f64) * 8.0;
+            let speed_bps = (bw as f64) * 1024.0;
+            let sleep_secs = bits / speed_bps;
+            sleep(Duration::from_secs_f64(sleep_secs)).await;
+        }
+    }
+}
+
+async fn handle_forward_client(
     mut client_stream: TcpStream,
     _addr: SocketAddr,
     params: Arc<SimulationParams>,
 ) -> Result<(), String> {
-    // Read the initial request headers to parse the destination host
     let mut buffer = [0u8; 8192];
     let n = client_stream.read(&mut buffer).await
         .map_err(|e| format!("Failed to read request: {}", e))?;
@@ -75,7 +166,7 @@ async fn handle_client(
 
     let request_str = String::from_utf8_lossy(&buffer[..n]);
     let first_line = request_str.lines().next().unwrap_or("");
-    log_debug(format!("Incoming request line: {}", first_line));
+    log_debug(format!("Incoming Forward Request: {}", first_line));
 
     let parts: Vec<&str> = first_line.split_whitespace().collect();
     if parts.len() < 2 {
@@ -88,10 +179,8 @@ async fn handle_client(
     let mut is_connect = false;
     let (mut host, port) = if method == "CONNECT" {
         is_connect = true;
-        // CONNECT target is usually host:port
         parse_host_port(target, 443)
     } else {
-        // Plain HTTP proxy request (e.g. GET http://example.com/path)
         if target.starts_with("http://") {
             let without_proto = &target["http://".len()..];
             let path_start = without_proto.find('/').unwrap_or(without_proto.len());
@@ -101,7 +190,6 @@ async fn handle_client(
             let path_start = without_proto.find('/').unwrap_or(without_proto.len());
             parse_host_port(&without_proto[..path_start], 443)
         } else {
-            // Check Host header
             let mut host_header = None;
             for line in request_str.lines() {
                 let trimmed = line.trim();
@@ -119,7 +207,6 @@ async fn handle_client(
         }
     };
 
-    // Sanitize host
     host = host.trim().to_lowercase();
 
     // 1. Check Firewall Rules
@@ -128,10 +215,8 @@ async fn handle_client(
             if matches_rule(&host, rule) {
                 log_debug(format!("Blocked by firewall: {} (rule: {})", host, rule));
                 if is_connect {
-                    // Abruptly drop for HTTPS CONNECT
                     return Ok(());
                 } else {
-                    // Return 403 Forbidden for HTTP
                     let response = b"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\nBlocked by simulated firewall.\r\n";
                     let _ = client_stream.write_all(response).await;
                     return Ok(());
@@ -140,30 +225,7 @@ async fn handle_client(
         }
     }
 
-    // 2. Unstable Server - Error Injection (Only for plain HTTP proxy requests)
-    if params.unstable_server_enabled && !is_connect && !params.unstable_server_error_codes.is_empty() {
-        let inject = {
-            let mut rng = rand::thread_rng();
-            rng.gen_range(0.0..100.0) < params.unstable_server_error_rate
-        };
-        if inject {
-            let code = {
-                let mut rng = rand::thread_rng();
-                let idx = rng.gen_range(0..params.unstable_server_error_codes.len());
-                params.unstable_server_error_codes[idx]
-            };
-            let (status_text, body) = get_http_status_details(code);
-            let response = format!(
-                "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
-                code, status_text, body
-            );
-            log_debug(format!("Injecting simulated server error {} for host {}", code, host));
-            let _ = client_stream.write_all(response.as_bytes()).await;
-            return Ok(());
-        }
-    }
-
-    // 3. Unstable Server - Random Connection Drop
+    // 2. Unstable Server - Connection Drop & Error Injection
     if params.unstable_server_enabled {
         let drop_conn = {
             let mut rng = rand::thread_rng();
@@ -173,38 +235,32 @@ async fn handle_client(
             log_debug(format!("Simulated server random connection drop for host {}", host));
             return Ok(());
         }
-    }
 
-    // 4. Weak Network - Packet Loss Drop
-    if params.weak_network_enabled {
-        let loss = {
-            let mut rng = rand::thread_rng();
-            rng.gen_range(0.0..100.0) < params.loss_rate
-        };
-        if loss {
-            log_debug(format!("Simulated network packet loss drop for host {}", host));
-            return Ok(());
-        }
-    }
-
-    // 5. Weak Network - Latency & Jitter
-    if params.weak_network_enabled && (params.latency_ms > 0 || params.jitter_ms > 0) {
-        let jitter = if params.jitter_ms > 0 {
-            let mut rng = rand::thread_rng();
-            rng.gen_range(-(params.jitter_ms as i32)..=(params.jitter_ms as i32))
-        } else {
-            0
-        };
-        let total_latency = (params.latency_ms as i32 + jitter).max(0) as u64;
-        if total_latency > 0 {
-            log_debug(format!("Simulated network latency sleep of {}ms for {}", total_latency, host));
-            sleep(Duration::from_millis(total_latency)).await;
+        if !is_connect && !params.unstable_server_error_codes.is_empty() {
+            let inject = {
+                let mut rng = rand::thread_rng();
+                rng.gen_range(0.0..100.0) < params.unstable_server_error_rate
+            };
+            if inject {
+                let code = {
+                    let mut rng = rand::thread_rng();
+                    let idx = rng.gen_range(0..params.unstable_server_error_codes.len());
+                    params.unstable_server_error_codes[idx]
+                };
+                let (status_text, body) = get_http_status_details(code);
+                let response = format!(
+                    "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
+                    code, status_text, body
+                );
+                log_debug(format!("Injecting simulated server error {} for host {}", code, host));
+                let _ = client_stream.write_all(response.as_bytes()).await;
+                return Ok(());
+            }
         }
     }
 
     // Connect to destination server
     let dest_addr = format!("{}:{}", host, port);
-    log_debug(format!("Connecting to destination: {}", dest_addr));
     let mut server_stream = match TcpStream::connect(&dest_addr).await {
         Ok(s) => s,
         Err(e) => {
@@ -221,70 +277,107 @@ async fn handle_client(
     };
 
     if is_connect {
-        // Send HTTP 200 Established back to client to establish tunnel
         let established = b"HTTP/1.1 200 Connection Established\r\n\r\n";
         client_stream.write_all(established).await
             .map_err(|e| format!("Failed to write CONNECT response: {}", e))?;
     } else {
-        // Forward the initial HTTP request headers we already read to the server
         server_stream.write_all(&buffer[..n]).await
-            .map_err(|e| format!("Failed to forward initial request to server: {}", e))?;
+            .map_err(|e| format!("Failed to forward initial request: {}", e))?;
     }
 
-    // Bidirectional forwarding
-    let (mut client_reader, mut client_writer) = client_stream.into_split();
-    let (mut server_reader, mut server_writer) = server_stream.into_split();
+    let (client_reader, client_writer) = client_stream.into_split();
+    let (server_reader, server_writer) = server_stream.into_split();
 
-    let bw = params.bandwidth_kbps;
-    let limit_rate = params.weak_network_enabled && bw > 0;
+    let client_to_server = pipe_with_emulation(client_reader, server_writer, Arc::clone(&params), "client_to_server");
+    let server_to_client = pipe_with_emulation(server_reader, client_writer, Arc::clone(&params), "server_to_client");
 
-    let client_to_server = async move {
-        let mut buf = [0u8; 4096];
-        loop {
-            let n = match client_reader.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(_) => break,
-            };
+    tokio::select! {
+        _ = client_to_server => {}
+        _ = server_to_client => {}
+    }
 
-            if server_writer.write_all(&buf[..n]).await.is_err() {
-                break;
+    Ok(())
+}
+
+async fn handle_reverse_client(
+    mut client_stream: TcpStream,
+    _addr: SocketAddr,
+    target_addr: String,
+    params: Arc<SimulationParams>,
+) -> Result<(), String> {
+    // 1. Simulate Connection Drop at gateway level
+    if params.unstable_server_enabled {
+        let drop_conn = {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0.0..100.0) < params.unstable_server_drop_rate
+        };
+        if drop_conn {
+            log_debug("Reverse Proxy Gateway: Simulating connection drop before forwarding".to_string());
+            return Ok(());
+        }
+    }
+
+    // Read initial bytes to see if we should inject errors for plain HTTP
+    let mut buffer = [0u8; 8192];
+    let n = client_stream.read(&mut buffer).await.unwrap_or(0);
+
+    if n > 0 {
+        let request_str = String::from_utf8_lossy(&buffer[..n]);
+        let first_line = request_str.lines().next().unwrap_or("");
+        
+        // Check if it looks like a standard HTTP request line
+        let parts: Vec<&str> = first_line.split_whitespace().collect();
+        if parts.len() >= 2 && (parts[0] == "GET" || parts[0] == "POST" || parts[0] == "PUT" || parts[0] == "DELETE" || parts[0] == "PATCH" || parts[0] == "OPTIONS") {
+            // 2. HTTP Error Injection
+            if params.unstable_server_enabled && !params.unstable_server_error_codes.is_empty() {
+                let inject = {
+                    let mut rng = rand::thread_rng();
+                    rng.gen_range(0.0..100.0) < params.unstable_server_error_rate
+                };
+                if inject {
+                    let code = {
+                        let mut rng = rand::thread_rng();
+                        let idx = rng.gen_range(0..params.unstable_server_error_codes.len());
+                        params.unstable_server_error_codes[idx]
+                    };
+                    let (status_text, body) = get_http_status_details(code);
+                    let response = format!(
+                        "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
+                        code, status_text, body
+                    );
+                    log_debug(format!("Reverse Proxy Gateway: Injecting error code {}", code));
+                    let _ = client_stream.write_all(response.as_bytes()).await;
+                    return Ok(());
+                }
             }
+        }
+    }
 
-            if limit_rate {
-                // Throttle writing: 4KB block size. To maintain `bw` kbps:
-                // Time needed for `n` bytes = (n * 8) / (bw * 1000) seconds.
-                let bits = (n as f64) * 8.0;
-                let speed_bps = (bw as f64) * 1024.0;
-                let sleep_secs = bits / speed_bps;
-                sleep(Duration::from_secs_f64(sleep_secs)).await;
-            }
+    // Connect to actual server on internal port
+    let mut server_stream = match TcpStream::connect(&target_addr).await {
+        Ok(s) => s,
+        Err(e) => {
+            log_debug(format!("Reverse Proxy Gateway: Failed to connect to internal server {}: {}", target_addr, e));
+            let response = format!(
+                "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nReverse Proxy Gateway: Failed to connect to backend target.\r\n"
+            );
+            let _ = client_stream.write_all(response.as_bytes()).await;
+            return Ok(());
         }
     };
 
-    let server_to_client = async move {
-        let mut buf = [0u8; 4096];
-        loop {
-            let n = match server_reader.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => n,
-                Err(_) => break,
-            };
+    // Forward the initial client read buffer to the internal server
+    if n > 0 {
+        server_stream.write_all(&buffer[..n]).await
+            .map_err(|e| format!("Failed to forward request to internal server: {}", e))?;
+    }
 
-            if client_writer.write_all(&buf[..n]).await.is_err() {
-                break;
-            }
+    let (client_reader, client_writer) = client_stream.into_split();
+    let (server_reader, server_writer) = server_stream.into_split();
 
-            if limit_rate {
-                let bits = (n as f64) * 8.0;
-                let speed_bps = (bw as f64) * 1024.0;
-                let sleep_secs = bits / speed_bps;
-                sleep(Duration::from_secs_f64(sleep_secs)).await;
-            }
-        }
-    };
+    let client_to_server = pipe_with_emulation(client_reader, server_writer, Arc::clone(&params), "client_to_server");
+    let server_to_client = pipe_with_emulation(server_reader, client_writer, Arc::clone(&params), "server_to_client");
 
-    // Wait until either direction closes
     tokio::select! {
         _ = client_to_server => {}
         _ = server_to_client => {}
