@@ -28,8 +28,9 @@ pub async fn sync_terminal_input_buf(
     session_id: String,
     current_input: String,
 ) -> Result<(), String> {
+    let sanitized_input = current_input.replace('\u{00a0}', " ");
     let mut pm = state.process_manager.lock().await;
-    pm.input_buf.insert(session_id, current_input);
+    pm.input_buf.insert(session_id, sanitized_input);
     Ok(())
 }
 
@@ -39,7 +40,7 @@ pub async fn write_to_terminal_session(
     session_id: String,
     input: String,
 ) -> Result<(), String> {
-    let input = input;
+    let input = input.replace('\u{00a0}', " ");
     eprintln!("[term-input] Received input: {:?}", input);
     // 1. Immediately handle Ctrl+C to interrupt executing commands safely
     if input.contains('\x03') {
