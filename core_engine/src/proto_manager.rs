@@ -100,7 +100,13 @@ impl ProtoManager {
             let url = "https://github.com/moonrepo/proto/releases/latest/download/proto_cli-x86_64-pc-windows-msvc.zip";
             println!("Downloading proto CLI for Windows from {}...", url);
 
-            let response = reqwest::get(url)
+            let client = reqwest::Client::builder()
+                .use_rustls_tls()
+                .build()
+                .map_err(|e| format!("Failed to build reqwest client: {}", e))?;
+
+            let response = client.get(url)
+                .send()
                 .await
                 .map_err(|e| format!("Failed to fetch proto CLI: {}", e))?;
 
@@ -117,13 +123,43 @@ impl ProtoManager {
             let mut archive = zip::ZipArchive::new(reader)
                 .map_err(|e| format!("Failed to parse zip archive: {}", e))?;
 
+            // Canonicalize the destination directory
+            let target_canonical = std::fs::canonicalize(bin_dir)
+                .or_else(|_| std::fs::create_dir_all(bin_dir).and_then(|_| std::fs::canonicalize(bin_dir)))
+                .map_err(|e| format!("Failed to canonicalize target dir: {}", e))?;
+
             let mut extracted_proto = false;
             for i in 0..archive.len() {
                 let mut file = archive.by_index(i).map_err(|e| format!("Zip entry read failed: {}", e))?;
+                
+                // Reject symlinks
+                let is_symlink = file.unix_mode().map(|m| (m & 0o170000) == 0o120000).unwrap_or(false);
+                if is_symlink {
+                    return Err("Symbolic links inside zip toolchain archives are strictly prohibited.".to_string());
+                }
+
                 let outpath = match file.enclosed_name() {
                     Some(path) => path.to_owned(),
                     None => continue,
                 };
+
+                // Zip Slip check
+                let mut resolved_path = target_canonical.clone();
+                for component in outpath.components() {
+                    match component {
+                        std::path::Component::ParentDir => {
+                            resolved_path.pop();
+                        }
+                        std::path::Component::Normal(c) => {
+                            resolved_path.push(c);
+                        }
+                        std::path::Component::CurDir => {}
+                        _ => return Err("Invalid path component in archive entry".to_string()),
+                    }
+                }
+                if !resolved_path.starts_with(&target_canonical) {
+                    return Err("Zip Slip bypass detected!".to_string());
+                }
 
                 let name = outpath.to_string_lossy();
                 if name.contains("proto.exe") || name == "proto" {

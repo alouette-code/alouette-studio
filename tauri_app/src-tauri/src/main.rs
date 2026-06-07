@@ -23,6 +23,38 @@ fn main() {
     let process_manager = Arc::new(Mutex::new(pm));
     let resource_monitor = Arc::new(ResourceMonitor::new());
 
+    // Setup history database connection pool with WAL mode
+    let db_path = commands::agent::resolve_history_db_path();
+    if let Some(parent) = db_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let manager = r2d2_sqlite::SqliteConnectionManager::file(&db_path);
+    let db_pool = r2d2::Pool::new(manager).expect("Failed to create r2d2 pool");
+    {
+        if let Ok(conn) = db_pool.get() {
+            let _: Result<String, _> = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0));
+            let _ = conn.execute(
+                "CREATE TABLE IF NOT EXISTS history_agen (
+                    session_id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    model TEXT NOT NULL,
+                    mode TEXT NOT NULL,
+                    active_cwd TEXT,
+                    backend_history TEXT NOT NULL,
+                    frontend_history TEXT NOT NULL
+                );",
+                [],
+            );
+        }
+    }
+
+    let agent_cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let default_workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let mut harness_raw = core_engine::agent_harness::AgentHarness::new(&default_workspace);
+    harness_raw.cancel_flag = agent_cancel_flag.clone();
+    let agent_harness = Arc::new(tokio::sync::Mutex::new(harness_raw));
+
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
 
@@ -30,9 +62,11 @@ fn main() {
         .manage(AppState {
             process_manager,
             resource_monitor,
-            agent_cancel_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            agent_cancel_flag,
             agent_session: Arc::new(std::sync::Mutex::new(None)),
             agent_loop_state: Arc::new(std::sync::Mutex::new(None)),
+            db_pool,
+            agent_harness,
         })
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.

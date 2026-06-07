@@ -146,6 +146,20 @@ pub fn all_tools() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "kill_command",
+            description: "Force kill a long-running background command by its Command ID.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "command_id": {
+                        "type": "string",
+                        "description": "The Command ID of the running command to terminate."
+                    }
+                },
+                "required": ["command_id"]
+            }),
+        },
+        ToolDef {
             name: "scan_directory_tree",
             description: "Scan the PROJECT ROOT and return only ONE LEVEL (immediate children). Returns ONLY structure, NO file contents. Use this FIRST to understand the top-level project layout.",
             parameters: json!({

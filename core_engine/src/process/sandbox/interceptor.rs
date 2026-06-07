@@ -826,7 +826,13 @@ fn check_paths_outside_workspace(paths: &[PathBuf], workspace_root: &Path) -> Op
         let rp_clean = strip_win_prefix(&rp);
         let ws_clean = strip_win_prefix(&ws);
 
-        if rp_clean.to_lowercase().starts_with(&ws_clean.to_lowercase()) {
+        let is_inside = if cfg!(target_os = "windows") {
+            rp_clean.to_lowercase().starts_with(&ws_clean.to_lowercase())
+        } else {
+            rp_clean.starts_with(&ws_clean)
+        };
+
+        if is_inside {
             continue;
         }
 

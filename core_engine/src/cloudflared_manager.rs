@@ -65,7 +65,23 @@ impl CloudflaredManager {
 
     /// Spawns a tunnel and returns the PID and a receiver for the tunnel URL
     pub async fn spawn_tunnel(&self, port: u16, token: Option<String>, _project_id: &str) -> Result<(u32, broadcast::Receiver<String>), String> {
+        let blocked_ports = [5432, 6379, 3306, 27017, 9200, 9300];
+        if blocked_ports.contains(&port) {
+            return Err(format!("Exposing database/system port {} is strictly prohibited.", port));
+        }
+
         let mut cmd = Command::new(&self.executable_path);
+        
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            unsafe {
+                cmd.pre_exec(|| {
+                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                    Ok(())
+                });
+            }
+        }
         
         if let Some(ref t) = token {
             let trimmed_token = t.trim();
@@ -83,6 +99,11 @@ impl CloudflaredManager {
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn cloudflared: {}", e))?;
         let tunnel_pid = child.id().unwrap_or(0);
+
+        #[cfg(windows)]
+        {
+            let _ = crate::process::sandbox::windows::apply_sandbox_to_process(tunnel_pid);
+        }
         
         let stderr = child.stderr.take().expect("Failed to capture cloudflared stderr");
         let (url_tx, url_rx) = broadcast::channel(10);

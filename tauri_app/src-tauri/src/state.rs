@@ -34,6 +34,8 @@ pub struct AppState {
     pub agent_cancel_flag: Arc<AtomicBool>,
     pub agent_session: Arc<std::sync::Mutex<Option<AgentSession>>>,
     pub agent_loop_state: Arc<std::sync::Mutex<Option<LoopState>>>,
+    pub db_pool: r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
+    pub agent_harness: Arc<tokio::sync::Mutex<core_engine::agent_harness::AgentHarness>>,
 }
 
 /// Resolve the project root (parent of src-tauri) so that

@@ -53,6 +53,18 @@ fn rotate_log_file(path: &Path, max_bytes: u64) -> std::io::Result<()> {
     Ok(())
 }
 
+fn set_secure_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(path, perms);
+        }
+    }
+}
+
 pub(crate) async fn write_log_with_rotation(
     file: &mut Option<fs::File>,
     path: &Path,
@@ -75,6 +87,7 @@ pub(crate) async fn write_log_with_rotation(
             .open(path)
             .await
             .ok();
+        set_secure_permissions(path);
     }
 
     if let Some(ref mut f) = file {
@@ -92,6 +105,7 @@ pub(crate) async fn append_log_line(path: &Path, text: &str, max_bytes: u64) -> 
         .open(path)
         .await
         .ok();
+    set_secure_permissions(path);
     let timestamp = Utc::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let log_line = format!("[{}] SYSTEM: {}\n", timestamp, text);
     write_log_with_rotation(&mut file, path, log_line.as_bytes(), max_bytes).await?;
@@ -116,6 +130,7 @@ pub(crate) async fn pipe_stream<R>(
         .open(&log_path)
         .await
         .ok();
+    set_secure_permissions(&log_path);
 
     while let Ok(Some(line)) = reader.next_line().await {
         let timestamp = Utc::now().timestamp_millis() as u64;

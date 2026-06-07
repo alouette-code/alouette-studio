@@ -309,6 +309,7 @@ fn parse_raw_tool_tags(content: &str) -> Vec<ToolCall> {
         "save_memory",
         "search_memory",
         "check_command_status",
+        "kill_command",
         "compact_history",
         "scan_directory_tree",
         "scan_subdirectory",
@@ -590,6 +591,7 @@ fn infer_key_for_tool(tool_name: &str) -> Option<&'static str> {
         "read_file" | "write_file" | "get_project_files" | "scan_subdirectory"
         | "extract_symbol" | "read_file_range" => Some("path"),
         "execute_command" | "check_command_status" => Some("command"),
+        "kill_command" => Some("command_id"),
         "check_port" => Some("port"),
         "search_files" => Some("pattern"),
         "search_symbol" => Some("symbol"),

@@ -204,25 +204,18 @@ pub fn check(input: &str, cwd: &Path, workspace_root: &Path) -> Verdict {
             resolved
         };
 
-        // Boundary check (case-insensitive trên Windows)
-        let ws_str = workspace_root.to_string_lossy();
-        let fp_str = final_path.to_string_lossy();
+        let is_inside = if cfg!(target_os = "windows") {
+            let fp_lower = final_path.to_string_lossy().to_lowercase();
+            let ws_lower = workspace_root.to_string_lossy().to_lowercase();
+            fp_lower.starts_with(&ws_lower)
+        } else {
+            final_path.starts_with(workspace_root)
+        };
 
-        #[cfg(target_os = "windows")]
-        {
-            if !fp_str.to_lowercase().starts_with(&ws_str.to_lowercase()) {
-                return Verdict::Block {
-                    reason: format!("Path '{}' resolves to '{}', outside workspace", token, fp_str),
-                };
-            }
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            if !fp_str.starts_with(ws_str.as_ref()) {
-                return Verdict::Block {
-                    reason: format!("Path '{}' resolves to '{}', outside workspace", token, fp_str),
-                };
-            }
+        if !is_inside {
+            return Verdict::Block {
+                reason: format!("Path '{}' resolves to '{}', outside workspace", token, final_path.display()),
+            };
         }
     }
 

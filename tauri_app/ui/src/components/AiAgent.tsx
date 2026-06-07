@@ -1,4 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import rehypeSanitize from "rehype-sanitize";
+import DOMPurify from "dompurify";
 import {
   Plus,
   RefreshCw,
@@ -672,6 +675,54 @@ export default function AiAgent({
         textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
       }
     }, 0);
+  };
+
+  const SafeMarkdown = ({ content }: { content: string }) => {
+    const strictSchema = {
+      tagNames: [
+        'p', 'br', 'b', 'i', 'strong', 'em', 'strike', 'code', 'pre', 'del',
+        'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote',
+        'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
+      ],
+      attributes: {
+        a: ['href', 'title', 'target'],
+        img: ['src', 'alt', 'title'],
+        '*': ['className']
+      },
+      protocols: {
+        href: ['http', 'https', 'mailto'],
+        src: ['http', 'https']
+      }
+    };
+
+    const sanitizedContent = DOMPurify.sanitize(content);
+
+    return (
+      <ReactMarkdown
+        rehypePlugins={[[rehypeSanitize, strictSchema]]}
+        components={{
+          code({ node, inline, className, children, ...props }: any) {
+            const codeContent = String(children).replace(/\n$/, '');
+            if (!inline) {
+              return (
+                <pre className="code-block" style={{ margin: 0, padding: '10px', background: 'var(--bg-secondary)', borderRadius: '4px', overflowX: 'auto' }}>
+                  <code className={className} style={{ fontFamily: 'var(--font-mono)', fontSize: '11.5px', color: 'var(--text-primary)' }}>
+                    {codeContent}
+                  </code>
+                </pre>
+              );
+            }
+            return (
+              <code className={className} style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: '3px', color: 'var(--color-accent)' }} {...props}>
+                {children}
+              </code>
+            );
+          }
+        }}
+      >
+        {sanitizedContent}
+      </ReactMarkdown>
+    );
   };
 
   const renderFormattedText = (text: string) => {
@@ -2698,9 +2749,9 @@ export default function AiAgent({
                 }}
               >
                 {item.sender === "agent" && item.text?.startsWith("Lỗi") ? (
-                  <div style={{ color: "#ef4444" }}>{renderFormattedText(item.text)}</div>
+                  <div style={{ color: "#ef4444" }}><SafeMarkdown content={item.text} /></div>
                 ) : (
-                  <div>{renderFormattedText(item.text || "")}</div>
+                  <div><SafeMarkdown content={item.text || ""} /></div>
                 )}
 
                 {/* Copy button for agent messages */}

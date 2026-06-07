@@ -239,6 +239,12 @@ struct RunningCommand {
     command: String,
 }
 
+impl Drop for RunningCommand {
+    fn drop(&mut self) {
+        let _ = self.child.start_kill();
+    }
+}
+
 pub struct AgentHarness {
     workspace_root: PathBuf,
     telemetry: telemetry::TelemetryManager,
@@ -247,6 +253,7 @@ pub struct AgentHarness {
     skill_engine: skills::SkillEngine,
     mode: HarnessMode,
     command_timeout_secs: u64,
+    pub cancel_flag: Arc<std::sync::atomic::AtomicBool>,
     subagents: HashMap<String, Subagent>,
     running_commands: HashMap<String, RunningCommand>,
 }
@@ -267,6 +274,7 @@ impl AgentHarness {
             hook_manager: None,
             mode: HarnessMode::Standard,
             command_timeout_secs: 120,
+            cancel_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             subagents: HashMap::new(),
             running_commands: HashMap::new(),
         }
@@ -276,6 +284,37 @@ impl AgentHarness {
     /// Set the harness operating mode
     pub fn set_mode(&mut self, mode: HarnessMode) {
         self.mode = mode;
+    }
+
+    /// Dynamically update the workspace root without dropping running commands
+    pub fn set_workspace_root<P: AsRef<Path>>(&mut self, workspace_root: P) {
+        let canonical_root = fs::canonicalize(&workspace_root)
+            .unwrap_or_else(|_| workspace_root.as_ref().to_path_buf());
+        if self.workspace_root != canonical_root {
+            self.workspace_root = canonical_root.clone();
+            self.telemetry = telemetry::TelemetryManager::new(&canonical_root);
+            self.memory_manager = memory::MemoryManager::new(&canonical_root);
+            self.skill_engine = skills::SkillEngine::new(canonical_root);
+        }
+    }
+
+    /// Clean up finished or dead background processes to avoid memory leaks
+    pub fn prune_running_commands(&mut self) {
+        self.running_commands.retain(|_id, cmd| {
+            match cmd.child.try_wait() {
+                Ok(Some(_status)) => false, // Finished, remove from map
+                Err(_) => false,            // Failed/corrupted, remove
+                Ok(None) => {
+                    // Still running, check if elapsed > 1 hour
+                    if cmd.start_time.elapsed() > Duration::from_secs(3600) {
+                        let _ = cmd.child.start_kill();
+                        false
+                    } else {
+                        true
+                    }
+                }
+            }
+        });
     }
 
     /// Set command execution timeout (seconds)
@@ -604,7 +643,8 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "write_file" => self.execute_write_file(tool),
             "get_project_files" => self.execute_get_project_files(),
             "execute_command" => self.execute_command(session_id, tool).await,
-            "check_command_status" => self.execute_check_command_status(tool),
+            "check_command_status" => self.execute_check_command_status(tool).await,
+            "kill_command" => self.execute_kill_command(tool).await,
             "save_memory" => self.execute_save_memory(tool),
             "search_memory" => self.execute_search_memory(tool),
             "compact_history" => self.execute_compact_history(tool),
@@ -695,7 +735,24 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         let target_path = Path::new(path_str);
         let verified_path = self.validate_path(target_path)?;
 
-        fs::read_to_string(&verified_path).map_err(|e| format!("Failed to read file: {}", e))
+        let metadata = fs::metadata(&verified_path)
+            .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+        let file_size = metadata.len();
+        
+        let max_size = 2 * 1024 * 1024; // 2MB
+        if file_size > max_size {
+            return Err(format!(
+                "File too large: {} bytes (max limit is {} bytes). Please use `read_file_range` or specify a smaller range.",
+                file_size, max_size
+            ));
+        }
+
+        let bytes = fs::read(&verified_path).map_err(|e| format!("Failed to read file: {}", e))?;
+        let content = String::from_utf8(bytes).map_err(|_| {
+            "Error: Binary file detected or file content contains invalid UTF-8 data. Reading binary files is not supported.".to_string()
+        })?;
+
+        Ok(content)
     }
 
     fn execute_write_file(&self, tool: &parser::ToolCall) -> Result<String, String> {
@@ -804,7 +861,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
     fn execute_get_project_files(&self) -> Result<String, String> {
         let mut files = Vec::new();
-        self.list_dir_recursive(&self.workspace_root, &mut files)?;
+        self.list_dir_recursive(&self.workspace_root, &mut files, 0)?;
+        if files.len() >= 1000 {
+            files.push("... (truncated due to file limit of 1000)".to_string());
+        }
         Ok(files.join("\n"))
     }
 
@@ -813,6 +873,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         session_id: &str,
         tool: &parser::ToolCall,
     ) -> Result<String, String> {
+        self.prune_running_commands();
         let command = tool.arguments["command"]
             .as_str()
             .ok_or_else(|| "Missing 'command' argument".to_string())?;
@@ -825,13 +886,38 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             Vec::new()
         };
 
-        let cmd_str = format!("{} {}", command, args.join(" "));
+        let cmd_str = if args.is_empty() {
+            command.to_string()
+        } else {
+            let escaped_args: Vec<String> = args
+                .iter()
+                .map(|arg| {
+                    if cfg!(target_os = "windows") {
+                        format!("'{}'", arg.replace('\'', "''"))
+                    } else {
+                        format!("'{}'", arg.replace('\'', "'\\''"))
+                    }
+                })
+                .collect();
+            format!("{} {}", command, escaped_args.join(" "))
+        };
 
         // Build async command
         let mut cmd = if cfg!(target_os = "windows") {
             let mut c = tokio::process::Command::new("powershell");
-            // Use -NoProfile -NonInteractive to avoid profile loading issues
-            // Pass command as separate arg to avoid shell escaping problems
+            c.env_clear();
+            if let Ok(val) = std::env::var("PATH") {
+                c.env("PATH", val);
+            }
+            if let Ok(val) = std::env::var("SystemRoot") {
+                c.env("SystemRoot", val);
+            }
+            if let Ok(val) = std::env::var("windir") {
+                c.env("windir", val);
+            }
+            if let Ok(val) = std::env::var("PATHEXT") {
+                c.env("PATHEXT", val);
+            }
             c.args(&[
                 "-NoProfile",
                 "-NonInteractive",
@@ -843,6 +929,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             c
         } else {
             let mut c = tokio::process::Command::new("sh");
+            c.env_clear();
+            if let Ok(val) = std::env::var("PATH") {
+                c.env("PATH", val);
+            }
             c.arg("-c");
             c.arg(&cmd_str);
             c
@@ -895,27 +985,40 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             chrono::Local::now().timestamp_millis()
         );
         let timeout_secs = self.command_timeout_secs;
+        let cancel_flag_clone = self.cancel_flag.clone();
 
-        // Wait for completion with configurable timeout
-        match tokio::time::timeout(Duration::from_secs(timeout_secs), child.wait()).await {
-            Ok(Ok(status)) => {
-                // Command completed in time
-                let _ = stdout_handle.await;
-                let _ = stderr_handle.await;
-                let stdout_text = output.lock().await.clone();
-                let stderr_text = stderr_output.lock().await.clone();
-                let code = status.code().unwrap_or(-1);
-                Ok(format!(
-                    "Exit Code: {}\nSTDOUT:\n{}\nSTDERR:\n{}",
-                    code, stdout_text, stderr_text
-                ))
+        let cancel_fut = async move {
+            while !cancel_flag_clone.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(Duration::from_millis(50)).await;
             }
-            Ok(Err(e)) => {
+        };
+
+        // Wait for completion, timeout, or cancellation
+        tokio::select! {
+            res = child.wait() => {
+                match res {
+                    Ok(status) => {
+                        let _ = stdout_handle.await;
+                        let _ = stderr_handle.await;
+                        let stdout_text = output.lock().await.clone();
+                        let stderr_text = stderr_output.lock().await.clone();
+                        let code = status.code().unwrap_or(-1);
+                        Ok(format!(
+                            "Exit Code: {}\nSTDOUT:\n{}\nSTDERR:\n{}",
+                            code, stdout_text, stderr_text
+                        ))
+                    }
+                    Err(e) => {
+                        let _ = child.kill().await;
+                        Err(format!("Command failed: {}", e))
+                    }
+                }
+            }
+            _ = cancel_fut => {
                 let _ = child.kill().await;
-                Err(format!("Command failed: {}", e))
+                Err("Command execution was explicitly cancelled by the user.".to_string())
             }
-            Err(_timeout) => {
-                // 20s timeout → store command for polling
+            _ = tokio::time::sleep(Duration::from_secs(timeout_secs)) => {
                 let partial = output.lock().await.clone();
                 self.running_commands.insert(
                     cmd_id.clone(),
@@ -939,25 +1042,11 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     }
 
     /// Check the status of a long-running command that was started with execute_command
-    fn execute_check_command_status(&mut self, tool: &parser::ToolCall) -> Result<String, String> {
+    async fn execute_check_command_status(&mut self, tool: &parser::ToolCall) -> Result<String, String> {
+        self.prune_running_commands();
         let cmd_id = tool.arguments["command_id"]
             .as_str()
             .ok_or_else(|| "Missing 'command_id' argument".to_string())?;
-
-        // Helper to block_on async operations with fallback for non-tokio contexts
-        fn block_fut<F: std::future::Future<Output = T>, T>(f: F) -> T {
-            match tokio::runtime::Handle::try_current() {
-                Ok(handle) => handle.block_on(f),
-                Err(_) => {
-                    // Fallback: create a temporary single-threaded runtime
-                    let rt = tokio::runtime::Builder::new_current_thread()
-                        .enable_time()
-                        .build()
-                        .expect("Failed to create fallback tokio runtime for check_command_status");
-                    rt.block_on(f)
-                }
-            }
-        }
 
         let running = self.running_commands.get_mut(cmd_id).ok_or_else(|| {
             format!(
@@ -972,13 +1061,13 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             Ok(Some(status)) => {
                 // Command has finished
                 if let Some(h) = running.stdout_handle.take() {
-                    let _ = block_fut(h);
+                    let _ = h.await;
                 }
                 if let Some(h) = running.stderr_handle.take() {
-                    let _ = block_fut(h);
+                    let _ = h.await;
                 }
-                let stdout_text = block_fut(running.output.lock()).clone();
-                let stderr_text = block_fut(running.stderr_output.lock()).clone();
+                let stdout_text = running.output.lock().await.clone();
+                let stderr_text = running.stderr_output.lock().await.clone();
                 let code = status.code().unwrap_or(-1);
 
                 self.running_commands.remove(cmd_id);
@@ -990,7 +1079,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             }
             Ok(None) => {
                 // Still running
-                let partial = block_fut(running.output.lock()).clone();
+                let partial = running.output.lock().await.clone();
                 let wait_time = (elapsed as f64 * 2.0).min(300.0) as u64; // exponential backoff, max 5 min
                 Ok(format!(
                     "COMMAND_STILL_RUNNING\nCommand ID: {}\nCommand: {}\nElapsed: {}s\nThe command is still running. Try again in about {}s.\n\nPartial output so far:\n{}",
@@ -1001,6 +1090,28 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                 self.running_commands.remove(cmd_id);
                 Err(format!("Failed to check command status: {}", e))
             }
+        }
+    }
+
+    /// Force kill a running command by ID
+    async fn execute_kill_command(&mut self, tool: &parser::ToolCall) -> Result<String, String> {
+        let cmd_id = tool.arguments["command_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'command_id' argument".to_string())?;
+
+        if let Some(mut running) = self.running_commands.remove(cmd_id) {
+            match running.child.kill().await {
+                Ok(_) => Ok(format!(
+                    "✓ Command '{}' (ID: {}) has been terminated.",
+                    running.command, cmd_id
+                )),
+                Err(e) => Err(format!("Failed to kill command: {}", e)),
+            }
+        } else {
+            Err(format!(
+                "No running command found with ID: '{}'. It may have already completed or expired.",
+                cmd_id
+            ))
         }
     }
 
@@ -1583,39 +1694,23 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         // Always keep the first user message as context anchor
         let first_user = history.iter().find(|m| m.role == "user").cloned();
 
-        // Find a safe cut point: walk from the tail, skip tool sequences
-        // A safe boundary is after a "user" or "model" message that is NOT
-        // immediately before a "tool" response.
         let target_len = max_messages.saturating_sub(1); // -1 to make room for first_user
         let tail_start = history.len().saturating_sub(target_len);
 
-        // Ensure we don't cut inside an assistant→tool sequence.
-        // Walk forward from tail_start until we find a safe boundary:
-        // safe = a "user" message, or a "model" message whose NEXT message is NOT "tool".
+        // Find a safe cut point: walk backward from tail_start to find the nearest "user" message.
+        // Starting from a "user" message guarantees we do not break any assistant-tool or tool-result sequences.
         let mut safe_start = tail_start;
-        for i in tail_start..history.len() {
-            let role = history[i].role.as_str();
-            let next_role = history.get(i + 1).map(|m| m.role.as_str()).unwrap_or("");
-            match role {
-                "user" => {
-                    safe_start = i;
-                    break;
-                }
-                "model" | "assistant" if next_role != "tool" => {
-                    safe_start = i;
-                    break;
-                }
-                "tool" => {
-                    // Skip past all consecutive tool messages
-                    continue;
-                }
-                _ => {}
+        for i in (0..=tail_start).rev() {
+            if history[i].role == "user" {
+                safe_start = i;
+                break;
             }
         }
 
         let mut compacted: Vec<ChatMessage> = Vec::new();
         if let Some(first) = first_user {
-            if safe_start == 0 || history[safe_start].id != first.id {
+            // Only add first_user if it's not already included in the safe_start.. range
+            if safe_start == 0 || history[safe_start..].iter().all(|m| m.id != first.id) {
                 compacted.push(first);
             }
         }
@@ -1657,9 +1752,23 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         }
     }
 
-    fn list_dir_recursive(&self, dir: &Path, files: &mut Vec<String>) -> Result<(), String> {
+    fn list_dir_recursive(&self, dir: &Path, files: &mut Vec<String>, current_depth: usize) -> Result<(), String> {
+        const MAX_DEPTH: usize = 8;
+        const MAX_FILES: usize = 1000;
+
+        if current_depth > MAX_DEPTH {
+            return Ok(());
+        }
+
+        if files.len() >= MAX_FILES {
+            return Ok(());
+        }
+
         if dir.is_dir() {
             for entry in fs::read_dir(dir).map_err(|e| e.to_string())? {
+                if files.len() >= MAX_FILES {
+                    break;
+                }
                 let entry = entry.map_err(|e| e.to_string())?;
                 let path = entry.path();
 
@@ -1676,7 +1785,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                 }
 
                 if path.is_dir() {
-                    self.list_dir_recursive(&path, files)?;
+                    self.list_dir_recursive(&path, files, current_depth + 1)?;
                 } else {
                     if let Ok(rel) = path.strip_prefix(&self.workspace_root) {
                         files.push(rel.display().to_string());
@@ -1685,5 +1794,70 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compact_history_safe_cut() {
+        let mut history = vec![
+            ChatMessage {
+                id: "1".to_string(),
+                role: "user".to_string(),
+                content: MessageContent::Text("hello".to_string()),
+                timestamp: "".to_string(),
+            },
+            ChatMessage {
+                id: "2".to_string(),
+                role: "assistant".to_string(),
+                content: MessageContent::ToolCalls(vec![]),
+                timestamp: "".to_string(),
+            },
+            ChatMessage {
+                id: "3".to_string(),
+                role: "tool".to_string(),
+                content: MessageContent::ToolResult {
+                    tool_call_id: "x".to_string(),
+                    tool_name: "read_file".to_string(),
+                    result: "result".to_string(),
+                    success: true,
+                },
+                timestamp: "".to_string(),
+            },
+            ChatMessage {
+                id: "4".to_string(),
+                role: "user".to_string(),
+                content: MessageContent::Text("user message 2".to_string()),
+                timestamp: "".to_string(),
+            },
+            ChatMessage {
+                id: "5".to_string(),
+                role: "assistant".to_string(),
+                content: MessageContent::ToolCalls(vec![]),
+                timestamp: "".to_string(),
+            },
+            ChatMessage {
+                id: "6".to_string(),
+                role: "tool".to_string(),
+                content: MessageContent::ToolResult {
+                    tool_call_id: "y".to_string(),
+                    tool_name: "write_file".to_string(),
+                    result: "written".to_string(),
+                    success: true,
+                },
+                timestamp: "".to_string(),
+            },
+        ];
+
+        AgentHarness::compact_history(&mut history, 4);
+
+        assert_eq!(history.len(), 4);
+        assert_eq!(history[0].id, "1");
+        assert_eq!(history[1].id, "4");
+        assert_eq!(history[2].id, "5");
+        assert_eq!(history[3].id, "6");
     }
 }

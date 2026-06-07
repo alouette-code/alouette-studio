@@ -373,7 +373,17 @@ export function useProjects(deps: UseProjectsDeps) {
   const handleStart = async (forceStart = false) => {
     if (!activeProjectId || !activeProject) return;
     try {
-      if (!forceStart && activeProject.port) {
+      if (activeProject.enable_tunnel && !forceStart) {
+        deps.triggerConfirm(
+          `WARNING: Exposing port ${activeProject.port || 3000} via Cloudflare Tunnel. Ensure the service requires authentication. Do you understand the risk?`,
+          () => {
+            handleStart(true);
+          }
+        );
+        return;
+      }
+
+      if (activeProject.port) {
         const occupiedPid = await invoke<number | null>("check_port_status", {
           port: activeProject.port,
         });
@@ -394,10 +404,20 @@ export function useProjects(deps: UseProjectsDeps) {
     }
   };
 
-  const handleStartProject = async (id: string) => {
+  const handleStartProject = async (id: string, forceStart = false) => {
     try {
       const proj = projects.find((p) => p.id === id);
       if (!proj) return;
+
+      if (proj.enable_tunnel && !forceStart) {
+        deps.triggerConfirm(
+          `WARNING: Exposing port ${proj.port || 3000} via Cloudflare Tunnel. Ensure the service requires authentication. Do you understand the risk?`,
+          () => {
+            handleStartProject(id, true);
+          }
+        );
+        return;
+      }
 
       const occupiedPid = proj.port
         ? await invoke<number | null>("check_port_status", { port: proj.port })

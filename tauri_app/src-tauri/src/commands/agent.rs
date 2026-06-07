@@ -128,10 +128,40 @@ pub async fn agent_status(app_state: State<'_, AppState>) -> Result<Value, Strin
 
 // ─── Model Config ───────────────────────────────────────────────────────
 
+use secrecy::{SecretString, ExposeSecret};
+use std::cell::Cell;
+
+thread_local! {
+    static EXPOSE_SECRETS: Cell<bool> = Cell::new(false);
+}
+
+pub fn with_exposed_secrets<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    EXPOSE_SECRETS.with(|c| c.set(true));
+    let result = f();
+    EXPOSE_SECRETS.with(|c| c.set(false));
+    result
+}
+
+fn redact_serializer<S>(secret: &secrecy::SecretString, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let expose = EXPOSE_SECRETS.with(|c| c.get());
+    if expose {
+        serializer.serialize_str(secret.expose_secret())
+    } else {
+        serializer.serialize_str("[REDACTED]")
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelConfig {
     pub provider: String,
-    pub api_key: String,
+    #[serde(serialize_with = "redact_serializer")]
+    pub api_key: secrecy::SecretString,
     pub api_url: String,
     pub context_limit: usize,
     pub supports_vision: bool,
@@ -156,7 +186,8 @@ pub struct ModelDetail {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProviderConfig {
-    pub api_key: String,
+    #[serde(serialize_with = "redact_serializer")]
+    pub api_key: secrecy::SecretString,
     pub api_url: Option<String>,
     pub models: std::collections::HashMap<String, ModelDetail>,
 }
@@ -183,7 +214,9 @@ pub async fn agent_send_message(
     let workspace = active_cwd.map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
     });
-    let mut harness = AgentHarness::new(&workspace);
+    let persistent_harness = app_state.agent_harness.clone();
+    let mut harness = persistent_harness.lock().await;
+    harness.set_workspace_root(&workspace);
 
     // Load model config
     let ai_cfg = load_custom_ai_config();
@@ -530,7 +563,9 @@ pub async fn agent_approve_tool(
     let workspace = active_cwd.map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
     });
-    let mut harness = AgentHarness::new(&workspace);
+    let persistent_harness = app_state.agent_harness.clone();
+    let mut harness = persistent_harness.lock().await;
+    harness.set_workspace_root(&workspace);
 
     // Lấy session — kiểm tra trạng thái hiện tại
     let session_store = &app_state.agent_session;
@@ -1274,7 +1309,8 @@ fn decrypt_key(encrypted: &str) -> String {
 pub fn save_custom_ai_config(mut config: CustomAiConfig) -> Result<(), String> {
     // Encrypt all API keys before saving
     for provider_config in config.providers.values_mut() {
-        provider_config.api_key = encrypt_key(&provider_config.api_key);
+        let encrypted = encrypt_key(provider_config.api_key.expose_secret());
+        provider_config.api_key = secrecy::SecretString::new(encrypted);
     }
 
     let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -1301,7 +1337,7 @@ pub fn save_custom_ai_config(mut config: CustomAiConfig) -> Result<(), String> {
         let _ = std::fs::create_dir_all(parent);
     }
 
-    let yaml_str = serde_yaml::to_string(&config)
+    let yaml_str = with_exposed_secrets(|| serde_yaml::to_string(&config))
         .map_err(|e| format!("Failed to serialize custom AI config: {}", e))?;
 
     std::fs::write(&resolved_path, yaml_str)
@@ -1345,7 +1381,7 @@ fn resolve_model_config(ai_cfg: &CustomAiConfig, model_hint: &str) -> ModelConfi
     // Fallback default config
     ModelConfig {
         provider: "gemini".to_string(),
-        api_key: String::new(),
+        api_key: secrecy::SecretString::new(String::new()),
         api_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
         context_limit: 1048576,
         supports_vision: true,
@@ -1357,7 +1393,7 @@ fn resolve_model_config(ai_cfg: &CustomAiConfig, model_hint: &str) -> ModelConfi
 
 fn resolve_api_key(model_config: &ModelConfig) -> Result<String, String> {
     // Prefer the stored (possibly encrypted) key
-    let stored = model_config.api_key.trim();
+    let stored = model_config.api_key.expose_secret().trim();
     if !stored.is_empty() && stored != "none" {
         // Decrypt if needed (decrypt_key is a no-op for plain keys)
         let plain = decrypt_key(stored);
@@ -1406,7 +1442,8 @@ fn load_custom_ai_config() -> CustomAiConfig {
         if let Ok(mut config) = serde_yaml::from_str::<CustomAiConfig>(&content) {
             // Decrypt all API keys after loading
             for provider_config in config.providers.values_mut() {
-                provider_config.api_key = decrypt_key(&provider_config.api_key);
+                let decrypted = decrypt_key(provider_config.api_key.expose_secret());
+                provider_config.api_key = secrecy::SecretString::new(decrypted);
             }
             return config;
         }
@@ -1464,7 +1501,7 @@ fn load_custom_ai_config() -> CustomAiConfig {
     providers.insert(
         "deepseek".to_string(),
         ProviderConfig {
-            api_key: "".to_string(),
+            api_key: secrecy::SecretString::new("".to_string()),
             api_url: Some("https://api.deepseek.com/v1".to_string()),
             models: deepseek_models,
         },
@@ -1497,7 +1534,7 @@ fn load_custom_ai_config() -> CustomAiConfig {
     providers.insert(
         "claude".to_string(),
         ProviderConfig {
-            api_key: "".to_string(),
+            api_key: secrecy::SecretString::new("".to_string()),
             api_url: Some("https://api.anthropic.com/v1".to_string()),
             models: claude_models,
         },
@@ -1552,7 +1589,7 @@ fn load_custom_ai_config() -> CustomAiConfig {
     providers.insert(
         "gpt-chatgpt".to_string(),
         ProviderConfig {
-            api_key: "".to_string(),
+            api_key: secrecy::SecretString::new("".to_string()),
             api_url: Some("https://api.openai.com/v1".to_string()),
             models: gpt_models,
         },
@@ -1607,7 +1644,7 @@ fn load_custom_ai_config() -> CustomAiConfig {
     providers.insert(
         "gemini".to_string(),
         ProviderConfig {
-            api_key: "".to_string(),
+            api_key: secrecy::SecretString::new("".to_string()),
             api_url: Some("https://generativelanguage.googleapis.com/v1beta".to_string()),
             models: gemini_models,
         },
@@ -1629,7 +1666,7 @@ fn load_custom_ai_config() -> CustomAiConfig {
     providers.insert(
         "qwen".to_string(),
         ProviderConfig {
-            api_key: "".to_string(),
+            api_key: secrecy::SecretString::new("".to_string()),
             api_url: Some("https://dashscope.aliyuncs.com/compatible-mode/v1".to_string()),
             models: qwen_models,
         },
@@ -1680,8 +1717,7 @@ pub struct LoadedSession {
     pub active_cwd: Option<String>,
     pub frontend_history: serde_json::Value,
 }
-
-fn resolve_history_db_path() -> std::path::PathBuf {
+pub fn resolve_history_db_path() -> std::path::PathBuf {
     let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     for _ in 0..10 {
         let check_path = current.join("core_engine/app_data");
@@ -1716,14 +1752,11 @@ fn init_history_db(conn: &Connection) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn agent_get_history(_app_state: State<'_, AppState>) -> Result<Vec<AgentHistoryItem>, String> {
+pub async fn agent_get_history(app_state: State<'_, AppState>) -> Result<Vec<AgentHistoryItem>, String> {
+    let pool = app_state.db_pool.clone();
     tokio::task::spawn_blocking(move || {
-        let db_path = resolve_history_db_path();
-        if let Some(parent) = db_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let conn = Connection::open(&db_path)
-            .map_err(|e| format!("Failed to open history database: {}", e))?;
+        let conn = pool.get()
+            .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
 
         init_history_db(&conn)?;
 
@@ -1760,10 +1793,10 @@ pub async fn load_agent_session(
     app_state: State<'_, AppState>,
 ) -> Result<LoadedSession, String> {
     let session_store = app_state.agent_session.clone();
+    let pool = app_state.db_pool.clone();
     tokio::task::spawn_blocking(move || {
-        let db_path = resolve_history_db_path();
-        let conn = Connection::open(&db_path)
-            .map_err(|e| format!("Failed to open history database: {}", e))?;
+        let conn = pool.get()
+            .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
 
         init_history_db(&conn)?;
 
@@ -1831,13 +1864,10 @@ pub async fn save_agent_session(
     app_state: State<'_, AppState>,
 ) -> Result<(), String> {
     let session_store = app_state.agent_session.clone();
+    let pool = app_state.db_pool.clone();
     tokio::task::spawn_blocking(move || {
-        let db_path = resolve_history_db_path();
-        if let Some(parent) = db_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
-        }
-        let conn = Connection::open(&db_path)
-            .map_err(|e| format!("Failed to open history database: {}", e))?;
+        let conn = pool.get()
+            .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
 
         init_history_db(&conn)?;
 
@@ -1884,12 +1914,12 @@ pub async fn save_agent_session(
 #[tauri::command]
 pub async fn agent_delete_session(
     session_id: String,
-    _app_state: State<'_, AppState>,
+    app_state: State<'_, AppState>,
 ) -> Result<(), String> {
+    let pool = app_state.db_pool.clone();
     tokio::task::spawn_blocking(move || {
-        let db_path = resolve_history_db_path();
-        let conn = Connection::open(&db_path)
-            .map_err(|e| format!("Failed to open history database: {}", e))?;
+        let conn = pool.get()
+            .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
 
         init_history_db(&conn)?;
 
