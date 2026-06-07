@@ -1117,6 +1117,22 @@ export default function TerminalPanel({
         delete containerRefs.current[sid];
       }
     });
+
+    return () => {
+      // Full teardown: dispose of all remaining xterm instances when TerminalPanel unmounts
+      Object.keys(instancesRef.current).forEach((sid) => {
+        console.log("[term] UNMOUNT DESTROY xterm for session:", sid);
+        const inst = instancesRef.current[sid];
+        inst.disposers.forEach((d) => {
+          try {
+            d();
+          } catch {}
+        });
+        inst.term.dispose();
+      });
+      instancesRef.current = {};
+      containerRefs.current = {};
+    };
   }, [terminals, mountXterm]);
 
   // ── When activeTerminalId changes, focus + full refresh the active one ──

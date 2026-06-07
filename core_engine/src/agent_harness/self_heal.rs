@@ -48,9 +48,7 @@ impl SelfHealAnalyzer {
             FailureCategory::NetworkError
         } else if lower.contains("parse") || lower.contains("syntax") || lower.contains("unexpected token") {
             FailureCategory::ParseError
-        } else if lower.contains("timeout") || lower.contains("timed out") {
-            FailureCategory::Timeout
-        } else if lower.contains("out of memory") || lower.contains("no space") || lower.contains("disk quota") {
+        } else if lower.contains("out of memory") || lower.contains("no space") || lower.contains("disk quota") || lower.contains("enospc") {
             FailureCategory::ResourceExhausted
         } else if lower.contains("security boundary") || lower.contains("forbidden") || lower.contains("outside workspace") {
             FailureCategory::SecurityViolation
@@ -83,7 +81,7 @@ impl SelfHealAnalyzer {
                 RecoveryStrategy {
                     category: category.clone(),
                     suggestion,
-                    retry_allowed: true,
+                    retry_allowed: false,
                     alternative_approach: Some("Use get_project_files to list available files and directories.".to_string()),
                 }
             }
@@ -92,14 +90,14 @@ impl SelfHealAnalyzer {
                 RecoveryStrategy {
                     category: category.clone(),
                     suggestion: format!("Port {} is busy. Use another port or kill the blocking process.", port),
-                    retry_allowed: true,
+                    retry_allowed: false,
                     alternative_approach: Some(format!("Try port {} or check which process is using the port.", port + 1)),
                 }
             }
             FailureCategory::NetworkError => RecoveryStrategy {
                 category: category.clone(),
                 suggestion: "Network operation failed. Check connectivity and ensure the target service is reachable.".to_string(),
-                retry_allowed: true,
+                retry_allowed: false,
                 alternative_approach: None,
             },
             FailureCategory::ParseError => RecoveryStrategy {
@@ -111,7 +109,7 @@ impl SelfHealAnalyzer {
             FailureCategory::Timeout => RecoveryStrategy {
                 category: category.clone(),
                 suggestion: "The operation timed out. The command may be too slow or hanging.".to_string(),
-                retry_allowed: true,
+                retry_allowed: false,
                 alternative_approach: Some("Add a timeout flag or simplify the operation.".to_string()),
             },
             FailureCategory::ResourceExhausted => RecoveryStrategy {
@@ -126,12 +124,16 @@ impl SelfHealAnalyzer {
                 retry_allowed: false,
                 alternative_approach: Some("This operation cannot be performed within the current sandbox constraints.".to_string()),
             },
-            FailureCategory::Unknown(_) => RecoveryStrategy {
-                category: category.clone(),
-                suggestion: "An unexpected error occurred. Review the error message and adjust the approach.".to_string(),
-                retry_allowed: true,
-                alternative_approach: None,
-            },
+            FailureCategory::Unknown(_) => {
+                let lower = error_msg.to_lowercase();
+                let is_syntax_logic = lower.contains("syntaxerror") || lower.contains("type mismatch") || lower.contains("typeerror") || lower.contains("compilation error") || lower.contains("syntax error");
+                RecoveryStrategy {
+                    category: category.clone(),
+                    suggestion: "An unexpected error occurred. Review the error message and adjust the approach.".to_string(),
+                    retry_allowed: is_syntax_logic,
+                    alternative_approach: None,
+                }
+            }
         }
     }
 
@@ -153,19 +155,16 @@ impl SelfHealAnalyzer {
         diagnosis
     }
 
-    /// Check if a failure is recoverable and should be retried
-    pub fn should_retry(_tool_name: &str, error_msg: &str, retry_count: u32) -> bool {
-        if retry_count >= 3 {
-            return false; // Max retries reached
-        }
-
+    /// Check if a failure is recoverable and should be retried by the AI agent
+    pub fn should_retry(_tool_name: &str, error_msg: &str) -> bool {
         let category = Self::categorize(error_msg);
         match category {
-            FailureCategory::PermissionDenied => false,
-            FailureCategory::SecurityViolation => false,
-            FailureCategory::ResourceExhausted => false,
-            FailureCategory::Unknown(_) => retry_count < 2,
-            _ => true, // Retryable categories
+            FailureCategory::ParseError => true,
+            FailureCategory::Unknown(ref msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("syntaxerror") || lower.contains("type mismatch") || lower.contains("typeerror") || lower.contains("compilation error") || lower.contains("syntax error")
+            }
+            _ => false, // Environmental errors are not retryable
         }
     }
 }

@@ -184,6 +184,10 @@ pub struct ChatMessage {
     pub timestamp: String,
 }
 
+fn default_token_budget() -> u64 {
+    50000
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentSession {
     pub session_id: String,
@@ -194,6 +198,8 @@ pub struct AgentSession {
     pub mode: HarnessMode,
     pub plan: Option<plan::Plan>,
     pub autonomous_state: Option<autonomous::AutonomousManager>,
+    #[serde(default = "default_token_budget")]
+    pub token_budget: u64,
 }
 
 /// Subagent tracking for coordinator mode
@@ -1452,6 +1458,16 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         F1: Fn(String, Vec<ChatMessage>) -> Fut,
         Fut: Future<Output = Result<LlmResponse, String>>,
     {
+        // Kiểm tra token budget
+        if session.token_budget == 0 {
+            let err_msg = "Token budget exhausted! Self-healing loop broken to prevent excessive costs.".to_string();
+            session.state = AgentState::Error(err_msg.clone());
+            return TickResult::Error {
+                message: err_msg,
+                iteration: session.iteration_count,
+            };
+        }
+
         // Kiểm tra max iterations
         if session.iteration_count >= session.max_iterations {
             session.state = AgentState::Finished(format!(
@@ -1495,6 +1511,26 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                     };
 
                 session.iteration_count = iteration;
+
+                // Deduct tokens from budget based on estimation
+                let est_input = (system_prompt.len() + session.history.iter().map(|m| {
+                    match &m.content {
+                        MessageContent::Text(t) => t.len(),
+                        MessageContent::ToolCalls(tcs) => tcs.iter().map(|tc| tc.name.len() + tc.raw_arguments.len()).sum(),
+                        MessageContent::ToolResult { result, .. } => result.len(),
+                    }
+                }).sum::<usize>()) as u64 / 4;
+                let est_output = llm_reply.raw_text.len() as u64 / 4;
+                session.token_budget = session.token_budget.saturating_sub(est_input + est_output);
+
+                if session.token_budget == 0 {
+                    let err_msg = "Token budget exhausted! Self-healing loop broken to prevent excessive costs.".to_string();
+                    session.state = AgentState::Error(err_msg.clone());
+                    return TickResult::Error {
+                        message: err_msg,
+                        iteration,
+                    };
+                }
 
                 // Use native tool_calls from LlmResponse directly
                 // Fallback: parse raw_text only if no native tool_calls
@@ -1613,11 +1649,27 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                         content: MessageContent::ToolResult {
                             tool_call_id: call_id,
                             tool_name: tool.name.clone(),
-                            result: result_text,
+                            result: result_text.clone(),
                             success,
                         },
                         timestamp: chrono::Local::now().format("%H:%M").to_string(),
                     });
+
+                    if !success {
+                        let is_retryable = self_heal::SelfHealAnalyzer::should_retry(&tool.name, &result_text);
+                        if !is_retryable {
+                            let err_msg = format!("Environmental or non-retryable error encountered: {}", result_text);
+                            session.state = AgentState::Error(err_msg.clone());
+                            return TickResult::Error {
+                                message: err_msg,
+                                iteration: session.iteration_count,
+                            };
+                        } else {
+                            // Exponential backoff: sleep to avoid spamming target services/API keys
+                            let delay_ms = 2_u64.pow(session.iteration_count.min(6)) * 250;
+                            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                        }
+                    }
                 }
 
                 // Chạy xong tool → quay lại Thinking

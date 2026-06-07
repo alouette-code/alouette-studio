@@ -239,6 +239,66 @@ pub async fn open_ping_window(app_handle: tauri::AppHandle) -> Result<(), String
     Ok(())
 }
 
+struct SafeDnsResolver;
+
+impl reqwest::dns::Resolve for SafeDnsResolver {
+    fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
+        let host = name.as_str().to_string();
+        let fut = async move {
+            let addrs = tokio::net::lookup_host(format!("{}:0", host))
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+            let mut filtered_addrs = Vec::new();
+            for addr in addrs {
+                let ip = addr.ip();
+
+                if ip.is_loopback() {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "Access to loopback IP addresses is blocked for security reasons (SSRF Protection).",
+                    )) as Box<dyn std::error::Error + Send + Sync>);
+                }
+
+                if ip.is_unspecified() {
+                    return Err(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "Access to unspecified IP addresses is blocked for security reasons (SSRF Protection).",
+                    )) as Box<dyn std::error::Error + Send + Sync>);
+                }
+
+                match ip {
+                    std::net::IpAddr::V4(ipv4) => {
+                        if ipv4.is_private() || ipv4.is_link_local() {
+                            return Err(Box::new(std::io::Error::new(
+                                std::io::ErrorKind::PermissionDenied,
+                                format!("Access to private/local IP address {} is blocked for security reasons (SSRF Protection).", ipv4),
+                            )) as Box<dyn std::error::Error + Send + Sync>);
+                        }
+                    }
+                    std::net::IpAddr::V6(ipv6) => {
+                        let segments = ipv6.segments();
+                        let is_private_v6 = (segments[0] & 0xfe00) == 0xfc00;
+                        let is_link_local_v6 = (segments[0] & 0xffc0) == 0xfe80;
+
+                        if is_private_v6 || is_link_local_v6 {
+                            return Err(Box::new(std::io::Error::new(
+                                std::io::ErrorKind::PermissionDenied,
+                                format!("Access to private/local IP address {} is blocked for security reasons (SSRF Protection).", ipv6),
+                            )) as Box<dyn std::error::Error + Send + Sync>);
+                        }
+                    }
+                }
+                filtered_addrs.push(addr);
+            }
+
+            let s: Box<dyn Iterator<Item = std::net::SocketAddr> + Send> = Box::new(filtered_addrs.into_iter());
+            Ok(s)
+        };
+        Box::pin(fut)
+    }
+}
+
 // ============================================================================
 // Main HTTP Request Sender (Enhanced with timing, redirects, cookies)
 // ============================================================================
@@ -247,7 +307,8 @@ pub async fn open_ping_window(app_handle: tauri::AppHandle) -> Result<(), String
 pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutput, String> {
     let mut client_builder = reqwest::Client::builder()
         .danger_accept_invalid_certs(false)
-        .redirect(reqwest::redirect::Policy::limited(10));
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .dns_resolver(std::sync::Arc::new(SafeDnsResolver));
 
     if let Some(timeout) = req.timeout_ms {
         client_builder = client_builder.timeout(std::time::Duration::from_millis(timeout));

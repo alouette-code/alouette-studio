@@ -128,7 +128,7 @@ pub async fn agent_status(app_state: State<'_, AppState>) -> Result<Value, Strin
 
 // ─── Model Config ───────────────────────────────────────────────────────
 
-use secrecy::{SecretString, ExposeSecret};
+use secrecy::ExposeSecret;
 use std::cell::Cell;
 
 thread_local! {
@@ -260,6 +260,7 @@ pub async fn agent_send_message(
             mode: HarnessMode::Standard,
             plan: None,
             autonomous_state: None,
+            token_budget: 50000,
         });
 
         // Reset state to Idle for new message (unless awaiting approval)
@@ -1835,6 +1836,7 @@ pub async fn load_agent_session(
                 },
                 plan: None,
                 autonomous_state: None,
+                token_budget: 50000,
             });
 
             Ok(LoadedSession {

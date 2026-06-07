@@ -14,6 +14,48 @@ pub struct SqliteTableData {
     pub rows: Vec<Vec<serde_json::Value>>,
 }
 
+fn validate_sqlite_path(path: &str) -> Result<(), String> {
+    let path_buf = std::path::Path::new(path);
+    let name = path_buf.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if name.contains("history.sqlite") || name.contains("app.db") || path.contains(".gemini") {
+        return Err("Security Block: Access to application database is strictly prohibited.".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let path_lower = path.to_lowercase();
+        if path_lower.contains("c:\\windows") || path_lower.contains("system32") {
+            return Err("Security Block: Access to system folders is strictly prohibited.".to_string());
+        }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if path.starts_with("/etc") || path.starts_with("/var") || path.starts_with("/sys") || path.starts_with("/proc") || path.starts_with("/lib") {
+            return Err("Security Block: Access to system folders is strictly prohibited.".to_string());
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_name(name: &str) -> Result<(), String> {
+    if name.is_empty() {
+        return Err("Name cannot be empty".to_string());
+    }
+
+    if !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return Err(format!("Security Block: Identifier '{}' contains illegal characters.", name));
+    }
+
+    let upper = name.to_uppercase();
+    let forbidden = ["DROP", "ALTER", "ATTACH", "DETACH", "UNION", "SELECT", "INSERT", "DELETE", "UPDATE"];
+    if forbidden.iter().any(|&f| upper == f || upper.contains(&format!(" {} ", f)) || upper.starts_with(&format!("{} ", f))) {
+        return Err(format!("Security Block: Identifier '{}' contains forbidden SQL keywords.", name));
+    }
+
+    Ok(())
+}
+
 fn is_valid_table_name(conn: &rusqlite::Connection, table: &str) -> Result<bool, String> {
     let mut stmt = conn
         .prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?1;")
@@ -66,7 +108,9 @@ fn json_to_rusqlite(val: serde_json::Value) -> Result<rusqlite::types::Value, St
 #[tauri::command]
 pub async fn get_sqlite_tables(path: String) -> Result<Vec<String>, String> {
     log_to_app_file(&format!("SQLite: get_sqlite_tables for {}", path));
-    let conn = rusqlite::Connection::open(&path)
+    validate_sqlite_path(&path)?;
+    
+    let conn = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e: rusqlite::Error| format!("Failed to open database: {}", e))?;
 
     let mut stmt = conn
@@ -90,7 +134,10 @@ pub async fn get_sqlite_tables(path: String) -> Result<Vec<String>, String> {
 #[tauri::command]
 pub async fn get_sqlite_table_data(path: String, table: String) -> Result<SqliteTableData, String> {
     log_to_app_file(&format!("SQLite: get_sqlite_table_data for {} -> {}", path, table));
-    let conn = rusqlite::Connection::open(&path)
+    validate_sqlite_path(&path)?;
+    validate_name(&table)?;
+
+    let conn = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e: rusqlite::Error| format!("Failed to open database: {}", e))?;
 
     if !is_valid_table_name(&conn, &table)? {
@@ -169,6 +216,11 @@ pub async fn update_sqlite_cell(
         "SQLite: update_sqlite_cell for {} -> {}.{} where {} = {:?}",
         path, table, column, pk_column, pk_value
     ));
+    validate_sqlite_path(&path)?;
+    validate_name(&table)?;
+    validate_name(&column)?;
+    validate_name(&pk_column)?;
+
     let conn = rusqlite::Connection::open(&path)
         .map_err(|e: rusqlite::Error| format!("Failed to open database: {}", e))?;
 
@@ -198,6 +250,9 @@ pub async fn update_sqlite_cell(
 #[tauri::command]
 pub async fn insert_sqlite_row(path: String, table: String) -> Result<(), String> {
     log_to_app_file(&format!("SQLite: insert_sqlite_row for {} -> {}", path, table));
+    validate_sqlite_path(&path)?;
+    validate_name(&table)?;
+
     let conn = rusqlite::Connection::open(&path)
         .map_err(|e: rusqlite::Error| format!("Failed to open database: {}", e))?;
 
@@ -250,6 +305,10 @@ pub async fn delete_sqlite_row(
     pk_value: serde_json::Value,
 ) -> Result<(), String> {
     log_to_app_file(&format!("SQLite: delete_sqlite_row for {} -> {} where {} = {:?}", path, table, pk_column, pk_value));
+    validate_sqlite_path(&path)?;
+    validate_name(&table)?;
+    validate_name(&pk_column)?;
+
     let conn = rusqlite::Connection::open(&path)
         .map_err(|e: rusqlite::Error| format!("Failed to open database: {}", e))?;
 
@@ -280,15 +339,15 @@ pub async fn add_sqlite_column(
     col_type: String,
 ) -> Result<(), String> {
     log_to_app_file(&format!("SQLite: add_sqlite_column for {} -> {} adding {} {}", path, table, col_name, col_type));
+    validate_sqlite_path(&path)?;
+    validate_name(&table)?;
+    validate_name(&col_name)?;
+
     let conn = rusqlite::Connection::open(&path)
         .map_err(|e: rusqlite::Error| format!("Failed to open database: {}", e))?;
 
     if !is_valid_table_name(&conn, &table)? {
         return Err("Invalid table name".to_string());
-    }
-
-    if col_name.is_empty() || !col_name.chars().all(|c| c.is_alphanumeric() || c == '_') {
-        return Err("Column name must be alphanumeric and underscores only".to_string());
     }
 
     let type_upper = col_type.to_uppercase();
