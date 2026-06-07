@@ -496,47 +496,46 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             self.workspace_root.join(target_path)
         };
 
-        let canonical_target = match fs::canonicalize(&absolute_target) {
-            Ok(path) => path,
-            Err(_) => {
-                // Manual canonicalization fallback
-                let mut path = PathBuf::new();
-                for component in absolute_target.components() {
-                    match component {
-                        std::path::Component::ParentDir => {
-                            path.pop();
-                        }
-                        std::path::Component::Normal(c) => {
-                            path.push(c);
-                        }
-                        std::path::Component::CurDir => {}
-                        other => {
-                            path.push(other.as_os_str());
-                        }
-                    }
+        // Recursively find the closest existing parent/ancestor
+        let mut ancestor = absolute_target.clone();
+        let mut canonical_ancestor = None;
+
+        while let Some(parent) = ancestor.parent() {
+            if ancestor.exists() {
+                if let Ok(canon) = fs::canonicalize(&ancestor) {
+                    canonical_ancestor = Some(canon);
+                    break;
                 }
-                path
             }
-        };
-
-        let ws_str = self
-            .workspace_root
-            .to_string_lossy()
-            .replace("\\\\?\\", "")
-            .to_lowercase();
-        let target_str = canonical_target
-            .to_string_lossy()
-            .replace("\\\\?\\", "")
-            .to_lowercase();
-
-        if target_str.starts_with(&ws_str) {
-            Ok(canonical_target)
-        } else {
-            Err(format!(
-                "Security Boundary Error: Access to '{}' is forbidden. Outside workspace '{}'.",
-                target_str, ws_str
-            ))
+            ancestor = parent.to_path_buf();
         }
+
+        // Fallback check on root / parent if not resolved
+        if canonical_ancestor.is_none() && ancestor.exists() {
+            if let Ok(canon) = fs::canonicalize(&ancestor) {
+                canonical_ancestor = Some(canon);
+            }
+        }
+
+        let canonical_ancestor = canonical_ancestor
+            .ok_or_else(|| format!("Security Error: Path parent does not exist or cannot be resolved: {}", absolute_target.display()))?;
+
+        if !canonical_ancestor.starts_with(&self.workspace_root) {
+            return Err(format!(
+                "Security Boundary Error: Access to '{}' is forbidden. Outside workspace '{}'.",
+                absolute_target.display(),
+                self.workspace_root.display()
+            ));
+        }
+
+        // Prevent traversal using component checks
+        for component in target_path.components() {
+            if component == std::path::Component::ParentDir {
+                return Err("Security Boundary Error: Parent directory traversal (..) is forbidden.".to_string());
+            }
+        }
+
+        Ok(absolute_target)
     }
 
     /// Assess blast radius of an action
@@ -730,28 +729,67 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             .as_str()
             .ok_or_else(|| "Missing 'new_content' argument".to_string())?;
 
+        let start_line = tool.arguments.get("start_line").and_then(|v| v.as_u64()).map(|n| n as usize);
+        let end_line = tool.arguments.get("end_line").and_then(|v| v.as_u64()).map(|n| n as usize);
+
         let target_path = Path::new(path_str);
         let verified_path = self.validate_path(target_path)?;
 
         let current_content = fs::read_to_string(&verified_path)
             .map_err(|e| format!("Failed to read file '{}': {}", path_str, e))?;
 
-        if !current_content.contains(old_content) {
-            // Try with normalized line endings
+        // Detect line ending (\r\n vs \n)
+        let line_ending = if current_content.contains("\r\n") { "\r\n" } else { "\n" };
+
+        let lines: Vec<&str> = current_content.split(line_ending).collect();
+
+        if let (Some(start), Some(end)) = (start_line, end_line) {
+            // Line numbers are 1-based, inclusive
+            if start == 0 || end == 0 || start > end || start > lines.len() || end > lines.len() {
+                return Err(format!(
+                    "Invalid line range {}-{} (file '{}' has {} lines)",
+                    start, end, path_str, lines.len()
+                ));
+            }
+
+            let slice = &lines[start - 1..end];
+            let original_slice_text = slice.join(line_ending);
+
+            let norm_old = old_content.replace("\r\n", "\n").trim_end().to_string();
+            let norm_slice = original_slice_text.replace("\r\n", "\n").trim_end().to_string();
+
+            if norm_old != norm_slice {
+                return Err(format!(
+                    "Line range mismatch: The provided old_content does not match the text at lines {}-{}.\nExpected:\n\"{}\"\nFound:\n\"{}\"",
+                    start, end, norm_old, norm_slice
+                ));
+            }
+
+            // Perform replacement on this range
+            let mut new_lines = lines.clone();
+            new_lines.splice(start - 1..end, vec![new_content]);
+            let replaced = new_lines.join(line_ending);
+            fs::write(&verified_path, replaced)
+                .map_err(|e| format!("Failed to write file: {}", e))?;
+        } else {
+            // Uniqueness checking fallback
             let normalized_old = old_content.replace("\r\n", "\n");
             let normalized_current = current_content.replace("\r\n", "\n");
-            if !normalized_current.contains(&normalized_old) {
+
+            let occurrences = normalized_current.matches(&normalized_old).count();
+            if occurrences == 0 {
                 return Err(format!(
                     "Could not find the specified old_content in '{}'. The text may have changed or indentation may differ.",
                     path_str
                 ));
+            } else if occurrences > 1 {
+                return Err(format!(
+                    "The text to replace (old_content) was found {} times in '{}'. To avoid incorrect replacements, please specify start_line and end_line, or provide a larger, unique block of surrounding code as old_content.",
+                    occurrences, path_str
+                ));
             }
-            // Apply with normalized endings
+
             let replaced = normalized_current.replacen(&normalized_old, new_content, 1);
-            fs::write(&verified_path, replaced)
-                .map_err(|e| format!("Failed to write file: {}", e))?;
-        } else {
-            let replaced = current_content.replacen(old_content, new_content, 1);
             fs::write(&verified_path, replaced)
                 .map_err(|e| format!("Failed to write file: {}", e))?;
         }

@@ -81,9 +81,7 @@ impl SkillEngine {
         }
 
         // Security: ensure it's within workspace
-        let ws = self.workspace_root.to_string_lossy().to_lowercase();
-        let can = canonical.to_string_lossy().to_lowercase();
-        if !can.starts_with(&ws) {
+        if !canonical.starts_with(&self.workspace_root) {
             return Err("Security: path outside workspace".to_string());
         }
 

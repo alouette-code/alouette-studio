@@ -30,6 +30,9 @@ fn main() {
         .manage(AppState {
             process_manager,
             resource_monitor,
+            agent_cancel_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            agent_session: Arc::new(std::sync::Mutex::new(None)),
+            agent_loop_state: Arc::new(std::sync::Mutex::new(None)),
         })
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.

@@ -34,6 +34,7 @@ pub struct MemoryMetadata {
 
 /// Manages persistent file-based memory with consolidation and pruning
 pub struct MemoryManager {
+    workspace_root: PathBuf,
     memory_dir: PathBuf,
     team_memory_dir: PathBuf,
 }
@@ -47,6 +48,7 @@ impl MemoryManager {
         let _ = fs::create_dir_all(&team_memory_dir);
 
         Self {
+            workspace_root: workspace_root.to_path_buf(),
             memory_dir,
             team_memory_dir,
         }
@@ -90,15 +92,34 @@ impl MemoryManager {
     fn parse_memory_file(&self, path: &Path) -> Option<MemoryEntry> {
         let content = fs::read_to_string(path).ok()?;
 
-        // Parse frontmatter between --- markers
-        if !content.starts_with("---") {
+        let mut lines = content.lines();
+        let first_line = lines.next()?;
+        if first_line.trim() != "---" {
             return None;
         }
 
-        let end_frontmatter = content[3..].find("---")?;
-        let frontmatter_text = &content[3..3 + end_frontmatter];
+        let mut frontmatter_lines = Vec::new();
+        let mut body_lines = Vec::new();
+        let mut in_frontmatter = true;
 
-        let body = content[3 + end_frontmatter + 3..].trim().to_string();
+        for line in lines {
+            if in_frontmatter {
+                if line.trim() == "---" {
+                    in_frontmatter = false;
+                } else {
+                    frontmatter_lines.push(line);
+                }
+            } else {
+                body_lines.push(line);
+            }
+        }
+
+        if in_frontmatter {
+            return None;
+        }
+
+        let frontmatter_text = frontmatter_lines.join("\n");
+        let body = body_lines.join("\n").trim().to_string();
 
         // Simple YAML-like frontmatter parser
         let mut name = String::new();
@@ -221,17 +242,40 @@ impl MemoryManager {
         let mut report = PruneReport::default();
 
         for mem in &memories {
-            // Check if memory references files that no longer exist
+            let mut updated_lines = Vec::new();
+            let mut modified = false;
+
             for line in mem.content.lines() {
+                let mut contains_stale_file = false;
                 for code_file in codebase_files {
                     if line.contains(code_file) {
-                        // Check if the referenced file still exists
-                        if !Path::new(code_file).exists() {
-                            let _ = fs::remove_file(&mem.file_path);
-                            report.deleted += 1;
+                        let absolute_code_file = self.workspace_root.join(code_file);
+                        if !absolute_code_file.exists() {
+                            contains_stale_file = true;
                             break;
                         }
                     }
+                }
+
+                if contains_stale_file {
+                    modified = true;
+                } else {
+                    updated_lines.push(line);
+                }
+            }
+
+            if modified {
+                let new_content = updated_lines.join("\n");
+                if new_content.trim().is_empty() {
+                    let _ = fs::remove_file(&mem.file_path);
+                    report.deleted += 1;
+                } else {
+                    let _ = self.save_memory(
+                        &mem.name,
+                        &mem.description,
+                        mem.metadata.mem_type.clone(),
+                        &new_content,
+                    );
                 }
             }
         }

@@ -1,5 +1,5 @@
 use crate::commands::rig_bridge;
-use crate::state::AppState;
+use crate::state::{AppState, LoopState};
 use chrono::Local;
 use core_engine::agent_harness::{
     AgentHarness, AgentSession, AgentState, ChatMessage, HarnessMode, LlmResponse, MessageContent,
@@ -8,19 +8,7 @@ use core_engine::agent_harness::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-use std::sync::OnceLock;
 use tauri::{Emitter, State, WebviewWindow};
-
-/// Cờ ngắt: true = yêu cầu dừng agent loop đang chạy
-static CANCEL_FLAG: AtomicBool = AtomicBool::new(false);
-
-// Thread-safe session storage using standard library OnceLock and Mutex
-static CURRENT_SESSION: OnceLock<Mutex<Option<AgentSession>>> = OnceLock::new();
-
-fn get_session_store() -> &'static Mutex<Option<AgentSession>> {
-    CURRENT_SESSION.get_or_init(|| Mutex::new(None))
-}
 
 // ─── Response Types ─────────────────────────────────────────────────────
 
@@ -46,60 +34,27 @@ pub struct AgentResponse {
     pub approved_tool_index: Option<usize>,
 }
 
-// ─── Session & Loop State ───────────────────────────────────────────────
-
-/// Cấu hình loop cho phiên hiện tại
-#[allow(dead_code)]
-#[derive(Debug, Clone)]
-struct LoopState {
-    pub max_iterations: u32,
-    pub auto_approve_reads: bool,
-    pub auto_approve_writes: bool,
-    pub auto_approve_all: bool,
-    pub command_timeout_secs: u64,
-    pub iteration_count: u32,
-}
-
-impl Default for LoopState {
-    fn default() -> Self {
-        Self {
-            max_iterations: 25,
-            auto_approve_reads: true,
-            auto_approve_writes: false,
-            auto_approve_all: false,
-            command_timeout_secs: 120,
-            iteration_count: 0,
-        }
-    }
-}
-
-static LOOP_STATE: OnceLock<Mutex<Option<LoopState>>> = OnceLock::new();
-
-fn get_loop_state() -> &'static Mutex<Option<LoopState>> {
-    LOOP_STATE.get_or_init(|| Mutex::new(None))
-}
-
 // ─── Cancel / Interrupt ────────────────────────────────────────────────
 
 /// Kiểm tra cờ ngắt và reset nếu đã được bật
-fn check_and_reset_cancel() -> bool {
-    let cancelled = CANCEL_FLAG.load(Ordering::SeqCst);
+fn check_and_reset_cancel(cancel_flag: &AtomicBool) -> bool {
+    let cancelled = cancel_flag.load(Ordering::SeqCst);
     if cancelled {
-        CANCEL_FLAG.store(false, Ordering::SeqCst);
+        cancel_flag.store(false, Ordering::SeqCst);
     }
     cancelled
 }
 
 /// Gửi tín hiệu ngắt agent loop đang chạy
 #[tauri::command]
-pub async fn agent_cancel() -> Result<String, String> {
-    CANCEL_FLAG.store(true, Ordering::SeqCst);
+pub async fn agent_cancel(app_state: State<'_, AppState>) -> Result<String, String> {
+    app_state.agent_cancel_flag.store(true, Ordering::SeqCst);
     Ok("✓ Đã gửi tín hiệu ngắt. Agent sẽ dừng ngay lập tức.".to_string())
 }
 
-async fn wait_for_cancel() {
+async fn wait_for_cancel(cancel_flag: std::sync::Arc<AtomicBool>) {
     loop {
-        if CANCEL_FLAG.load(Ordering::SeqCst) {
+        if cancel_flag.load(Ordering::SeqCst) {
             break;
         }
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
@@ -116,18 +71,20 @@ async fn run_tick<F, Fut>(
     harness: &mut AgentHarness,
     session: &mut AgentSession,
     system_prompt: &str,
+    cancel_flag: std::sync::Arc<AtomicBool>,
     llm_closure: F,
 ) -> TickExecutionResult
 where
     F: Fn(String, Vec<ChatMessage>) -> Fut + Send + Sync + 'static,
     Fut: std::future::Future<Output = Result<LlmResponse, String>> + Send + 'static,
 {
+    let cancel_flag_clone = cancel_flag.clone();
     tokio::select! {
         res = harness.tick(session, system_prompt, llm_closure) => {
             TickExecutionResult::Completed(res)
         }
-        _ = wait_for_cancel() => {
-            CANCEL_FLAG.store(false, Ordering::SeqCst);
+        _ = wait_for_cancel(cancel_flag_clone) => {
+            cancel_flag.store(false, Ordering::SeqCst);
             TickExecutionResult::Cancelled
         }
         _ = tokio::time::sleep(tokio::time::Duration::from_secs(90)) => {
@@ -138,8 +95,8 @@ where
 
 /// Trả về trạng thái hiện tại của agent (cho frontend poll)
 #[tauri::command]
-pub async fn agent_status() -> Result<Value, String> {
-    let session_store = get_session_store();
+pub async fn agent_status(app_state: State<'_, AppState>) -> Result<Value, String> {
+    let session_store = &app_state.agent_session;
     let guard = session_store.lock().unwrap();
     if let Some(ref session) = *guard {
         let state_str = match &session.state {
@@ -221,7 +178,7 @@ pub async fn agent_send_message(
     active_cwd: Option<String>,
     thinking_mode: Option<String>,
     window: WebviewWindow,
-    _app_state: State<'_, AppState>,
+    app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
     let workspace = active_cwd.map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
@@ -244,7 +201,7 @@ pub async fn agent_send_message(
 
     // Save approval policy for later (agent_approve_tool)
     {
-        let mut state = get_loop_state().lock().unwrap();
+        let mut state = app_state.agent_loop_state.lock().unwrap();
         *state = Some(LoopState {
             max_iterations,
             auto_approve_reads,
@@ -256,7 +213,7 @@ pub async fn agent_send_message(
     }
 
     // Initialize session
-    let session_store = get_session_store();
+    let session_store = &app_state.agent_session;
     let mut session = {
         let mut session_guard = session_store.lock().unwrap();
         // If there's an existing session in non-terminal state, use it
@@ -312,7 +269,7 @@ pub async fn agent_send_message(
     let saved_session_id = session.session_id.clone();
     let result = loop {
         // Kiểm tra ngắt trước mỗi bước
-        if check_and_reset_cancel() {
+        if check_and_reset_cancel(&app_state.agent_cancel_flag) {
             let _ = window.emit(
                 "agent-cancelled",
                 serde_json::json!({
@@ -368,7 +325,7 @@ pub async fn agent_send_message(
         };
 
         log_debug(&format!("Running tick... Current iteration: {}, State: {:?}", session.iteration_count, session.state));
-        let tick_res_val = run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await;
+        let tick_res_val = run_tick(&mut harness, &mut session, &system_prompt, app_state.agent_cancel_flag.clone(), llm_closure).await;
         let tick_res_type = match &tick_res_val {
             TickExecutionResult::Completed(tr) => match tr {
                 TickResult::Continue { .. } => "Continue",
@@ -568,7 +525,7 @@ pub async fn agent_approve_tool(
     tool_index: Option<usize>,
     thinking_mode: Option<String>,
     window: WebviewWindow,
-    _app_state: State<'_, AppState>,
+    app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
     let workspace = active_cwd.map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
@@ -576,7 +533,7 @@ pub async fn agent_approve_tool(
     let mut harness = AgentHarness::new(&workspace);
 
     // Lấy session — kiểm tra trạng thái hiện tại
-    let session_store = get_session_store();
+    let session_store = &app_state.agent_session;
     let is_awaiting = {
         let session_guard = session_store.lock().unwrap();
         session_guard
@@ -728,7 +685,7 @@ pub async fn agent_approve_tool(
             }
         };
 
-        match run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await {
+        match run_tick(&mut harness, &mut session, &system_prompt, app_state.agent_cancel_flag.clone(), llm_closure).await {
             TickExecutionResult::Completed(tick_res) => match tick_res {
                 TickResult::Finished { text, .. } => {
                     let mut session_guard = session_store.lock().unwrap();
@@ -983,7 +940,7 @@ pub async fn agent_approve_tool(
     // ─── STATE MACHINE: Tick loop (tiếp tục từ ExecutingTool hoặc Thinking) ─────
     loop {
         // Kiểm tra ngắt trước mỗi bước
-        if check_and_reset_cancel() {
+        if check_and_reset_cancel(&app_state.agent_cancel_flag) {
             let _ = window.emit(
                 "agent-cancelled",
                 serde_json::json!({
@@ -1038,7 +995,7 @@ pub async fn agent_approve_tool(
             }
         };
 
-        match run_tick(&mut harness, &mut session, &system_prompt, llm_closure).await {
+        match run_tick(&mut harness, &mut session, &system_prompt, app_state.agent_cancel_flag.clone(), llm_closure).await {
             TickExecutionResult::Completed(tick_res) => match tick_res {
                 TickResult::Continue {
                     thought,
@@ -1233,12 +1190,11 @@ pub async fn agent_approve_tool(
 // ─── Session Management ─────────────────────────────────────────────────
 
 #[tauri::command]
-pub async fn agent_reset_session() -> Result<String, String> {
-    let session_store = get_session_store();
-    let mut session_guard = session_store.lock().unwrap();
+pub async fn agent_reset_session(app_state: State<'_, AppState>) -> Result<String, String> {
+    let mut session_guard = app_state.agent_session.lock().unwrap();
     *session_guard = None;
 
-    let mut loop_guard = get_loop_state().lock().unwrap();
+    let mut loop_guard = app_state.agent_loop_state.lock().unwrap();
     *loop_guard = None;
 
     Ok("✓ Session reset successfully.".to_string())
@@ -1760,97 +1716,108 @@ fn init_history_db(conn: &Connection) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn agent_get_history() -> Result<Vec<AgentHistoryItem>, String> {
-    let db_path = resolve_history_db_path();
-    if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open history database: {}", e))?;
+pub async fn agent_get_history(_app_state: State<'_, AppState>) -> Result<Vec<AgentHistoryItem>, String> {
+    tokio::task::spawn_blocking(move || {
+        let db_path = resolve_history_db_path();
+        if let Some(parent) = db_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let conn = Connection::open(&db_path)
+            .map_err(|e| format!("Failed to open history database: {}", e))?;
 
-    init_history_db(&conn)?;
+        init_history_db(&conn)?;
 
-    let mut stmt = conn
-        .prepare("SELECT session_id, title, created_at, model, mode, active_cwd FROM history_agen ORDER BY created_at DESC;")
-        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT session_id, title, created_at, model, mode, active_cwd FROM history_agen ORDER BY created_at DESC;")
+            .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
-    let history_iter = stmt
-        .query_map([], |row| {
-            Ok(AgentHistoryItem {
-                session_id: row.get(0)?,
-                title: row.get(1)?,
-                created_at: row.get(2)?,
-                model: row.get(3)?,
-                mode: row.get(4)?,
-                active_cwd: row.get(5)?,
+        let history_iter = stmt
+            .query_map([], |row| {
+                Ok(AgentHistoryItem {
+                    session_id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                    model: row.get(3)?,
+                    mode: row.get(4)?,
+                    active_cwd: row.get(5)?,
+                })
             })
-        })
-        .map_err(|e| format!("Failed to query history: {}", e))?;
+            .map_err(|e| format!("Failed to query history: {}", e))?;
 
-    let mut list = Vec::new();
-    for item in history_iter {
-        list.push(item.map_err(|e| e.to_string())?);
-    }
-    Ok(list)
+        let mut list = Vec::new();
+        for item in history_iter {
+            list.push(item.map_err(|e| e.to_string())?);
+        }
+        Ok(list)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
-pub async fn load_agent_session(session_id: String) -> Result<LoadedSession, String> {
-    let db_path = resolve_history_db_path();
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open history database: {}", e))?;
+pub async fn load_agent_session(
+    session_id: String,
+    app_state: State<'_, AppState>,
+) -> Result<LoadedSession, String> {
+    let session_store = app_state.agent_session.clone();
+    tokio::task::spawn_blocking(move || {
+        let db_path = resolve_history_db_path();
+        let conn = Connection::open(&db_path)
+            .map_err(|e| format!("Failed to open history database: {}", e))?;
 
-    init_history_db(&conn)?;
+        init_history_db(&conn)?;
 
-    let mut stmt = conn
-        .prepare("SELECT title, model, mode, active_cwd, backend_history, frontend_history FROM history_agen WHERE session_id = ?1;")
-        .map_err(|e| format!("Failed to prepare query: {}", e))?;
+        let mut stmt = conn
+            .prepare("SELECT title, model, mode, active_cwd, backend_history, frontend_history FROM history_agen WHERE session_id = ?1;")
+            .map_err(|e| format!("Failed to prepare query: {}", e))?;
 
-    let mut rows = stmt
-        .query(params![session_id])
-        .map_err(|e| format!("Failed to query session: {}", e))?;
+        let mut rows = stmt
+            .query(params![session_id])
+            .map_err(|e| format!("Failed to query session: {}", e))?;
 
-    if let Some(row) = rows.next().map_err(|e| format!("Failed to fetch row: {}", e))? {
-        let title: String = row.get(0).map_err(|e| e.to_string())?;
-        let model: String = row.get(1).map_err(|e| e.to_string())?;
-        let mode: String = row.get(2).map_err(|e| e.to_string())?;
-        let active_cwd: Option<String> = row.get(3).map_err(|e| e.to_string())?;
-        let backend_history_str: String = row.get(4).map_err(|e| e.to_string())?;
-        let frontend_history_str: String = row.get(5).map_err(|e| e.to_string())?;
+        if let Some(row) = rows.next().map_err(|e| format!("Failed to fetch row: {}", e))? {
+            let title: String = row.get(0).map_err(|e| e.to_string())?;
+            let model: String = row.get(1).map_err(|e| e.to_string())?;
+            let mode: String = row.get(2).map_err(|e| e.to_string())?;
+            let active_cwd: Option<String> = row.get(3).map_err(|e| e.to_string())?;
+            let backend_history_str: String = row.get(4).map_err(|e| e.to_string())?;
+            let frontend_history_str: String = row.get(5).map_err(|e| e.to_string())?;
 
-        let backend_history: Vec<ChatMessage> = serde_json::from_str(&backend_history_str)
-            .map_err(|e| format!("Failed to parse backend history: {}", e))?;
+            let backend_history: Vec<ChatMessage> = serde_json::from_str(&backend_history_str)
+                .map_err(|e| format!("Failed to parse backend history: {}", e))?;
 
-        let frontend_history: serde_json::Value = serde_json::from_str(&frontend_history_str)
-            .map_err(|e| format!("Failed to parse frontend history: {}", e))?;
+            let frontend_history: serde_json::Value = serde_json::from_str(&frontend_history_str)
+                .map_err(|e| format!("Failed to parse frontend history: {}", e))?;
 
-        let session_store = get_session_store();
-        let mut guard = session_store.lock().unwrap();
-        *guard = Some(AgentSession {
-            session_id: session_id.clone(),
-            history: backend_history,
-            state: AgentState::Idle,
-            iteration_count: 0,
-            max_iterations: 25,
-            mode: match mode.as_str() {
-                "autonomous" => HarnessMode::Autonomous,
-                _ => HarnessMode::Standard,
-            },
-            plan: None,
-            autonomous_state: None,
-        });
+            let mut guard = session_store.lock().unwrap();
+            *guard = Some(AgentSession {
+                session_id: session_id.clone(),
+                history: backend_history,
+                state: AgentState::Idle,
+                iteration_count: 0,
+                max_iterations: 25,
+                mode: match mode.as_str() {
+                    "autonomous" => HarnessMode::Autonomous,
+                    _ => HarnessMode::Standard,
+                },
+                plan: None,
+                autonomous_state: None,
+            });
 
-        Ok(LoadedSession {
-            session_id,
-            title,
-            model,
-            mode,
-            active_cwd,
-            frontend_history,
-        })
-    } else {
-        Err("Session not found.".to_string())
-    }
+            Ok(LoadedSession {
+                session_id,
+                title,
+                model,
+                mode,
+                active_cwd,
+                frontend_history,
+            })
+        } else {
+            Err("Session not found.".to_string())
+        }
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
@@ -1861,65 +1828,77 @@ pub async fn save_agent_session(
     mode: String,
     active_cwd: Option<String>,
     frontend_history: serde_json::Value,
+    app_state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let db_path = resolve_history_db_path();
-    if let Some(parent) = db_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
-    }
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open history database: {}", e))?;
+    let session_store = app_state.agent_session.clone();
+    tokio::task::spawn_blocking(move || {
+        let db_path = resolve_history_db_path();
+        if let Some(parent) = db_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let conn = Connection::open(&db_path)
+            .map_err(|e| format!("Failed to open history database: {}", e))?;
 
-    init_history_db(&conn)?;
+        init_history_db(&conn)?;
 
-    let backend_history_json = {
-        let session_store = get_session_store();
-        let guard = session_store.lock().unwrap();
-        if let Some(ref session) = *guard {
-            if session.session_id == session_id {
-                serde_json::to_string(&session.history).unwrap_or_else(|_| "[]".to_string())
+        let backend_history_json = {
+            let guard = session_store.lock().unwrap();
+            if let Some(ref session) = *guard {
+                if session.session_id == session_id {
+                    serde_json::to_string(&session.history).unwrap_or_else(|_| "[]".to_string())
+                } else {
+                    "[]".to_string()
+                }
             } else {
                 "[]".to_string()
             }
-        } else {
-            "[]".to_string()
-        }
-    };
+        };
 
-    let frontend_history_str = serde_json::to_string(&frontend_history)
-        .map_err(|e| format!("Failed to serialize frontend history: {}", e))?;
+        let frontend_history_str = serde_json::to_string(&frontend_history)
+            .map_err(|e| format!("Failed to serialize frontend history: {}", e))?;
 
-    let created_at = chrono::Local::now().timestamp();
+        let created_at = chrono::Local::now().timestamp();
 
-    conn.execute(
-        "INSERT OR REPLACE INTO history_agen (session_id, title, created_at, model, mode, active_cwd, backend_history, frontend_history)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
-        params![
-            session_id,
-            title,
-            created_at,
-            model,
-            mode,
-            active_cwd,
-            backend_history_json,
-            frontend_history_str,
-        ],
-    )
-    .map_err(|e| format!("Failed to save session to DB: {}", e))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO history_agen (session_id, title, created_at, model, mode, active_cwd, backend_history, frontend_history)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+            params![
+                session_id,
+                title,
+                created_at,
+                model,
+                mode,
+                active_cwd,
+                backend_history_json,
+                frontend_history_str,
+            ],
+        )
+        .map_err(|e| format!("Failed to save session to DB: {}", e))?;
 
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 
 #[tauri::command]
-pub async fn agent_delete_session(session_id: String) -> Result<(), String> {
-    let db_path = resolve_history_db_path();
-    let conn = Connection::open(&db_path)
-        .map_err(|e| format!("Failed to open history database: {}", e))?;
+pub async fn agent_delete_session(
+    session_id: String,
+    _app_state: State<'_, AppState>,
+) -> Result<(), String> {
+    tokio::task::spawn_blocking(move || {
+        let db_path = resolve_history_db_path();
+        let conn = Connection::open(&db_path)
+            .map_err(|e| format!("Failed to open history database: {}", e))?;
 
-    init_history_db(&conn)?;
+        init_history_db(&conn)?;
 
-    conn.execute("DELETE FROM history_agen WHERE session_id = ?1;", params![session_id])
-        .map_err(|e| format!("Failed to delete session: {}", e))?;
+        conn.execute("DELETE FROM history_agen WHERE session_id = ?1;", params![session_id])
+            .map_err(|e| format!("Failed to delete session: {}", e))?;
 
-    Ok(())
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
 }
 

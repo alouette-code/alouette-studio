@@ -2,9 +2,38 @@ use core_engine::{ProcessManager, ResourceMonitor};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use core_engine::agent_harness::AgentSession;
+use std::sync::atomic::AtomicBool;
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LoopState {
+    pub max_iterations: u32,
+    pub auto_approve_reads: bool,
+    pub auto_approve_writes: bool,
+    pub auto_approve_all: bool,
+    pub command_timeout_secs: u64,
+    pub iteration_count: u32,
+}
+
+impl Default for LoopState {
+    fn default() -> Self {
+        Self {
+            max_iterations: 25,
+            auto_approve_reads: true,
+            auto_approve_writes: false,
+            auto_approve_all: false,
+            command_timeout_secs: 120,
+            iteration_count: 0,
+        }
+    }
+}
+
 pub struct AppState {
     pub process_manager: Arc<Mutex<ProcessManager>>,
     pub resource_monitor: Arc<ResourceMonitor>,
+    pub agent_cancel_flag: Arc<AtomicBool>,
+    pub agent_session: Arc<std::sync::Mutex<Option<AgentSession>>>,
+    pub agent_loop_state: Arc<std::sync::Mutex<Option<LoopState>>>,
 }
 
 /// Resolve the project root (parent of src-tauri) so that

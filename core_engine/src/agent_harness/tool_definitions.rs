@@ -251,7 +251,7 @@ pub fn all_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "edit_file",
-            description: "Replace a specific block of lines in a file with new content. More efficient than write_file for small targeted changes. Use when you only need to change a portion of a file.",
+            description: "Replace a specific block of lines in a file with new content. More efficient than write_file for small targeted changes. Use when you only need to change a portion of a file. Line numbers can optionally be specified for extra safety and precision.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -266,6 +266,14 @@ pub fn all_tools() -> Vec<ToolDef> {
                     "new_content": {
                         "type": "string",
                         "description": "The replacement text. Will replace old_content exactly."
+                    },
+                    "start_line": {
+                        "type": "integer",
+                        "description": "Optional 1-based start line of the range to replace."
+                    },
+                    "end_line": {
+                        "type": "integer",
+                        "description": "Optional 1-based end line (inclusive) of the range to replace."
                     }
                 },
                 "required": ["path", "old_content", "new_content"]
