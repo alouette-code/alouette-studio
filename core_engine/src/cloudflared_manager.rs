@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::broadcast;
-use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Clone)]
 pub struct CloudflaredManager {
@@ -16,7 +16,11 @@ impl CloudflaredManager {
 
     /// Tries to download/update the latest cloudflared executable. If offline/fails, falls back to existing binary.
     pub async fn update_tunnel_binary(bin_dir: &Path) -> Result<PathBuf, String> {
-        let exe_name = if cfg!(target_os = "windows") { "cloudflared.exe" } else { "cloudflared" };
+        let exe_name = if cfg!(target_os = "windows") {
+            "cloudflared.exe"
+        } else {
+            "cloudflared"
+        };
         let path = bin_dir.join(exe_name);
 
         std::fs::create_dir_all(bin_dir).map_err(|e| format!("Failed to create bin dir: {}", e))?;
@@ -51,7 +55,10 @@ impl CloudflaredManager {
                 }
             }
             Err(e) => {
-                println!("Warning: Failed to update cloudflared binary ({}), checking local fallback...", e);
+                println!(
+                    "Warning: Failed to update cloudflared binary ({}), checking local fallback...",
+                    e
+                );
             }
         }
 
@@ -64,25 +71,30 @@ impl CloudflaredManager {
     }
 
     /// Spawns a tunnel and returns the PID and a receiver for the tunnel URL
-    pub async fn spawn_tunnel(&self, port: u16, token: Option<String>, _project_id: &str) -> Result<(u32, broadcast::Receiver<String>), String> {
+    pub async fn spawn_tunnel(
+        &self,
+        port: u16,
+        token: Option<String>,
+        _project_id: &str,
+    ) -> Result<(u32, broadcast::Receiver<String>), String> {
         let blocked_ports = [5432, 6379, 3306, 27017, 9200, 9300];
         if blocked_ports.contains(&port) {
-            return Err(format!("Exposing database/system port {} is strictly prohibited.", port));
+            return Err(format!(
+                "Exposing database/system port {} is strictly prohibited.",
+                port
+            ));
         }
 
         let mut cmd = Command::new(&self.executable_path);
-        
+
         #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            unsafe {
-                cmd.pre_exec(|| {
-                    libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
-                    Ok(())
-                });
-            }
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
+                Ok(())
+            });
         }
-        
+
         if let Some(ref t) = token {
             let trimmed_token = t.trim();
             if !trimmed_token.is_empty() {
@@ -97,15 +109,26 @@ impl CloudflaredManager {
         cmd.stdout(std::process::Stdio::piped());
         cmd.stderr(std::process::Stdio::piped());
 
-        let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn cloudflared: {}", e))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn cloudflared: {}", e))?;
         let tunnel_pid = child.id().unwrap_or(0);
 
+        // Áp dụng OS-level sandbox cho cloudflared process
+        // (post-spawn, best-effort)
         #[cfg(windows)]
         {
             let _ = crate::process::sandbox::windows::apply_sandbox_to_process(tunnel_pid);
         }
-        
-        let stderr = child.stderr.take().expect("Failed to capture cloudflared stderr");
+        #[cfg(target_os = "linux")]
+        {
+            let _ = crate::process::sandbox::linux::apply_sandbox_post_spawn(tunnel_pid);
+        }
+
+        let stderr = child
+            .stderr
+            .take()
+            .expect("Failed to capture cloudflared stderr");
         let (url_tx, url_rx) = broadcast::channel(10);
         let url_tx_clone = url_tx.clone();
 
@@ -113,9 +136,10 @@ impl CloudflaredManager {
 
         tokio::spawn(async move {
             let mut reader = BufReader::new(stderr).lines();
-            
+
             if token_mode {
-                let _ = url_tx_clone.send("Named Tunnel Active (Configured with Token)".to_string());
+                let _ =
+                    url_tx_clone.send("Named Tunnel Active (Configured with Token)".to_string());
             }
 
             // Cloudflared prints the tunnel URL to stderr

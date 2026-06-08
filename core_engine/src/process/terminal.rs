@@ -200,6 +200,9 @@ impl ProcessManager {
                 proto_home.to_string_lossy().to_string(),
             ),
             ("WORKSPACE_ROOT".into(), abs_root.clone()),
+            ("TERM".into(), "xterm-256color".into()),
+            ("COLORTERM".into(), "truecolor".into()),
+            ("LANG".into(), "en_US.UTF-8".into()),
         ];
         if let Ok(existing_path) = std::env::var("PATH") {
             let full = std::env::join_paths(
@@ -221,6 +224,9 @@ impl ProcessManager {
             })
             .map_err(|e| format!("PTY open: {e}"))?;
 
+        let mut sandbox_wrapper_path: Option<String> = None;
+
+        #[allow(unused_mut)]
         let mut cmd = if cfg!(target_os = "windows") {
             let prompt = r#"function global:prompt { "$((Get-Location).Path)> " }"#.to_string();
 
@@ -242,7 +248,12 @@ impl ProcessManager {
             } else {
                 "sh"
             };
-            CommandBuilder::new(shell)
+
+            // ── Linux: Pre-spawn sandbox via wrapper script ──
+            // Trên Linux, dùng sandbox wrapper thay vì shell trực tiếp
+            // để inject ulimit (RLIMIT_AS) trước khi shell thật sự chạy.
+            // portable-pty không hỗ trợ pre_exec, wrapper là giải pháp.
+            build_terminal_cmd(shell, block_internet, &mut sandbox_wrapper_path)
         };
 
         if let Some(dir) = cwd {
@@ -327,11 +338,22 @@ impl ProcessManager {
         let pty_ptr = Box::into_raw(Box::new(pty));
         self._pty_pairs.insert(sid.clone(), pty_ptr as usize);
 
-        // Áp dụng Tầng 2: OS-level sandbox (Job Object)
-        let job_handle = match super::sandbox::windows::apply_sandbox_to_process(pid) {
-            Ok(handle) => handle,
-            Err(e) => {
-                eprintln!("[terminal] Failed to apply OS sandbox: {e}");
+        // ── Tầng 2: OS-level sandbox (pre-spawn hoặc post-spawn) ──
+        // Windows: Job Object post-spawn
+        // Linux: sandbox đã được inject qua wrapper script ở pre-spawn
+        let job_handle: Option<usize> = {
+            #[cfg(target_os = "windows")]
+            {
+                match super::sandbox::windows::apply_sandbox_to_process(pid) {
+                    Ok(handle) => handle,
+                    Err(e) => {
+                        eprintln!("[terminal] Failed to apply Windows sandbox: {e}");
+                        None
+                    }
+                }
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
                 None
             }
         };
@@ -346,6 +368,7 @@ impl ProcessManager {
                 block_internet,
                 _child: Some(child),
                 _job_handle: job_handle,
+                _sandbox_wrapper_path: sandbox_wrapper_path,
             },
         );
 
@@ -380,6 +403,12 @@ impl ProcessManager {
                 let _ = super::network_isolate::unblock_session(session_id);
             }
             super::tree::terminate_process_tree(s.pid).await;
+
+            // Clean up Linux sandbox wrapper script
+            #[cfg(target_os = "linux")]
+            {
+                super::sandbox::linux::cleanup_wrapper(s._sandbox_wrapper_path.as_deref());
+            }
         }
         self.input_buf.remove(session_id);
         self.sessions_cwd.remove(session_id);
@@ -484,4 +513,43 @@ pub async fn process_and_send_terminal_input(
         .send(text)
         .await
         .map_err(|e| format!("Terminal send: {e}"))
+}
+
+/// Helper: build terminal CommandBuilder với Linux sandbox wrapper
+///
+/// Trên Linux: tạo wrapper script gọi `ulimit -v` rồi exec shell thật.
+/// Trên non-Linux: dùng shell trực tiếp.
+fn build_terminal_cmd(
+    shell: &str,
+    block_internet: bool,
+    wrapper_path_out: &mut Option<String>,
+) -> CommandBuilder {
+    #[cfg(target_os = "linux")]
+    {
+        let memory_limit_mb = 0u64; // Default: no memory limit (uses SandboxConfig)
+        match super::sandbox::linux::build_sandbox_wrapper_path(
+            &format!("/bin/{}", shell),
+            memory_limit_mb,
+            block_internet,
+        ) {
+            Ok(path) => {
+                let _ = wrapper_path_out.insert(path.clone());
+                let mut c = CommandBuilder::new(&path);
+                c.arg("--login");
+                c
+            }
+            Err(e) => {
+                eprintln!("[terminal] Failed to create sandbox wrapper: {e}, using direct shell");
+                let mut c = CommandBuilder::new(shell);
+                c.arg("--login");
+                c
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = block_internet;
+        let _ = wrapper_path_out;
+        CommandBuilder::new(shell)
+    }
 }

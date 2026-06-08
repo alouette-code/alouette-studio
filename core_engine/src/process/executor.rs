@@ -89,10 +89,13 @@ impl ProcessManager {
             }
 
             let sim_config_path = app_data_dir.join("env_simulation.yml");
-            let sim_config = crate::config::EnvSimulationConfig::load_all_from_file(&sim_config_path)
-                .ok()
-                .and_then(|map| map.get(&project_id_str).cloned())
-                .unwrap_or_else(|| crate::config::EnvSimulationConfig::default_for(&project_id_str));
+            let sim_config =
+                crate::config::EnvSimulationConfig::load_all_from_file(&sim_config_path)
+                    .ok()
+                    .and_then(|map| map.get(&project_id_str).cloned())
+                    .unwrap_or_else(|| {
+                        crate::config::EnvSimulationConfig::default_for(&project_id_str)
+                    });
 
             let is_sim_active = sim_config.firewall_enabled
                 || sim_config.weak_network_enabled
@@ -102,7 +105,8 @@ impl ProcessManager {
             if is_sim_active {
                 let params = super::network_simulate_proxy::SimulationParams {
                     firewall_enabled: sim_config.firewall_enabled,
-                    firewall_rules: sim_config.firewall_rules
+                    firewall_rules: sim_config
+                        .firewall_rules
                         .split(',')
                         .map(|s| s.trim().to_string())
                         .filter(|s| !s.is_empty())
@@ -115,29 +119,45 @@ impl ProcessManager {
                     unstable_server_enabled: sim_config.unstable_server_enabled,
                     unstable_server_drop_rate: sim_config.unstable_server_drop_rate,
                     unstable_server_error_rate: sim_config.unstable_server_error_rate,
-                    unstable_server_error_codes: sim_config.unstable_server_error_codes
+                    unstable_server_error_codes: sim_config
+                        .unstable_server_error_codes
                         .split(',')
                         .map(|s| s.trim().parse::<u16>().unwrap_or(500))
                         .collect(),
                 };
                 match super::network_simulate_proxy::start_proxy(params.clone()).await {
                     Ok(port) => {
-                        log_system!(format!("Watchdog: Khởi động Outbound Proxy Giả lập Môi trường trên cổng {}...", port));
+                        log_system!(format!(
+                            "Watchdog: Khởi động Outbound Proxy Giả lập Môi trường trên cổng {}...",
+                            port
+                        ));
                         proxy_port_opt = Some(port);
                     }
                     Err(e) => {
-                        log_system!(format!("Watchdog WARNING: Lỗi khởi động Outbound Proxy Giả lập: {}", e));
+                        log_system!(format!(
+                            "Watchdog WARNING: Lỗi khởi động Outbound Proxy Giả lập: {}",
+                            e
+                        ));
                     }
                 }
 
                 if let Some(port) = config.port {
                     let internal_port = port + 10000;
-                    match super::network_simulate_proxy::start_reverse_proxy_gateway(port, internal_port, params).await {
+                    match super::network_simulate_proxy::start_reverse_proxy_gateway(
+                        port,
+                        internal_port,
+                        params,
+                    )
+                    .await
+                    {
                         Ok(_) => {
                             log_system!(format!("Watchdog: Khởi động Inbound Reverse Proxy Gateway (Cổng ngoài: {}, Cổng trong: {})...", port, internal_port));
                         }
                         Err(e) => {
-                            log_system!(format!("Watchdog WARNING: Lỗi khởi động Inbound Reverse Proxy Gateway: {}", e));
+                            log_system!(format!(
+                                "Watchdog WARNING: Lỗi khởi động Inbound Reverse Proxy Gateway: {}",
+                                e
+                            ));
                         }
                     }
                 }
@@ -244,7 +264,32 @@ impl ProcessManager {
                     c.arg("/C").arg(&config.command).args(&config.args);
                     c
                 };
-                #[cfg(not(target_os = "windows"))]
+                #[cfg(target_os = "linux")]
+                let mut cmd = {
+                    // Dùng std::process::Command để inject pre_exec sandbox
+                    // sau đó convert sang tokio::process::Command
+                    let mut std_cmd = std::process::Command::new(&config.command);
+                    std_cmd.args(&config.args);
+
+                    // Inject Linux sandbox (NO_NEW_PRIVS + RLIMIT_AS + CLONE_NEWNET)
+                    // Sandbox active NGAY trước execve(), mili-giây thứ 0
+                    let memory_limit = config.max_ram_mb.unwrap_or(0);
+                    let block_net = false; // Network block do interceptor + network_isolate handle
+                    if let Err(e) = super::sandbox::linux::apply_sandbox_to_cmd(
+                        &mut std_cmd,
+                        memory_limit,
+                        block_net,
+                    ) {
+                        eprintln!(
+                            "[sandbox] Failed to apply Linux sandbox to '{}': {e}",
+                            config.id
+                        );
+                    }
+
+                    // Convert sang tokio::process::Command (giữ nguyên pre_exec)
+                    tokio::process::Command::from(std_cmd)
+                };
+                #[cfg(not(any(target_os = "windows", target_os = "linux")))]
                 let mut cmd = {
                     let mut c = tokio::process::Command::new(&config.command);
                     c.args(&config.args);
@@ -301,7 +346,10 @@ impl ProcessManager {
                             let log_sender_c = log_sender.clone();
                             let max_log_size = max_log_size;
                             Some(tokio::spawn(async move {
-                                tokio::time::sleep(tokio::time::Duration::from_secs(crash_secs as u64)).await;
+                                tokio::time::sleep(tokio::time::Duration::from_secs(
+                                    crash_secs as u64,
+                                ))
+                                .await;
                                 let text = format!("Watchdog WARNING: Kích hoạt mô phỏng Sập máy chủ (Periodic Server Crash) sau {} giây!", crash_secs);
                                 let _ = append_log_line(&log_file_c, &text, max_log_size).await;
                                 let _ = log_sender_c.send(ProcessLog {
@@ -343,9 +391,7 @@ impl ProcessManager {
                         let mut tunnel_pid: Option<u32> = None;
                         if config.enable_tunnel == Some(true) {
                             let (mode, token, active_port) = {
-                                let path = std::path::Path::new(
-                                    "d:/alouette-server/core_engine/app_data/cloudflare_config.yml",
-                                );
+                                let path = app_data_dir.join("cloudflare_config.yml");
                                 if path.exists() {
                                     let mut mode = "default".to_string();
                                     let mut global_token = None;

@@ -7,10 +7,17 @@ use tokio::sync::{broadcast, mpsc};
 pub enum ProcessState {
     Stopped,
     Setup,
-    Running { pid: u32 },
-    Crashing { retry_count: u32, backoff_seconds: u64 },
+    Running {
+        pid: u32,
+    },
+    Crashing {
+        retry_count: u32,
+        backoff_seconds: u64,
+    },
     Terminated,
-    Fatal { reason: String },
+    Fatal {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,7 +41,10 @@ pub struct TerminalSession {
     pub block_internet: bool,
     /// MUST keep child alive or portable-pty kills the process on drop.
     pub _child: Option<Box<dyn portable_pty::Child + Send>>,
+    /// Windows: Job Object handle (keep alive for sandbox enforcement)
     pub _job_handle: Option<usize>,
+    /// Linux: path to temp sandbox wrapper script (for cleanup)
+    pub _sandbox_wrapper_path: Option<String>,
 }
 
 impl Drop for TerminalSession {
@@ -44,6 +54,11 @@ impl Drop for TerminalSession {
             unsafe {
                 winapi::um::handleapi::CloseHandle(handle as *mut winapi::ctypes::c_void);
             }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Trên Linux, job_handle không dùng; wrapper path được cleanup ở kill_terminal
+            // Không làm gì thêm ở đây vì wrapper file đã được xóa trong kill_terminal
         }
     }
 }
