@@ -1,6 +1,8 @@
+use core_engine::agent_harness::session::SessionEntry;
 use core_engine::{ProcessManager, ResourceMonitor};
+use dashmap::DashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::RwLock;
 
 use core_engine::agent_harness::AgentSession;
 use std::sync::atomic::AtomicBool;
@@ -29,13 +31,16 @@ impl Default for LoopState {
 }
 
 pub struct AppState {
-    pub process_manager: Arc<Mutex<ProcessManager>>,
+    pub process_manager: Arc<tokio::sync::Mutex<ProcessManager>>,
     pub resource_monitor: Arc<ResourceMonitor>,
     pub agent_cancel_flag: Arc<AtomicBool>,
     pub agent_session: Arc<std::sync::Mutex<Option<AgentSession>>>,
     pub agent_loop_state: Arc<std::sync::Mutex<Option<LoopState>>>,
     pub db_pool: r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
     pub agent_harness: Arc<tokio::sync::Mutex<core_engine::agent_harness::AgentHarness>>,
+    // ─── NEW: Multi-session registry ───
+    pub agent_registry: Arc<DashMap<String, SessionEntry>>,
+    pub active_agent_project: Arc<RwLock<Option<String>>>,
 }
 
 /// Resolve the project root (parent of src-tauri) so that

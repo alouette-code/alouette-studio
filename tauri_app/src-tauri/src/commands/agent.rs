@@ -1,6 +1,7 @@
 use crate::commands::rig_bridge;
 use crate::state::{AppState, LoopState};
 use chrono::Local;
+use core_engine::agent_harness::session::{AgentSwitchInfo, SessionEntry, SWITCH_SEQUENCE};
 use core_engine::agent_harness::{
     AgentHarness, AgentSession, AgentState, ChatMessage, HarnessMode, LlmResponse, MessageContent,
     TickResult,
@@ -94,8 +95,33 @@ where
 }
 
 /// Trả về trạng thái hiện tại của agent (cho frontend poll)
+/// Ưu tiên check registry, fallback về agent_session cũ
 #[tauri::command]
 pub async fn agent_status(app_state: State<'_, AppState>) -> Result<Value, String> {
+    // Check registry first
+    let active_project = app_state.active_agent_project.read().await.clone();
+    if let Some(ref proj_id) = active_project {
+        if let Some(entry) = app_state.agent_registry.get(proj_id) {
+            let state_str = match &entry.agent_session.state {
+                AgentState::Idle => "idle",
+                AgentState::Thinking => "thinking",
+                AgentState::ExecutingTool => "executing_tool",
+                AgentState::AwaitingApproval(_) => "awaiting_approval",
+                AgentState::Verifying => "verifying",
+                AgentState::Finished(_) => "finished",
+                AgentState::Error(_) => "error",
+            };
+            return Ok(json!({
+                "session_id": entry.meta.session_id,
+                "state": if entry.is_paused() { "paused" } else { state_str },
+                "iteration": entry.agent_session.iteration_count,
+                "max_iterations": entry.agent_session.max_iterations,
+                "history_len": entry.agent_session.history.len(),
+            }));
+        }
+    }
+
+    // Fallback: old agent_session
     let session_store = &app_state.agent_session;
     let guard = session_store.lock().unwrap();
     if let Some(ref session) = *guard {
@@ -221,7 +247,10 @@ pub async fn agent_send_message(
     // Load model config
     let ai_cfg = load_custom_ai_config();
     let model_config = resolve_model_config(&ai_cfg, &model);
-    log_debug(&format!("Resolved model config: provider={}, api_standard={:?}, api_url={}", model_config.provider, model_config.api_standard, model_config.api_url));
+    log_debug(&format!(
+        "Resolved model config: provider={}, api_standard={:?}, api_url={}",
+        model_config.provider, model_config.api_standard, model_config.api_url
+    ));
     let api_key = resolve_api_key(&model_config)?;
 
     // Determine approval policy based on mode
@@ -358,8 +387,18 @@ pub async fn agent_send_message(
             }
         };
 
-        log_debug(&format!("Running tick... Current iteration: {}, State: {:?}", session.iteration_count, session.state));
-        let tick_res_val = run_tick(&mut harness, &mut session, &system_prompt, app_state.agent_cancel_flag.clone(), llm_closure).await;
+        log_debug(&format!(
+            "Running tick... Current iteration: {}, State: {:?}",
+            session.iteration_count, session.state
+        ));
+        let tick_res_val = run_tick(
+            &mut harness,
+            &mut session,
+            &system_prompt,
+            app_state.agent_cancel_flag.clone(),
+            llm_closure,
+        )
+        .await;
         let tick_res_type = match &tick_res_val {
             TickExecutionResult::Completed(tr) => match tr {
                 TickResult::Continue { .. } => "Continue",
@@ -721,7 +760,15 @@ pub async fn agent_approve_tool(
             }
         };
 
-        match run_tick(&mut harness, &mut session, &system_prompt, app_state.agent_cancel_flag.clone(), llm_closure).await {
+        match run_tick(
+            &mut harness,
+            &mut session,
+            &system_prompt,
+            app_state.agent_cancel_flag.clone(),
+            llm_closure,
+        )
+        .await
+        {
             TickExecutionResult::Completed(tick_res) => match tick_res {
                 TickResult::Finished { text, .. } => {
                     let mut session_guard = session_store.lock().unwrap();
@@ -1031,7 +1078,15 @@ pub async fn agent_approve_tool(
             }
         };
 
-        match run_tick(&mut harness, &mut session, &system_prompt, app_state.agent_cancel_flag.clone(), llm_closure).await {
+        match run_tick(
+            &mut harness,
+            &mut session,
+            &system_prompt,
+            app_state.agent_cancel_flag.clone(),
+            llm_closure,
+        )
+        .await
+        {
             TickExecutionResult::Completed(tick_res) => match tick_res {
                 TickResult::Continue {
                     thought,
@@ -1692,7 +1747,12 @@ fn log_debug(msg: &str) {
         .open(log_file)
     {
         use std::io::Write;
-        let _ = writeln!(file, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f"), msg);
+        let _ = writeln!(
+            file,
+            "[{}] {}",
+            chrono::Local::now().format("%Y-%m-%d %H:%M:%S.%3f"),
+            msg
+        );
     }
 }
 
@@ -1753,20 +1813,28 @@ fn init_history_db(conn: &Connection) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn agent_get_history(app_state: State<'_, AppState>) -> Result<Vec<AgentHistoryItem>, String> {
+pub async fn agent_get_history(
+    project_id: Option<String>,
+    app_state: State<'_, AppState>,
+) -> Result<Vec<AgentHistoryItem>, String> {
     let pool = app_state.db_pool.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = pool.get()
+        let conn = pool
+            .get()
             .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
 
         init_history_db(&conn)?;
 
-        let mut stmt = conn
-            .prepare("SELECT session_id, title, created_at, model, mode, active_cwd FROM history_agen ORDER BY created_at DESC;")
-            .map_err(|e| format!("Failed to prepare query: {}", e))?;
-
-        let history_iter = stmt
-            .query_map([], |row| {
+        let mut stmt;
+        let history_iter: Vec<AgentHistoryItem> = if let Some(ref pid) = project_id {
+            stmt = conn
+                .prepare(
+                    "SELECT session_id, title, created_at, model, mode, active_cwd \
+                     FROM history_agen WHERE project_id = ?1 \
+                     ORDER BY created_at DESC;",
+                )
+                .map_err(|e| format!("Failed to prepare query: {}", e))?;
+            stmt.query_map(params![pid], |row| {
                 Ok(AgentHistoryItem {
                     session_id: row.get(0)?,
                     title: row.get(1)?,
@@ -1776,13 +1844,32 @@ pub async fn agent_get_history(app_state: State<'_, AppState>) -> Result<Vec<Age
                     active_cwd: row.get(5)?,
                 })
             })
-            .map_err(|e| format!("Failed to query history: {}", e))?;
+            .map_err(|e| format!("Failed to query history: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect()
+        } else {
+            stmt = conn
+                .prepare(
+                    "SELECT session_id, title, created_at, model, mode, active_cwd \
+                     FROM history_agen ORDER BY created_at DESC;",
+                )
+                .map_err(|e| format!("Failed to prepare query: {}", e))?;
+            stmt.query_map([], |row| {
+                Ok(AgentHistoryItem {
+                    session_id: row.get(0)?,
+                    title: row.get(1)?,
+                    created_at: row.get(2)?,
+                    model: row.get(3)?,
+                    mode: row.get(4)?,
+                    active_cwd: row.get(5)?,
+                })
+            })
+            .map_err(|e| format!("Failed to query history: {}", e))?
+            .filter_map(|r| r.ok())
+            .collect()
+        };
 
-        let mut list = Vec::new();
-        for item in history_iter {
-            list.push(item.map_err(|e| e.to_string())?);
-        }
-        Ok(list)
+        Ok(history_iter)
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))?
@@ -1862,13 +1949,15 @@ pub async fn save_agent_session(
     model: String,
     mode: String,
     active_cwd: Option<String>,
+    project_id: Option<String>,
     frontend_history: serde_json::Value,
     app_state: State<'_, AppState>,
 ) -> Result<(), String> {
     let session_store = app_state.agent_session.clone();
     let pool = app_state.db_pool.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = pool.get()
+        let conn = pool
+            .get()
             .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
 
         init_history_db(&conn)?;
@@ -1892,8 +1981,10 @@ pub async fn save_agent_session(
         let created_at = chrono::Local::now().timestamp();
 
         conn.execute(
-            "INSERT OR REPLACE INTO history_agen (session_id, title, created_at, model, mode, active_cwd, backend_history, frontend_history)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);",
+            "INSERT OR REPLACE INTO history_agen \
+             (session_id, title, created_at, model, mode, active_cwd, project_id, \
+              backend_history, frontend_history) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9);",
             params![
                 session_id,
                 title,
@@ -1901,6 +1992,7 @@ pub async fn save_agent_session(
                 model,
                 mode,
                 active_cwd,
+                project_id,
                 backend_history_json,
                 frontend_history_str,
             ],
@@ -1920,13 +2012,17 @@ pub async fn agent_delete_session(
 ) -> Result<(), String> {
     let pool = app_state.db_pool.clone();
     tokio::task::spawn_blocking(move || {
-        let conn = pool.get()
+        let conn = pool
+            .get()
             .map_err(|e| format!("Failed to get connection from pool: {}", e))?;
 
         init_history_db(&conn)?;
 
-        conn.execute("DELETE FROM history_agen WHERE session_id = ?1;", params![session_id])
-            .map_err(|e| format!("Failed to delete session: {}", e))?;
+        conn.execute(
+            "DELETE FROM history_agen WHERE session_id = ?1;",
+            params![session_id],
+        )
+        .map_err(|e| format!("Failed to delete session: {}", e))?;
 
         Ok(())
     })
@@ -1934,3 +2030,203 @@ pub async fn agent_delete_session(
     .map_err(|e| format!("Task join error: {}", e))?
 }
 
+// ─── Multi-Session: Switch Agent Project ─────────────────────────────────
+
+/// Chuyển đổi active project cho AI agent.
+/// - Pause agent cũ (nếu có runtime)
+/// - Resume agent mới (nếu có session trong registry)
+/// - Dùng sequence number để chống stale request
+#[tauri::command]
+pub async fn switch_agent_project(
+    new_project_id: String,
+    new_project_cwd: String,
+    seq: u64,
+    app_state: State<'_, AppState>,
+) -> Result<AgentSwitchInfo, String> {
+    // 1. Sequence number check — reject stale
+    let current_seq = SWITCH_SEQUENCE.load(std::sync::atomic::Ordering::Acquire);
+    if seq < current_seq {
+        return Err("Stale switch request".to_string());
+    }
+    SWITCH_SEQUENCE.store(seq, std::sync::atomic::Ordering::Release);
+
+    // 2. Pause old project's agent
+    {
+        let old = app_state.active_agent_project.read().await.clone();
+        if let Some(ref old_id) = old {
+            if old_id != &new_project_id {
+                if let Some(mut entry) = app_state.agent_registry.get_mut(old_id) {
+                    if entry.runtime.is_some() {
+                        entry.pause().await;
+                        log_debug(&format!("[Switch] Paused agent for project: {}", old_id));
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Update active project
+    *app_state.active_agent_project.write().await = Some(new_project_id.clone());
+
+    // 4. Resume new project's agent (nếu có)
+    let mut is_new = false;
+    let mut found_session_id = None;
+    let mut old_status = "idle".to_string();
+    {
+        let mut entry_opt = app_state.agent_registry.get_mut(&new_project_id);
+        if let Some(ref mut entry) = entry_opt {
+            if entry.runtime.is_some() {
+                entry.resume();
+                old_status = if entry.is_paused() {
+                    "paused".to_string()
+                } else {
+                    "running".to_string()
+                };
+                log_debug(&format!(
+                    "[Switch] Resumed agent for project: {}",
+                    new_project_id
+                ));
+            }
+            found_session_id = Some(entry.meta.session_id.clone());
+            entry.meta.last_accessed = chrono::Local::now().timestamp();
+        } else {
+            is_new = true;
+        }
+    }
+
+    // 5. Update AgentHarness workspace_root
+    {
+        let mut harness = app_state.agent_harness.lock().await;
+        harness.set_workspace_root(&std::path::PathBuf::from(&new_project_cwd));
+    }
+
+    // 6. Tạo entry mới nếu chưa có
+    if is_new {
+        log_debug(&format!(
+            "[Switch] Creating new session for project: {}",
+            new_project_id
+        ));
+        app_state.agent_registry.insert(
+            new_project_id.clone(),
+            SessionEntry::new(&new_project_id, &new_project_cwd, "", ""),
+        );
+        old_status = "idle".to_string();
+    }
+
+    // 7. LRU eviction nếu cần
+    evict_if_needed(&app_state.agent_registry).await;
+
+    Ok(AgentSwitchInfo {
+        session_id: found_session_id,
+        has_history: !is_new,
+        old_status,
+    })
+}
+
+// ─── Lazy Load History (Pagination) ──────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct HistoryPage {
+    pub items: Vec<serde_json::Value>,
+    pub total: usize,
+    pub page: usize,
+    pub page_size: usize,
+}
+
+/// Load lịch sử chat theo trang — KHÔNG gửi full history qua IPC
+#[tauri::command]
+pub async fn load_history_page(
+    session_id: String,
+    page: usize,
+    page_size: Option<usize>,
+    app_state: State<'_, AppState>,
+) -> Result<HistoryPage, String> {
+    let page_size = page_size.unwrap_or(50);
+    let pool = app_state.db_pool.clone();
+
+    tokio::task::spawn_blocking(move || {
+        let conn = pool
+            .get()
+            .map_err(|e| format!("Failed to get connection: {}", e))?;
+
+        init_history_db(&conn)?;
+
+        // Count total
+        let total: usize = conn
+            .query_row(
+                "SELECT COUNT(*) FROM history_agen WHERE session_id = ?1;",
+                params![session_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map_err(|e| e.to_string())? as usize;
+
+        // Load frontend_history
+        let frontend_json: String = conn
+            .query_row(
+                "SELECT frontend_history FROM history_agen WHERE session_id = ?1;",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("Failed to load history: {}", e))?;
+
+        let all_items: Vec<serde_json::Value> =
+            serde_json::from_str(&frontend_json).unwrap_or_default();
+
+        // Paginate
+        let start = page * page_size;
+        let items: Vec<serde_json::Value> =
+            all_items.into_iter().skip(start).take(page_size).collect();
+
+        Ok(HistoryPage {
+            items,
+            total,
+            page,
+            page_size,
+        })
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+}
+
+// ─── LRU Eviction ────────────────────────────────────────────────────────
+
+/// Evict sessions khỏi RAM nếu vượt quá giới hạn (max 5).
+/// Chỉ evict session có is_evictable() = true (runtime None hoặc paused).
+async fn evict_if_needed(registry: &dashmap::DashMap<String, SessionEntry>) {
+    const MAX_SESSIONS: usize = 5;
+
+    if registry.len() <= MAX_SESSIONS {
+        return;
+    }
+
+    // Tìm candidates: session evictable + cũ nhất
+    let mut candidates: Vec<(String, i64)> = registry
+        .iter()
+        .filter(|e| e.is_evictable())
+        .map(|e| (e.key().clone(), e.meta.last_accessed))
+        .collect();
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    // Sort by last_accessed ascending (cũ nhất trước)
+    candidates.sort_by(|a, b| a.1.cmp(&b.1));
+
+    let victim_id = candidates[0].0.clone();
+    log_debug(&format!(
+        "[LRU] Evicting session for project: {} (idle since {})",
+        victim_id, candidates[0].1
+    ));
+
+    if let Some((_, mut entry)) = registry.remove(&victim_id) {
+        // Kill task nếu đang chạy
+        if let Some(ref mut runtime) = entry.runtime {
+            if let Some(handle) = runtime.task_handle.take() {
+                handle.abort();
+            }
+        }
+        // Flush history to disk
+        entry.history_store.flush_to_disk().await;
+    }
+}

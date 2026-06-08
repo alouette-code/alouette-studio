@@ -27,6 +27,7 @@ futures-util = "0.3.32"
 r2d2 = "0.8"
 r2d2_sqlite = "0.34.0"
 secrecy = { version = "0.8", features = ["serde"] }
+dashmap = "6.1"
 
 
 

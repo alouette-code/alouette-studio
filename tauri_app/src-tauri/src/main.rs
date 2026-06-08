@@ -8,10 +8,11 @@ mod state;
 mod system_manager;
 
 use core_engine::{ProcessManager, ProcessState, ResourceMonitor};
+use dashmap::DashMap;
 use state::{project_root, AppState};
 use std::sync::Arc;
 use tauri::Manager;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, RwLock};
 
 fn main() {
     // Resolve paths relative to the project root (parent of src-tauri)
@@ -41,9 +42,16 @@ fn main() {
                     model TEXT NOT NULL,
                     mode TEXT NOT NULL,
                     active_cwd TEXT,
+                    project_id TEXT DEFAULT '',
                     backend_history TEXT NOT NULL,
                     frontend_history TEXT NOT NULL
                 );",
+                [],
+            );
+
+            // Migration: add project_id column if not exists (backward compat)
+            let _ = conn.execute(
+                "ALTER TABLE history_agen ADD COLUMN project_id TEXT DEFAULT '';",
                 [],
             );
         }
@@ -55,6 +63,9 @@ fn main() {
     let mut harness_raw = core_engine::agent_harness::AgentHarness::new(&default_workspace);
     harness_raw.cancel_flag = agent_cancel_flag.clone();
     let agent_harness = Arc::new(tokio::sync::Mutex::new(harness_raw));
+
+    let agent_registry = Arc::new(DashMap::new());
+    let active_agent_project = Arc::new(RwLock::new(None));
 
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
@@ -68,6 +79,8 @@ fn main() {
             agent_loop_state: Arc::new(std::sync::Mutex::new(None)),
             db_pool,
             agent_harness,
+            agent_registry,
+            active_agent_project,
         })
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.
@@ -235,6 +248,8 @@ fn main() {
             commands::agent::load_agent_session,
             commands::agent::save_agent_session,
             commands::agent::agent_delete_session,
+            commands::agent::switch_agent_project,
+            commands::agent::load_history_page,
             toggle_alouette_open,
             is_alouette_open_active,
             commands::git::git_get_status,

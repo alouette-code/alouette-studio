@@ -542,6 +542,18 @@ export default function AiAgent({
     {},
   );
 
+  // ─── Multi-Session: Switch Project ─────────────────────────────────
+  const prevProjectIdRef = useRef<string | undefined>(undefined);
+  const switchSeqRef = useRef<number>(0);
+  const switchingRef = useRef<boolean>(false);
+
+  // Badge: hiển thị trạng thái agent cũ
+  const [agentBadge, setAgentBadge] = useState<{
+    visible: boolean;
+    text: string;
+    type: "paused" | "running" | "idle";
+  }>({ visible: false, text: "", type: "idle" });
+
   // Mentions (@) Autocomplete states
   const [allWorkspaceFiles, setAllWorkspaceFiles] = useState<
     Array<{ name: string; path: string; is_dir: boolean }>
@@ -796,6 +808,7 @@ export default function AiAgent({
         model: selectedModel,
         mode: selectedMode,
         activeCwd: activeProjectCwd || null,
+        projectId: activeProjectId || null,
         frontendHistory: history,
       });
     } catch (err) {
@@ -821,6 +834,93 @@ export default function AiAgent({
       }
     }
   }, [initialSessionData]);
+
+  // ─── Multi-Session: Watch Project Switch ────────────────────────────
+  // Debounce 150ms + AbortController + Global Lock serialize
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const prev = prevProjectIdRef.current;
+    if (prev === activeProjectId) return;
+
+    const controller = new AbortController();
+    const seq = ++switchSeqRef.current;
+
+    const timer = setTimeout(async () => {
+      // Serialize: bỏ qua nếu đang có switch khác
+      if (switchingRef.current) return;
+      switchingRef.current = true;
+
+      try {
+        if (controller.signal.aborted) return;
+
+        // 1. Save session cũ (nếu có)
+        if (sessionId && chatHistory.length > 0) {
+          await saveSession(chatHistory, sessionTitle, sessionId);
+        }
+
+        if (controller.signal.aborted) return;
+
+        // 2. Gọi backend switch project
+        const info: any = await invoke("switch_agent_project", {
+          newProjectId: activeProjectId,
+          newProjectCwd: activeProjectCwd || "",
+          seq: seq,
+        });
+
+        if (controller.signal.aborted) return;
+
+        // 3. Load history lazy (trang 1)
+        if (info.session_id) {
+          setSessionId(info.session_id);
+          try {
+            const page: any = await invoke("load_history_page", {
+              sessionId: info.session_id,
+              page: 0,
+              pageSize: 50,
+            });
+            if (!controller.signal.aborted && page?.items) {
+              setChatHistory(page.items);
+            }
+          } catch {
+            // No history yet — session mới
+            if (!controller.signal.aborted) {
+              setChatHistory([]);
+            }
+          }
+        } else {
+          if (!controller.signal.aborted) {
+            setChatHistory([]);
+            setSessionId(null);
+            setSessionTitle("New Chat");
+          }
+        }
+
+        // 4. Show badge nếu agent cũ bị pause
+        if (info.old_status === "paused") {
+          setAgentBadge({
+            visible: true,
+            text: "⏸️ Agent tạm dừng ở project trước",
+            type: "paused",
+          });
+          setTimeout(() => {
+            setAgentBadge((prev) => ({ ...prev, visible: false }));
+          }, 5000);
+        }
+
+        // Reset active tool state
+        setActiveTool({ status: "idle" });
+        setActiveThought(null);
+      } finally {
+        switchingRef.current = false;
+      }
+    }, 150); // Debounce 150ms
+
+    prevProjectIdRef.current = activeProjectId;
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [activeProjectId, activeProjectCwd]);
 
   const handleLoadSession = async (sessId: string, title?: string) => {
     if (onLoadSession) {
@@ -858,7 +958,9 @@ export default function AiAgent({
 
   const handleOpenHistoryModal = async () => {
     try {
-      const list = await invoke<any[]>("agent_get_history");
+      const list = await invoke<any[]>("agent_get_history", {
+        projectId: activeProjectId || null,
+      });
       setHistoryItems(list);
       setHistoryModalOpen(true);
       setMenuOpen(false);
@@ -1828,10 +1930,21 @@ export default function AiAgent({
   const handleNewChat = async () => {
     try {
       await invoke("agent_reset_session");
+      // Also update registry: switch to a fresh session
+      if (activeProjectId) {
+        const seq = ++switchSeqRef.current;
+        await invoke("switch_agent_project", {
+          newProjectId: activeProjectId,
+          newProjectCwd: activeProjectCwd || "",
+          seq: seq,
+        });
+      }
       setChatHistory([]);
       setSessionId(null);
       setSessionTitle("New Chat");
       setMenuOpen(false);
+      setActiveTool({ status: "idle" });
+      setActiveThought(null);
     } catch (err: any) {
       alert(`Lỗi khi reset session: ${err?.message || err}`);
     }
@@ -2112,6 +2225,21 @@ export default function AiAgent({
             >
               {sessionTitle}
             </span>
+            {agentBadge.visible && (
+              <span
+                style={{
+                  fontSize: "9px",
+                  color:
+                    agentBadge.type === "paused"
+                      ? "var(--color-warning, #f59e0b)"
+                      : "var(--color-success, #22c55e)",
+                  lineHeight: 1,
+                  marginTop: "1px",
+                }}
+              >
+                {agentBadge.text}
+              </span>
+            )}
             <span
               style={{
                 fontSize: "9px",

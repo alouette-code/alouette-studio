@@ -15,6 +15,7 @@ pub mod memory;
 pub mod parser;
 pub mod plan;
 pub mod self_heal;
+pub mod session;
 pub mod skills;
 pub mod telemetry;
 pub mod tool_definitions;
@@ -744,7 +745,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         let metadata = fs::metadata(&verified_path)
             .map_err(|e| format!("Failed to read file metadata: {}", e))?;
         let file_size = metadata.len();
-        
+
         let max_size = 2 * 1024 * 1024; // 2MB
         if file_size > max_size {
             return Err(format!(
