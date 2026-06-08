@@ -538,9 +538,34 @@ export default function AiAgent({
   const [sessionTitle, setSessionTitle] = useState("New Chat");
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [thinkingMode, setThinkingMode] = useState<"high" | "low">("low");
+  const [showTokenTooltip, setShowTokenTooltip] = useState(false);
+  const [totalSessionTokens, setTotalSessionTokens] = useState<number>(0);
   const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
     {},
   );
+
+  // ─── Token Estimation ────────────────────────────────────────────────
+  const estimateTokens = (text: string): number => {
+    if (!text) return 0;
+    // Heuristic: ~4 ký tự ≈ 1 token (ước lượng)
+    return Math.max(1, Math.ceil(text.length / 4));
+  };
+
+  const estimatedInputTokens = useMemo(
+    () => estimateTokens(inputVal),
+    [inputVal],
+  );
+
+  const tokenBreakdown = useMemo(() => {
+    let total = 0;
+    const perMsg: number[] = [];
+    for (const msg of chatHistory) {
+      const t = msg.text ? estimateTokens(msg.text) : 0;
+      perMsg.push(t);
+      total += t;
+    }
+    return { total, perMsg };
+  }, [chatHistory]);
 
   // ─── Multi-Session: Switch Project ─────────────────────────────────
   const prevProjectIdRef = useRef<string | undefined>(undefined);
@@ -1054,6 +1079,20 @@ export default function AiAgent({
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const processedIters = useRef<Set<string>>(new Set());
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [isCompact, setIsCompact] = useState(false);
+
+  // Track panel width and toggle compact mode
+  useEffect(() => {
+    if (!panelRef.current) return;
+    const obs = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setIsCompact(entry.contentRect.width < 320);
+      }
+    });
+    obs.observe(panelRef.current);
+    return () => obs.disconnect();
+  }, []);
 
   useEffect(() => {
     let unlistenText: any;
@@ -1136,6 +1175,11 @@ export default function AiAgent({
       if (unlistenStreamComplete) unlistenStreamComplete();
     };
   }, []);
+
+  // ─── Sync totalSessionTokens ────────────────────────────────────────
+  useEffect(() => {
+    setTotalSessionTokens(tokenBreakdown.total);
+  }, [tokenBreakdown.total]);
 
   useEffect(() => {
     const loadActiveModels = async () => {
@@ -2122,6 +2166,7 @@ export default function AiAgent({
 
   return (
     <div
+      ref={panelRef}
       style={{
         display: "flex",
         flexDirection: "column",
@@ -2245,6 +2290,7 @@ export default function AiAgent({
                 fontSize: "9px",
                 color: "var(--text-muted)",
                 lineHeight: 1,
+                display: isCompact ? "none" : "block",
               }}
             >
               {chatHistory.length} tin nhắn · {selectedMode}
@@ -3325,7 +3371,7 @@ export default function AiAgent({
                 (e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)")
               }
             >
-              <span>Local Config</span>
+              <span style={{ display: isCompact ? "none" : "inline" }}>Local Config</span>
               <ChevronDown size={11} style={{ opacity: 0.8 }} />
             </button>
           </div>
@@ -3688,7 +3734,7 @@ export default function AiAgent({
                   type="button"
                   onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
                   style={{
-                    display: "flex",
+                    display: isCompact ? "none" : "flex",
                     alignItems: "center",
                     gap: "4px",
                     padding: "4px 8px",
@@ -3789,6 +3835,153 @@ export default function AiAgent({
               </button>
             </div>
 
+            {/* Token counter (center) */}
+            <span
+              style={{
+                position: "relative",
+                display: isCompact ? "none" : "inline-flex",
+                alignItems: "center",
+                gap: "5px",
+                cursor: "help",
+                userSelect: "none",
+              }}
+              onMouseEnter={() => setShowTokenTooltip(true)}
+              onMouseLeave={() => setShowTokenTooltip(false)}
+            >
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: "14px",
+                  height: "14px",
+                  borderRadius: "50%",
+                  background: showTokenTooltip
+                    ? "rgba(167, 139, 250, 0.15)"
+                    : "rgba(255, 255, 255, 0.05)",
+                  border: showTokenTooltip
+                    ? "1px solid rgba(167, 139, 250, 0.5)"
+                    : "1px solid rgba(255, 255, 255, 0.1)",
+                  fontSize: "7px",
+                  fontWeight: 700,
+                  color: showTokenTooltip
+                    ? "#a78bfa"
+                    : "rgba(255, 255, 255, 0.35)",
+                  transition: "all 0.2s",
+                  lineHeight: 1,
+                  flexShrink: 0,
+                }}
+              >
+                Σ
+              </span>
+              <span
+                style={{
+                  fontSize: "11px",
+                  color: showTokenTooltip
+                    ? "rgba(255,255,255,0.7)"
+                    : "rgba(255, 255, 255, 0.35)",
+                  transition: "color 0.2s",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {inputVal.trim()
+                  ? `~${estimatedInputTokens}`
+                  : `~${totalSessionTokens.toLocaleString()}`}
+              </span>
+
+              {/* Tooltip (pops up above) */}
+              {showTokenTooltip && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: "calc(100% + 10px)",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "#1a1a1f",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: "8px",
+                    padding: "8px 12px",
+                    whiteSpace: "nowrap",
+                    zIndex: 2000,
+                    boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+                    pointerEvents: "none",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "10px",
+                      fontWeight: 700,
+                      color: "rgba(255,255,255,0.9)",
+                      marginBottom: "6px",
+                      letterSpacing: "0.03em",
+                    }}
+                  >
+                    Ước lượng Token
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: "3px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "16px",
+                        fontSize: "10px",
+                        color: "rgba(255,255,255,0.6)",
+                      }}
+                    >
+                      <span>Tin nhắn hiện tại</span>
+                      <span
+                        style={{
+                          color: "#a78bfa",
+                          fontWeight: 600,
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        ~{estimatedInputTokens}
+                      </span>
+                    </div>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        gap: "16px",
+                        fontSize: "10px",
+                        color: "rgba(255,255,255,0.6)",
+                      }}
+                    >
+                      <span>Tổng session</span>
+                      <span
+                        style={{
+                          color: "#38bdf8",
+                          fontWeight: 600,
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        ~{totalSessionTokens.toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    style={{
+                      marginTop: "6px",
+                      paddingTop: "5px",
+                      borderTop: "1px solid rgba(255,255,255,0.06)",
+                      fontSize: "9px",
+                      color: "rgba(255,255,255,0.3)",
+                      fontStyle: "italic",
+                    }}
+                  >
+                    ~4 ký tự / token
+                  </div>
+                </div>
+              )}
+            </span>
+
             {/* Blue Send / Cancel Button */}
             {isTyping ? (
               <button
@@ -3878,7 +4071,7 @@ export default function AiAgent({
               (e.currentTarget.style.color = "rgba(255, 255, 255, 0.4)")
             }
           >
-            <span>← Last Session</span>
+            <span style={{ display: isCompact ? "none" : "inline" }}>← Last Session</span>
           </button>
 
           {/* Status indicator */}
@@ -3899,7 +4092,7 @@ export default function AiAgent({
                 background: isTyping ? "#f59e0b" : "#22c55e",
               }}
             />
-            <span>{isTyping ? "Đang xử lý" : "Sẵn sàng"}</span>
+            {!isCompact && <span>{isTyping ? "Đang xử lý" : "Sẵn sàng"}</span>}
           </div>
         </div>
       </div>

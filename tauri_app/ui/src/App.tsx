@@ -262,7 +262,7 @@ export default function App() {
 
   // Resizable Panel States
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(220);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(320);
+  const [rightSidebarWidth, setRightSidebarWidth] = useState(380);
   const [tabListHeight, setTabListHeight] = useState(250);
   const [monitorHeight, setMonitorHeight] = useState(250);
   const [configHeight, setConfigHeight] = useState(300);
@@ -688,8 +688,8 @@ export default function App() {
     setIsDraggingRight(true);
     const handleMouseMove = (moveEvent: MouseEvent) => {
       const newWidth = Math.max(
-        200,
-        Math.min(500, window.innerWidth - moveEvent.clientX),
+        280,
+        Math.min(600, window.innerWidth - moveEvent.clientX),
       );
       setRightSidebarWidth(newWidth);
     };
