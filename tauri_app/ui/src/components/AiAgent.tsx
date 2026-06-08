@@ -543,12 +543,16 @@ export default function AiAgent({
   );
 
   // Mentions (@) Autocomplete states
-  const [allWorkspaceFiles, setAllWorkspaceFiles] = useState<Array<{ name: string; path: string; is_dir: boolean }>>([]);
+  const [allWorkspaceFiles, setAllWorkspaceFiles] = useState<
+    Array<{ name: string; path: string; is_dir: boolean }>
+  >([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionTriggerIndex, setMentionTriggerIndex] = useState(-1);
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
-  const [selectedContextItems, setSelectedContextItems] = useState<Array<{ name: string; path: string; is_dir: boolean }>>([]);
+  const [selectedContextItems, setSelectedContextItems] = useState<
+    Array<{ name: string; path: string; is_dir: boolean }>
+  >([]);
 
   // Fetch all files and directories on mount or CWD change
   useEffect(() => {
@@ -649,7 +653,11 @@ export default function AiAgent({
     }
   };
 
-  const handleSelectMention = (item: { name: string; path: string; is_dir: boolean }) => {
+  const handleSelectMention = (item: {
+    name: string;
+    path: string;
+    is_dir: boolean;
+  }) => {
     if (!textareaRef.current) return;
     const text = inputVal;
     const start = mentionTriggerIndex;
@@ -680,19 +688,44 @@ export default function AiAgent({
   const SafeMarkdown = ({ content }: { content: string }) => {
     const strictSchema = {
       tagNames: [
-        'p', 'br', 'b', 'i', 'strong', 'em', 'strike', 'code', 'pre', 'del',
-        'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote',
-        'a', 'img', 'table', 'thead', 'tbody', 'tr', 'th', 'td'
+        "p",
+        "br",
+        "b",
+        "i",
+        "strong",
+        "em",
+        "strike",
+        "code",
+        "pre",
+        "del",
+        "ul",
+        "ol",
+        "li",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "blockquote",
+        "a",
+        "img",
+        "table",
+        "thead",
+        "tbody",
+        "tr",
+        "th",
+        "td",
       ],
       attributes: {
-        a: ['href', 'title', 'target'],
-        img: ['src', 'alt', 'title'],
-        '*': ['className']
+        a: ["href", "title", "target"],
+        img: ["src", "alt", "title"],
+        "*": ["className"],
       },
       protocols: {
-        href: ['http', 'https', 'mailto'],
-        src: ['http', 'https']
-      }
+        href: ["http", "https", "mailto"],
+        src: ["http", "https"],
+      },
     };
 
     const sanitizedContent = DOMPurify.sanitize(content);
@@ -702,88 +735,54 @@ export default function AiAgent({
         rehypePlugins={[[rehypeSanitize, strictSchema]]}
         components={{
           code({ node, inline, className, children, ...props }: any) {
-            const codeContent = String(children).replace(/\n$/, '');
+            const codeContent = String(children).replace(/\n$/, "");
             if (!inline) {
               return (
-                <pre className="code-block" style={{ margin: 0, padding: '10px', background: 'var(--bg-secondary)', borderRadius: '4px', overflowX: 'auto' }}>
-                  <code className={className} style={{ fontFamily: 'var(--font-mono)', fontSize: '11.5px', color: 'var(--text-primary)' }}>
+                <pre
+                  className="code-block"
+                  style={{
+                    margin: 0,
+                    padding: "10px",
+                    background: "var(--bg-secondary)",
+                    borderRadius: "4px",
+                    overflowX: "auto",
+                  }}
+                >
+                  <code
+                    className={className}
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: "11.5px",
+                      color: "var(--text-primary)",
+                    }}
+                  >
                     {codeContent}
                   </code>
                 </pre>
               );
             }
             return (
-              <code className={className} style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: '3px', color: 'var(--color-accent)' }} {...props}>
+              <code
+                className={className}
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  background: "var(--bg-secondary)",
+                  padding: "2px 4px",
+                  borderRadius: "3px",
+                  color: "var(--color-accent)",
+                }}
+                {...props}
+              >
                 {children}
               </code>
             );
-          }
+          },
         }}
       >
         {sanitizedContent}
       </ReactMarkdown>
     );
   };
-
-  const renderFormattedText = (text: string) => {
-    if (!text) return "";
-
-    const regex = /`@([^`]+)`|@([a-zA-Z0-9_\-\.\/]+)/g;
-    const parts = [];
-    let lastIndex = 0;
-    let match;
-
-    while ((match = regex.exec(text)) !== null) {
-      const matchIndex = match.index;
-      if (matchIndex > lastIndex) {
-        parts.push(text.substring(lastIndex, matchIndex));
-      }
-
-      const matchedPath = match[1] || match[2];
-      const fileItem = allWorkspaceFiles.find((f) => f.path === matchedPath);
-      const isDir = fileItem ? fileItem.is_dir : !matchedPath.includes(".");
-
-      const badgeBg = "rgba(255, 255, 255, 0.05)";
-      const badgeBorder = "rgba(255, 255, 255, 0.12)";
-      const badgeColor = "rgba(255, 255, 255, 0.85)";
-
-      parts.push(
-        <span
-          key={matchIndex}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            gap: "4px",
-            background: badgeBg,
-            border: `1px solid ${badgeBorder}`,
-            color: badgeColor,
-            padding: "1px 6px",
-            borderRadius: "4px",
-            fontFamily: "var(--font-mono)",
-            fontSize: "11.5px",
-            margin: "0 2px",
-            verticalAlign: "middle",
-          }}
-        >
-          {isDir ? (
-            <Folder size={11} style={{ color: "rgba(255, 255, 255, 0.5)", flexShrink: 0 }} />
-          ) : (
-            <File size={11} style={{ color: "rgba(255, 255, 255, 0.5)", flexShrink: 0 }} />
-          )}
-          {matchedPath}
-        </span>
-      );
-
-      lastIndex = regex.lastIndex;
-    }
-
-    if (lastIndex < text.length) {
-      parts.push(text.substring(lastIndex));
-    }
-
-    return parts.length > 0 ? parts : text;
-  };
-
 
   const saveSession = async (
     history: ChatItem[],
@@ -1546,7 +1545,9 @@ export default function AiAgent({
 
     let text = inputVal;
     if (hasContext) {
-      const contextPrefix = selectedContextItems.map((item) => `\`@${item.path}\``).join(" ");
+      const contextPrefix = selectedContextItems
+        .map((item) => `\`@${item.path}\``)
+        .join(" ");
       text = contextPrefix + (text.trim() ? "\n\n" + text : "");
     }
 
@@ -1855,7 +1856,10 @@ export default function AiAgent({
         return;
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setMentionSelectedIndex((prev) => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+        setMentionSelectedIndex(
+          (prev) =>
+            (prev - 1 + filteredMentions.length) % filteredMentions.length,
+        );
         return;
       } else if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
@@ -2749,9 +2753,13 @@ export default function AiAgent({
                 }}
               >
                 {item.sender === "agent" && item.text?.startsWith("Lỗi") ? (
-                  <div style={{ color: "#ef4444" }}><SafeMarkdown content={item.text} /></div>
+                  <div style={{ color: "#ef4444" }}>
+                    <SafeMarkdown content={item.text} />
+                  </div>
                 ) : (
-                  <div><SafeMarkdown content={item.text || ""} /></div>
+                  <div>
+                    <SafeMarkdown content={item.text || ""} />
+                  </div>
                 )}
 
                 {/* Copy button for agent messages */}
@@ -3254,7 +3262,8 @@ export default function AiAgent({
                 background: "#242424",
                 border: "1px solid rgba(255, 255, 255, 0.1)",
                 borderRadius: "8px",
-                boxShadow: "0 -8px 24px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5)",
+                boxShadow:
+                  "0 -8px 24px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5)",
                 zIndex: 1000,
                 maxHeight: "220px",
                 overflowY: "auto",
@@ -3278,7 +3287,9 @@ export default function AiAgent({
                       gap: "8px",
                       width: "100%",
                       padding: "6px 10px",
-                      background: isSelected ? "rgba(255, 255, 255, 0.08)" : "transparent",
+                      background: isSelected
+                        ? "rgba(255, 255, 255, 0.08)"
+                        : "transparent",
                       border: "none",
                       borderRadius: "6px",
                       color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
@@ -3290,11 +3301,25 @@ export default function AiAgent({
                     }}
                   >
                     {item.is_dir ? (
-                      <Folder size={13} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                      <Folder
+                        size={13}
+                        style={{
+                          color: "rgba(255, 255, 255, 0.45)",
+                          flexShrink: 0,
+                        }}
+                      />
                     ) : (
-                      <File size={13} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                      <File
+                        size={13}
+                        style={{
+                          color: "rgba(255, 255, 255, 0.45)",
+                          flexShrink: 0,
+                        }}
+                      />
                     )}
-                    <span style={{ fontWeight: 500, flexShrink: 0 }}>{item.name}</span>
+                    <span style={{ fontWeight: 500, flexShrink: 0 }}>
+                      {item.name}
+                    </span>
                     <span
                       style={{
                         color: "rgba(255, 255, 255, 0.35)",
@@ -3341,15 +3366,29 @@ export default function AiAgent({
                   }}
                 >
                   {item.is_dir ? (
-                    <Folder size={11} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                    <Folder
+                      size={11}
+                      style={{
+                        color: "rgba(255, 255, 255, 0.45)",
+                        flexShrink: 0,
+                      }}
+                    />
                   ) : (
-                    <File size={11} style={{ color: "rgba(255, 255, 255, 0.45)", flexShrink: 0 }} />
+                    <File
+                      size={11}
+                      style={{
+                        color: "rgba(255, 255, 255, 0.45)",
+                        flexShrink: 0,
+                      }}
+                    />
                   )}
                   <span style={{ fontWeight: 500 }}>{item.name}</span>
                   <button
                     type="button"
                     onClick={() =>
-                      setSelectedContextItems((prev) => prev.filter((x) => x.path !== item.path))
+                      setSelectedContextItems((prev) =>
+                        prev.filter((x) => x.path !== item.path),
+                      )
                     }
                     style={{
                       background: "none",
@@ -3364,7 +3403,9 @@ export default function AiAgent({
                       transition: "opacity 0.15s",
                     }}
                     onMouseEnter={(e) => (e.currentTarget.style.opacity = "1")}
-                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "0.6")}
+                    onMouseLeave={(e) =>
+                      (e.currentTarget.style.opacity = "0.6")
+                    }
                     title="Remove context"
                   >
                     <X size={10} />

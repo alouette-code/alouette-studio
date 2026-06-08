@@ -644,7 +644,17 @@ export default function TerminalPanel({
       if (instancesRef.current[sessionId]) return;
 
       console.log("[term] MOUNT xterm for session:", sessionId);
+
+      // Create a fresh wrapper inside the container instead of clearing
+      // innerHTML, to fully discard any stale DOM from a previous mount.
+      // This avoids xterm renderer crashes (this._renderer.value.dimensions)
+      // during Strict Mode double-mount cycles.
+      const termRoot = document.createElement("div");
+      termRoot.style.width = "100%";
+      termRoot.style.height = "100%";
+      termRoot.style.minHeight = "100px";
       container.innerHTML = "";
+      container.appendChild(termRoot);
 
       const activeTheme =
         theme === "light" ? XTERM_LIGHT_THEME : XTERM_DARK_THEME;
@@ -676,7 +686,13 @@ export default function TerminalPanel({
       instancesRef.current[sessionId] = inst;
 
       term.loadAddon(fit);
-      term.open(container);
+      try {
+        term.open(termRoot);
+      } catch (e) {
+        console.warn("[term] open failed for", sessionId, e);
+        delete instancesRef.current[sessionId];
+        return;
+      }
 
       // ── IME composition handling ───────────────────────────────────────
       // Goal: forward composed characters to the PTY immediately so they
@@ -858,7 +874,9 @@ export default function TerminalPanel({
             invoke("write_to_terminal_session", {
               sessionId,
               input: whitespace,
-            }).catch((err) => console.warn("[term] IME whitespace write FAILED:", err));
+            }).catch((err) =>
+              console.warn("[term] IME whitespace write FAILED:", err),
+            );
           }
           return;
         }
@@ -1004,7 +1022,6 @@ export default function TerminalPanel({
           });
         }
 
-
         if (e.key === "Backspace") {
           const activeBuffer = term.buffer.active;
           const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;
@@ -1090,14 +1107,22 @@ export default function TerminalPanel({
     });
   }, [theme]);
 
-  // ── Mount/unmount xterm instances when terminals list changes ─────
+  // ── Mount/unmount xterm instances ─────────────────────────────────
+  // Uses data-term-id + querySelector to find containers instead of React refs.
+  // The dependency array prevents infinite mount loops in Strict Mode while
+  // still covering all triggers: terminals added/removed, viewMode toggled,
+  // or mountXterm recreated (theme change).
   useEffect(() => {
     const ids = new Set(terminals.map((t) => t.id));
 
-    // Mount any new terminals that don't have xterm yet
+    // Mount new terminals whose container is now in the DOM
     terminals.forEach((t) => {
-      const container = containerRefs.current[t.id];
-      if (container && !instancesRef.current[t.id]) {
+      if (instancesRef.current[t.id]) return;
+      const container = document.querySelector<HTMLDivElement>(
+        `[data-term-id="${t.id}"]`,
+      );
+      if (container) {
+        console.log("[term] MOUNT xterm for session:", t.id);
         mountXterm(t.id, container);
       }
     });
@@ -1133,7 +1158,7 @@ export default function TerminalPanel({
       instancesRef.current = {};
       containerRefs.current = {};
     };
-  }, [terminals, mountXterm]);
+  }, [terminals, mountXterm, viewMode]);
 
   // ── When activeTerminalId changes, focus + full refresh the active one ──
   useEffect(() => {
@@ -1175,8 +1200,7 @@ export default function TerminalPanel({
           try {
             const term = instancesRef.current[sid].term;
             // Force re-measurement of characters by toggling fontFamily to clear the metrics cache
-            const font =
-              term.options.fontFamily || "'Ubuntu Mono', monospace";
+            const font = term.options.fontFamily || "'Ubuntu Mono', monospace";
             term.options.fontFamily = "monospace";
             term.options.fontFamily = font;
 
@@ -1340,9 +1364,7 @@ export default function TerminalPanel({
                   {terminals.map((t) => (
                     <div
                       key={t.id}
-                      ref={(el) => {
-                        containerRefs.current[t.id] = el;
-                      }}
+                      data-term-id={t.id}
                       className={`sandbox-xterm-viewport ${t.id === activeTerminalId ? "active" : ""}`}
                       onClick={() => {
                         instancesRef.current[t.id]?.term.focus();
