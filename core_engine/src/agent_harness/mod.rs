@@ -186,7 +186,7 @@ pub struct ChatMessage {
 }
 
 fn default_token_budget() -> u64 {
-    50000
+    5_000_000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,7 +286,6 @@ impl AgentHarness {
             running_commands: HashMap::new(),
         }
     }
-
 
     /// Set the harness operating mode
     pub fn set_mode(&mut self, mode: HarnessMode) {
@@ -563,8 +562,12 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             }
         }
 
-        let canonical_ancestor = canonical_ancestor
-            .ok_or_else(|| format!("Security Error: Path parent does not exist or cannot be resolved: {}", absolute_target.display()))?;
+        let canonical_ancestor = canonical_ancestor.ok_or_else(|| {
+            format!(
+                "Security Error: Path parent does not exist or cannot be resolved: {}",
+                absolute_target.display()
+            )
+        })?;
 
         if !canonical_ancestor.starts_with(&self.workspace_root) {
             return Err(format!(
@@ -577,7 +580,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         // Prevent traversal using component checks
         for component in target_path.components() {
             if component == std::path::Component::ParentDir {
-                return Err("Security Boundary Error: Parent directory traversal (..) is forbidden.".to_string());
+                return Err(
+                    "Security Boundary Error: Parent directory traversal (..) is forbidden."
+                        .to_string(),
+                );
             }
         }
 
@@ -793,8 +799,16 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             .as_str()
             .ok_or_else(|| "Missing 'new_content' argument".to_string())?;
 
-        let start_line = tool.arguments.get("start_line").and_then(|v| v.as_u64()).map(|n| n as usize);
-        let end_line = tool.arguments.get("end_line").and_then(|v| v.as_u64()).map(|n| n as usize);
+        let start_line = tool
+            .arguments
+            .get("start_line")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize);
+        let end_line = tool
+            .arguments
+            .get("end_line")
+            .and_then(|v| v.as_u64())
+            .map(|n| n as usize);
 
         let target_path = Path::new(path_str);
         let verified_path = self.validate_path(target_path)?;
@@ -803,7 +817,11 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             .map_err(|e| format!("Failed to read file '{}': {}", path_str, e))?;
 
         // Detect line ending (\r\n vs \n)
-        let line_ending = if current_content.contains("\r\n") { "\r\n" } else { "\n" };
+        let line_ending = if current_content.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
 
         let lines: Vec<&str> = current_content.split(line_ending).collect();
 
@@ -812,7 +830,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             if start == 0 || end == 0 || start > end || start > lines.len() || end > lines.len() {
                 return Err(format!(
                     "Invalid line range {}-{} (file '{}' has {} lines)",
-                    start, end, path_str, lines.len()
+                    start,
+                    end,
+                    path_str,
+                    lines.len()
                 ));
             }
 
@@ -820,7 +841,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             let original_slice_text = slice.join(line_ending);
 
             let norm_old = old_content.replace("\r\n", "\n").trim_end().to_string();
-            let norm_slice = original_slice_text.replace("\r\n", "\n").trim_end().to_string();
+            let norm_slice = original_slice_text
+                .replace("\r\n", "\n")
+                .trim_end()
+                .to_string();
 
             if norm_old != norm_slice {
                 return Err(format!(
@@ -1049,7 +1073,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     }
 
     /// Check the status of a long-running command that was started with execute_command
-    async fn execute_check_command_status(&mut self, tool: &parser::ToolCall) -> Result<String, String> {
+    async fn execute_check_command_status(
+        &mut self,
+        tool: &parser::ToolCall,
+    ) -> Result<String, String> {
         self.prune_running_commands();
         let cmd_id = tool.arguments["command_id"]
             .as_str()
@@ -1461,7 +1488,9 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     {
         // Kiểm tra token budget
         if session.token_budget == 0 {
-            let err_msg = "Token budget exhausted! Self-healing loop broken to prevent excessive costs.".to_string();
+            let err_msg =
+                "Token budget exhausted! Self-healing loop broken to prevent excessive costs."
+                    .to_string();
             session.state = AgentState::Error(err_msg.clone());
             return TickResult::Error {
                 message: err_msg,
@@ -1514,13 +1543,20 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                 session.iteration_count = iteration;
 
                 // Deduct tokens from budget based on estimation
-                let est_input = (system_prompt.len() + session.history.iter().map(|m| {
-                    match &m.content {
-                        MessageContent::Text(t) => t.len(),
-                        MessageContent::ToolCalls(tcs) => tcs.iter().map(|tc| tc.name.len() + tc.raw_arguments.len()).sum(),
-                        MessageContent::ToolResult { result, .. } => result.len(),
-                    }
-                }).sum::<usize>()) as u64 / 4;
+                let est_input = (system_prompt.len()
+                    + session
+                        .history
+                        .iter()
+                        .map(|m| match &m.content {
+                            MessageContent::Text(t) => t.len(),
+                            MessageContent::ToolCalls(tcs) => tcs
+                                .iter()
+                                .map(|tc| tc.name.len() + tc.raw_arguments.len())
+                                .sum(),
+                            MessageContent::ToolResult { result, .. } => result.len(),
+                        })
+                        .sum::<usize>()) as u64
+                    / 4;
                 let est_output = llm_reply.raw_text.len() as u64 / 4;
                 session.token_budget = session.token_budget.saturating_sub(est_input + est_output);
 
@@ -1657,9 +1693,13 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                     });
 
                     if !success {
-                        let is_retryable = self_heal::SelfHealAnalyzer::should_retry(&tool.name, &result_text);
+                        let is_retryable =
+                            self_heal::SelfHealAnalyzer::should_retry(&tool.name, &result_text);
                         if !is_retryable {
-                            let err_msg = format!("Environmental or non-retryable error encountered: {}", result_text);
+                            let err_msg = format!(
+                                "Environmental or non-retryable error encountered: {}",
+                                result_text
+                            );
                             session.state = AgentState::Error(err_msg.clone());
                             return TickResult::Error {
                                 message: err_msg,
@@ -1805,7 +1845,12 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         }
     }
 
-    fn list_dir_recursive(&self, dir: &Path, files: &mut Vec<String>, current_depth: usize) -> Result<(), String> {
+    fn list_dir_recursive(
+        &self,
+        dir: &Path,
+        files: &mut Vec<String>,
+        current_depth: usize,
+    ) -> Result<(), String> {
         const MAX_DEPTH: usize = 8;
         const MAX_FILES: usize = 1000;
 

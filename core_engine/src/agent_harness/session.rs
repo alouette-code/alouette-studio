@@ -67,7 +67,7 @@ impl SessionEntry {
                 mode: HarnessMode::Standard,
                 plan: None,
                 autonomous_state: None,
-                token_budget: 50000,
+                token_budget: 5_000_000,
             },
             history_store: HistoryStore::new(),
         }

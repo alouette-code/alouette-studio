@@ -289,7 +289,7 @@ pub async fn agent_send_message(
             mode: HarnessMode::Standard,
             plan: None,
             autonomous_state: None,
-            token_budget: 50000,
+            token_budget: 5_000_000,
         });
 
         // Reset state to Idle for new message (unless awaiting approval)
@@ -1923,7 +1923,7 @@ pub async fn load_agent_session(
                 },
                 plan: None,
                 autonomous_state: None,
-                token_budget: 50000,
+                token_budget: 5_000_000,
             });
 
             Ok(LoadedSession {
