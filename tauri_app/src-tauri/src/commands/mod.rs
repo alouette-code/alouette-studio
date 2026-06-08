@@ -1,6 +1,8 @@
 pub mod agent;
 pub mod browser;
+pub mod cloudflare;
 pub mod files;
+pub mod git;
 pub mod language;
 pub mod network;
 pub mod process;
@@ -9,4 +11,3 @@ pub mod sandbox;
 pub mod settings;
 pub mod sqlite;
 pub mod terminal;
-pub mod git;

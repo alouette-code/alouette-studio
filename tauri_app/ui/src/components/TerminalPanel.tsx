@@ -396,19 +396,6 @@ function SimplePing() {
   );
 }
 
-const CONFIG_PATH =
-  "d:/alouette-server/core_engine/app_data/cloudflare_config.yml";
-
-const stringToBase64 = (str: string): string => {
-  const bytes = new TextEncoder().encode(str);
-  let binary = "";
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
-};
-
 export default function TerminalPanel({
   theme,
   activeProject,
@@ -450,21 +437,14 @@ export default function TerminalPanel({
 
   const loadCloudflareConfig = async () => {
     try {
-      const base64Data = await invoke<string>("read_file_content", {
-        path: CONFIG_PATH,
-      });
-      const binaryString = window.atob(base64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      const decodedText = new TextDecoder("utf-8").decode(bytes);
+      const yamlContent = await invoke<string>("load_cloudflare_config");
+      if (!yamlContent) return;
 
       let mode = "default";
       let globalToken = "";
       let tunnelsList: any[] = [];
 
-      const lines = decodedText.split("\n");
+      const lines = yamlContent.split("\n");
       let currentTunnel: any = null;
 
       for (let line of lines) {
@@ -547,11 +527,7 @@ export default function TerminalPanel({
         yaml += `    active: ${t.active ? "true" : "false"}\n`;
       });
 
-      const base64Content = stringToBase64(yaml);
-      await invoke("write_file_content", {
-        path: CONFIG_PATH,
-        content: base64Content,
-      });
+      await invoke("save_cloudflare_config", { content: yaml });
       setTunnels(updatedTunnels);
     } catch (e) {
       console.error("Failed to save cloudflare config in TerminalPanel:", e);

@@ -19,7 +19,6 @@ fn main() {
     let log_dir = project_root().join("logs");
     let pm = ProcessManager::new(&log_dir);
 
-
     let process_manager = Arc::new(Mutex::new(pm));
     let resource_monitor = Arc::new(ResourceMonitor::new());
 
@@ -32,7 +31,8 @@ fn main() {
     let db_pool = r2d2::Pool::new(manager).expect("Failed to create r2d2 pool");
     {
         if let Ok(conn) = db_pool.get() {
-            let _: Result<String, _> = conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0));
+            let _: Result<String, _> =
+                conn.query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0));
             let _ = conn.execute(
                 "CREATE TABLE IF NOT EXISTS history_agen (
                     session_id TEXT PRIMARY KEY,
@@ -50,7 +50,8 @@ fn main() {
     }
 
     let agent_cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let default_workspace = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let default_workspace =
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let mut harness_raw = core_engine::agent_harness::AgentHarness::new(&default_workspace);
     harness_raw.cancel_flag = agent_cancel_flag.clone();
     let agent_harness = Arc::new(tokio::sync::Mutex::new(harness_raw));
@@ -247,6 +248,8 @@ fn main() {
             commands::git::git_pull,
             commands::git::git_get_log,
             commands::git::git_get_commit_files,
+            commands::cloudflare::load_cloudflare_config,
+            commands::cloudflare::save_cloudflare_config,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
