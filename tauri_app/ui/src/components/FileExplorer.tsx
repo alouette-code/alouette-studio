@@ -12,6 +12,8 @@ import {
   FilePlus,
   FolderPlus,
   RotateCw,
+  CircleDot,
+  Pencil,
 } from "lucide-react";
 
 interface FileNode {
@@ -127,7 +129,24 @@ function TreeNode({
   };
 
   const relPath = getRelativePath(node.path, activeCwd).replace(/\\/g, "/");
-  const gitStatus = gitFileStatuses[relPath];
+
+  // For directories: check if any descendant file has git status
+  let gitStatus: string | undefined;
+  if (node.is_dir) {
+    const prefix = relPath ? relPath + "/" : "";
+    const hasModified = Object.keys(gitFileStatuses).some(
+      (k) => k.startsWith(prefix) && gitFileStatuses[k] === "modified",
+    );
+    const hasUntracked = Object.keys(gitFileStatuses).some(
+      (k) =>
+        k.startsWith(prefix) &&
+        (gitFileStatuses[k] === "untracked" || gitFileStatuses[k] === "added"),
+    );
+    if (hasModified) gitStatus = "modified";
+    else if (hasUntracked) gitStatus = "untracked";
+  } else {
+    gitStatus = gitFileStatuses[relPath];
+  }
 
   return (
     <div
@@ -166,18 +185,24 @@ function TreeNode({
         {gitStatus && (
           <span
             style={{
-              fontSize: "9px",
-              fontWeight: "bold",
+              display: "inline-flex",
               marginLeft: "auto",
-              marginRight: "8px",
-              color:
-                gitStatus === "modified"
-                  ? "var(--git-modified, #eab308)"
-                  : "var(--git-added, #10b981)",
+              marginRight: "6px",
               opacity: 0.8,
             }}
+            title={gitStatus === "modified" ? "Modified" : "Untracked"}
           >
-            {gitStatus === "modified" ? "M" : "U"}
+            {gitStatus === "modified" ? (
+              <Pencil
+                size={10}
+                style={{ color: "var(--git-modified, #eab308)" }}
+              />
+            ) : (
+              <CircleDot
+                size={10}
+                style={{ color: "var(--git-added, #10b981)" }}
+              />
+            )}
           </span>
         )}
       </div>

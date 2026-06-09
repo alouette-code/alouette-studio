@@ -7394,6 +7394,31 @@ select option {
     border-top: 1px solid rgba(218, 54, 51, 0.3);
 }
 
+/* ── Unsaved (real-time) decorations — blue/cyan ── */
+.git-glyph-unsaved-added {
+    background: #58a6ff;
+    width: 4px !important;
+    margin-left: 2px;
+}
+.git-line-unsaved-added {
+    background: rgba(88, 166, 255, 0.1);
+}
+
+.git-glyph-unsaved-modified {
+    background: #79c0ff;
+    width: 4px !important;
+    margin-left: 2px;
+}
+.git-line-unsaved-modified {
+    background: rgba(121, 192, 255, 0.1);
+}
+
+.git-glyph-unsaved-deleted {
+    background: #58a6ff;
+    width: 4px !important;
+    margin-left: 2px;
+}
+
 /* Light theme adjustments */
 [data-theme="light"] .git-glyph-added {
     background: #1a7f37;
@@ -7407,16 +7432,23 @@ select option {
 [data-theme="light"] .git-glyph-deleted::before {
     border-top-color: #cf222e;
 }
+[data-theme="light"] .git-glyph-unsaved-added,
+[data-theme="light"] .git-glyph-unsaved-modified,
+[data-theme="light"] .git-glyph-unsaved-deleted {
+    background: #0969da;
+}
+[data-theme="light"] .git-line-unsaved-added,
+[data-theme="light"] .git-line-unsaved-modified {
+    background: rgba(9, 105, 218, 0.08);
+}
 
-/* Untracked badge in the editor header */
+/* Untracked badge in the editor header — now uses lucide icon */
 .untracked-badge {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 16px;
-    height: 16px;
-    font-size: 9px;
-    font-weight: 700;
+    width: 18px;
+    height: 18px;
     color: #fff;
     background-color: #2da44e;
     border-radius: 2px !important;

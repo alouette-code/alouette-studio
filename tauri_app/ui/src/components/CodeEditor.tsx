@@ -1,5 +1,12 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Save, FileCode, Check, AlertCircle, RefreshCw } from "lucide-react";
+import {
+  Save,
+  FileCode,
+  Check,
+  AlertCircle,
+  RefreshCw,
+  FilePlus,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import Editor from "@monaco-editor/react";
 import { useGitDiff } from "../hooks/useGitDiff";
@@ -24,9 +31,7 @@ interface CodeEditorProps {
 const getLanguageFromPath = (path: string | null): string => {
   if (!path) return "plaintext";
   const fileName = path.split(/[\\/]/).pop()?.toLowerCase() || "";
-
   if (fileName.startsWith(".env")) return "ini";
-
   const ext = fileName.split(".").pop()?.toLowerCase();
   switch (ext) {
     case "js":
@@ -76,6 +81,69 @@ const getLanguageFromPath = (path: string | null): string => {
   }
 };
 
+// ── Simple line diff for unsaved changes (real-time, no IPC) ──
+interface UnsavedChange {
+  line: number;
+  type: "added" | "modified" | "deleted_context";
+  count: number;
+}
+
+function computeUnsavedDiff(
+  original: string,
+  current: string,
+): UnsavedChange[] {
+  const origLines = original.split("\n");
+  const currLines = current.split("\n");
+  const changes: UnsavedChange[] = [];
+
+  // Track added/deleted lines using a simple approach
+  // We use line-by-line comparison
+  const maxLen = Math.max(origLines.length, currLines.length);
+  let deletionBuffer = 0;
+
+  for (let i = 0; i < maxLen; i++) {
+    const origLine = i < origLines.length ? origLines[i] : undefined;
+    const currLine = i < currLines.length ? currLines[i] : undefined;
+
+    if (origLine === undefined && currLine !== undefined) {
+      // Line added at end
+      changes.push({ line: i + 1, type: "added", count: 0 });
+    } else if (origLine !== undefined && currLine === undefined) {
+      // Line deleted at end
+      deletionBuffer++;
+    } else if (
+      origLine !== undefined &&
+      currLine !== undefined &&
+      origLine !== currLine
+    ) {
+      if (deletionBuffer > 0) {
+        changes.push({ line: i + 1, type: "modified", count: deletionBuffer });
+        deletionBuffer = 0;
+      } else {
+        changes.push({ line: i + 1, type: "modified", count: 0 });
+      }
+    } else if (currLine !== undefined && deletionBuffer > 0) {
+      // Context line after deletions
+      changes.push({
+        line: i + 1,
+        type: "deleted_context",
+        count: deletionBuffer,
+      });
+      deletionBuffer = 0;
+    }
+  }
+
+  if (deletionBuffer > 0) {
+    changes.push({
+      line: currLines.length,
+      type: "deleted_context",
+      count: deletionBuffer,
+    });
+  }
+
+  return changes;
+}
+
 export default React.memo(function CodeEditor({
   theme = "dark",
   filePath,
@@ -95,25 +163,41 @@ export default React.memo(function CodeEditor({
     "idle" | "saving" | "success" | "error"
   >("idle");
   const [saveRevision, setSaveRevision] = useState(0);
+  const [unsavedChanges, setUnsavedChanges] = useState<UnsavedChange[]>([]);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const lastPathRef = useRef<string | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // ── Git diff decorations ──
+  // ── Git diff decorations from backend (HEAD vs disk) ──
   const { diffLines, isUntracked } = useGitDiff({
     filePath,
     cwd,
     revision: saveRevision,
   });
 
-  // ── Apply / update git diff decorations ──
+  // ── Compute unsaved diff whenever content changes (debounced) ──
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      if (content !== originalContent && originalContent !== "") {
+        const diff = computeUnsavedDiff(originalContent, content);
+        setUnsavedChanges(diff);
+      } else {
+        setUnsavedChanges([]);
+      }
+    }, 50); // 50ms debounce for smooth real-time updates
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [content, originalContent]);
+
+  // ── Apply / update git diff + unsaved decorations ──
   const applyDiffDecorations = useCallback(() => {
     const editor = editorRef.current;
     const monacoApi = monacoRef.current;
-    if (!editor || !monacoApi) {
-      return;
-    }
+    if (!editor || !monacoApi) return;
 
     const model = editor.getModel();
     if (!model) return;
@@ -121,6 +205,7 @@ export default React.memo(function CodeEditor({
     const fullLineCount = model.getLineCount();
     const decorations: any[] = [];
 
+    // ── Git diff decorations (HEAD vs disk) ──
     if (isUntracked) {
       for (let line = 1; line <= fullLineCount; line++) {
         decorations.push({
@@ -135,15 +220,12 @@ export default React.memo(function CodeEditor({
     } else {
       for (const d of diffLines) {
         let lineNum = d.line_number;
-
-        // Handle trailing deletions (sentinel value from backend)
         if (
           d.change_type === "deleted_context" &&
           lineNum === Number.MAX_SAFE_INTEGER
         ) {
           lineNum = fullLineCount;
         }
-
         if (lineNum < 1 || lineNum > fullLineCount) continue;
 
         switch (d.change_type) {
@@ -157,7 +239,6 @@ export default React.memo(function CodeEditor({
               },
             });
             break;
-
           case "modified":
             decorations.push({
               range: new monacoApi.Range(lineNum, 1, lineNum, 1),
@@ -168,16 +249,12 @@ export default React.memo(function CodeEditor({
               },
             });
             break;
-
           case "deleted_context":
             decorations.push({
               range: new monacoApi.Range(lineNum, 1, lineNum, 1),
               options: {
                 isWholeLine: true,
                 glyphMarginClassName: "git-glyph-deleted",
-                glyphMarginHoverMessage: {
-                  value: `${d.deleted_count} dòng đã bị xóa`,
-                },
               },
             });
             break;
@@ -185,20 +262,57 @@ export default React.memo(function CodeEditor({
       }
     }
 
-    const oldIds = decorationIdsRef.current;
-    const newIds = editor.deltaDecorations(oldIds, decorations);
-    decorationIdsRef.current = newIds;
-  }, [diffLines, isUntracked]);
+    // ── Unsaved decorations (real-time, overlay on top of git diff) ──
+    // These use a different color (blue/cyan) so user can see what's not yet saved
+    for (const u of unsavedChanges) {
+      let lineNum = u.line;
+      if (lineNum < 1 || lineNum > fullLineCount) continue;
 
-  // ── Re-apply decorations when diff data changes ──
+      switch (u.type) {
+        case "added":
+          decorations.push({
+            range: new monacoApi.Range(lineNum, 1, lineNum, 1),
+            options: {
+              isWholeLine: true,
+              glyphMarginClassName: "git-glyph-unsaved-added",
+              linesDecorationsClassName: "git-line-unsaved-added",
+            },
+          });
+          break;
+        case "modified":
+          decorations.push({
+            range: new monacoApi.Range(lineNum, 1, lineNum, 1),
+            options: {
+              isWholeLine: true,
+              glyphMarginClassName: "git-glyph-unsaved-modified",
+              linesDecorationsClassName: "git-line-unsaved-modified",
+            },
+          });
+          break;
+        case "deleted_context":
+          decorations.push({
+            range: new monacoApi.Range(lineNum, 1, lineNum, 1),
+            options: {
+              isWholeLine: true,
+              glyphMarginClassName: "git-glyph-unsaved-deleted",
+            },
+          });
+          break;
+      }
+    }
+
+    const oldIds = decorationIdsRef.current;
+    decorationIdsRef.current = editor.deltaDecorations(oldIds, decorations);
+  }, [diffLines, isUntracked, unsavedChanges]);
+
+  // Re-apply decorations when diff data or unsaved changes change
   useEffect(() => {
     applyDiffDecorations();
   }, [applyDiffDecorations]);
 
-  // ── Clear decorations when filePath changes, then re-apply ──
+  // Clear decorations when filePath changes
   useEffect(() => {
     if (editorRef.current) {
-      // Clear old decorations first
       const oldIds = decorationIdsRef.current;
       if (oldIds.length > 0) {
         decorationIdsRef.current = editorRef.current.deltaDecorations(
@@ -206,11 +320,11 @@ export default React.memo(function CodeEditor({
           [],
         );
       }
-      // Apply new decorations if diff data is available
       if (monacoRef.current) {
         applyDiffDecorations();
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filePath]);
 
   // Save position on unmount or file path change
@@ -239,7 +353,7 @@ export default React.memo(function CodeEditor({
     };
   }, [filePath, scrollPositionsRef, cursorPositionsRef]);
 
-  // Sync internal content with parent's decoded content without cursor jumping
+  // Sync internal content with parent's decoded content
   useEffect(() => {
     if (
       filePath !== lastPathRef.current ||
@@ -248,6 +362,7 @@ export default React.memo(function CodeEditor({
       if (initialContent !== null) {
         setContent(initialContent);
         setOriginalContent(initialContent);
+        setUnsavedChanges([]);
         lastPathRef.current = filePath;
 
         if (filePath && editorRef.current) {
@@ -256,7 +371,6 @@ export default React.memo(function CodeEditor({
           if (model) {
             const savedScroll = scrollPositionsRef.current[filePath] || 0;
             const savedCursor = cursorPositionsRef.current[filePath];
-
             setTimeout(() => {
               if (savedCursor) {
                 const startPos = model.getPositionAt(savedCursor.start);
@@ -275,6 +389,7 @@ export default React.memo(function CodeEditor({
       } else {
         setContent("");
         setOriginalContent("");
+        setUnsavedChanges([]);
         lastPathRef.current = null;
       }
     }
@@ -285,13 +400,11 @@ export default React.memo(function CodeEditor({
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
 
-    // Restore scroll and cursor
     if (filePath) {
       const model = editor.getModel();
       if (model) {
         const savedScroll = scrollPositionsRef.current[filePath] || 0;
         const savedCursor = cursorPositionsRef.current[filePath];
-
         if (savedCursor) {
           const startPos = model.getPositionAt(savedCursor.start);
           const endPos = model.getPositionAt(savedCursor.end);
@@ -306,7 +419,7 @@ export default React.memo(function CodeEditor({
       }
     }
 
-    // ── Apply git diff decorations IMMEDIATELY after mount ──
+    // Apply decorations immediately after mount
     applyDiffDecorations();
   };
 
@@ -322,8 +435,8 @@ export default React.memo(function CodeEditor({
         content: latestContent,
       });
       setOriginalContent(latestContent);
+      setUnsavedChanges([]);
       setSaveStatus("success");
-      // Bump revision to refresh git diff after save
       setSaveRevision((r) => r + 1);
       if (onFileSaved) onFileSaved();
       if (onSave) onSave(latestContent);
@@ -372,7 +485,7 @@ export default React.memo(function CodeEditor({
           {isDirty && <span className="dirty-dot" title="Unsaved changes" />}
           {isUntracked && (
             <span className="untracked-badge" title="File chưa được commit">
-              U
+              <FilePlus size={10} />
             </span>
           )}
           <span className="file-path">{filePath}</span>
