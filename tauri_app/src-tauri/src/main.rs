@@ -268,6 +268,7 @@ fn main() {
             commands::git::git_pull,
             commands::git::git_get_log,
             commands::git::git_get_commit_files,
+            commands::git_diff::git_get_file_diff,
             commands::cloudflare::load_cloudflare_config,
             commands::cloudflare::save_cloudflare_config,
         ])

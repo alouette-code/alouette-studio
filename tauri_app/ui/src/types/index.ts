@@ -96,3 +96,16 @@ export interface AppSettings {
   build_source_dir: string;
   build_target: string;
 }
+
+/// Mirror của GitDiffLine từ Rust backend
+export interface GitDiffLine {
+  line_number: number;
+  change_type: "added" | "modified" | "deleted_context";
+  deleted_count: number;
+}
+
+/// Mirror của GitFileDiff từ Rust backend
+export interface GitFileDiff {
+  lines: GitDiffLine[];
+  untracked: boolean;
+}

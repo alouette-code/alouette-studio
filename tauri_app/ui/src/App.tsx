@@ -248,8 +248,6 @@ export default function App() {
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [settingMenuOpen, setSettingMenuOpen] = useState(false);
 
-
-
   // Canvas Refs for CPU/RAM Charts
   const cpuCanvasRef = useRef<HTMLCanvasElement>(null);
   const ramCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -591,8 +589,6 @@ export default function App() {
     setActivePaneIndex(targetPaneIdx);
     setOpenFilePath(path);
   };
-
-
 
   // ── Window click listener to close dropdowns ──
   useEffect(() => {
@@ -1037,7 +1033,9 @@ export default function App() {
                                     <Server
                                       size={12}
                                       className="tab-icon"
-                                      style={{ color: "var(--color-accent, #6366f1)" }}
+                                      style={{
+                                        color: "var(--color-accent, #6366f1)",
+                                      }}
                                     />
                                   ) : path.startsWith("__agent_history__:") ? (
                                     <Sparkles
@@ -1057,7 +1055,9 @@ export default function App() {
                                         ? "Cloudflare Tunnel"
                                         : path === "__environment__"
                                           ? "Môi trường"
-                                          : path.startsWith("__agent_history__:")
+                                          : path.startsWith(
+                                                "__agent_history__:",
+                                              )
                                             ? path.split(":")[2] ||
                                               "Lịch sử Agent"
                                             : path.split(/[\\/]/).pop()}
@@ -1197,6 +1197,7 @@ export default function App() {
                                   ? fileError
                                   : null
                               }
+                              cwd={activeProject?.cwd}
                               onChange={(newVal) => {
                                 if (paneOpenFilePath) {
                                   setFilesContent((prev) => ({
@@ -1287,7 +1288,10 @@ export default function App() {
               }}
             />
           ) : isGitViewActive ? (
-            <GitPanel activeProject={activeProject || null} triggerToast={triggerToast} />
+            <GitPanel
+              activeProject={activeProject || null}
+              triggerToast={triggerToast}
+            />
           ) : (
             <>
               {/* Zone 3: Configuration & Watchdog Setup */}
@@ -1444,7 +1448,7 @@ export default function App() {
         </div>
 
         <div className="navbar-tool-buttons">
-          <button 
+          <button
             className={`tool-btn tool-git ${isGitViewActive && isRightSidebarOpen ? "active" : ""}`}
             title="1. Git"
             onClick={() => {

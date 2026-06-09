@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Save, FileCode, Check, AlertCircle, RefreshCw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import Editor from "@monaco-editor/react";
+import { useGitDiff } from "../hooks/useGitDiff";
 
 interface CodeEditorProps {
   theme?: "dark" | "light";
@@ -9,6 +10,8 @@ interface CodeEditorProps {
   content: string | null;
   isLoading: boolean;
   error: string | null;
+  /** Git working directory for diff decorations */
+  cwd?: string;
   onFileSaved?: () => void;
   onChange?: (val: string) => void;
   onSave?: (val: string) => void;
@@ -22,9 +25,7 @@ const getLanguageFromPath = (path: string | null): string => {
   if (!path) return "plaintext";
   const fileName = path.split(/[\\/]/).pop()?.toLowerCase() || "";
 
-  if (fileName.startsWith(".env")) {
-    return "ini";
-  }
+  if (fileName.startsWith(".env")) return "ini";
 
   const ext = fileName.split(".").pop()?.toLowerCase();
   switch (ext) {
@@ -81,6 +82,7 @@ export default React.memo(function CodeEditor({
   content: initialContent,
   isLoading,
   error,
+  cwd,
   onFileSaved,
   onChange,
   onSave,
@@ -92,8 +94,124 @@ export default React.memo(function CodeEditor({
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "success" | "error"
   >("idle");
+  const [saveRevision, setSaveRevision] = useState(0);
   const editorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
   const lastPathRef = useRef<string | null>(null);
+  const decorationIdsRef = useRef<string[]>([]);
+
+  // ── Git diff decorations ──
+  const { diffLines, isUntracked } = useGitDiff({
+    filePath,
+    cwd,
+    revision: saveRevision,
+  });
+
+  // ── Apply / update git diff decorations ──
+  const applyDiffDecorations = useCallback(() => {
+    const editor = editorRef.current;
+    const monacoApi = monacoRef.current;
+    if (!editor || !monacoApi) {
+      return;
+    }
+
+    const model = editor.getModel();
+    if (!model) return;
+
+    const fullLineCount = model.getLineCount();
+    const decorations: any[] = [];
+
+    if (isUntracked) {
+      for (let line = 1; line <= fullLineCount; line++) {
+        decorations.push({
+          range: new monacoApi.Range(line, 1, line, 1),
+          options: {
+            isWholeLine: true,
+            glyphMarginClassName: "git-glyph-added",
+            linesDecorationsClassName: "git-line-added",
+          },
+        });
+      }
+    } else {
+      for (const d of diffLines) {
+        let lineNum = d.line_number;
+
+        // Handle trailing deletions (sentinel value from backend)
+        if (
+          d.change_type === "deleted_context" &&
+          lineNum === Number.MAX_SAFE_INTEGER
+        ) {
+          lineNum = fullLineCount;
+        }
+
+        if (lineNum < 1 || lineNum > fullLineCount) continue;
+
+        switch (d.change_type) {
+          case "added":
+            decorations.push({
+              range: new monacoApi.Range(lineNum, 1, lineNum, 1),
+              options: {
+                isWholeLine: true,
+                glyphMarginClassName: "git-glyph-added",
+                linesDecorationsClassName: "git-line-added",
+              },
+            });
+            break;
+
+          case "modified":
+            decorations.push({
+              range: new monacoApi.Range(lineNum, 1, lineNum, 1),
+              options: {
+                isWholeLine: true,
+                glyphMarginClassName: "git-glyph-modified",
+                linesDecorationsClassName: "git-line-modified",
+              },
+            });
+            break;
+
+          case "deleted_context":
+            decorations.push({
+              range: new monacoApi.Range(lineNum, 1, lineNum, 1),
+              options: {
+                isWholeLine: true,
+                glyphMarginClassName: "git-glyph-deleted",
+                glyphMarginHoverMessage: {
+                  value: `${d.deleted_count} dòng đã bị xóa`,
+                },
+              },
+            });
+            break;
+        }
+      }
+    }
+
+    const oldIds = decorationIdsRef.current;
+    const newIds = editor.deltaDecorations(oldIds, decorations);
+    decorationIdsRef.current = newIds;
+  }, [diffLines, isUntracked]);
+
+  // ── Re-apply decorations when diff data changes ──
+  useEffect(() => {
+    applyDiffDecorations();
+  }, [applyDiffDecorations]);
+
+  // ── Clear decorations when filePath changes, then re-apply ──
+  useEffect(() => {
+    if (editorRef.current) {
+      // Clear old decorations first
+      const oldIds = decorationIdsRef.current;
+      if (oldIds.length > 0) {
+        decorationIdsRef.current = editorRef.current.deltaDecorations(
+          oldIds,
+          [],
+        );
+      }
+      // Apply new decorations if diff data is available
+      if (monacoRef.current) {
+        applyDiffDecorations();
+      }
+    }
+  }, [filePath]);
 
   // Save position on unmount or file path change
   useEffect(() => {
@@ -132,7 +250,6 @@ export default React.memo(function CodeEditor({
         setOriginalContent(initialContent);
         lastPathRef.current = filePath;
 
-        // Restore scroll and cursor for the new file path using setTimeout
         if (filePath && editorRef.current) {
           const editor = editorRef.current;
           const model = editor.getModel();
@@ -164,10 +281,11 @@ export default React.memo(function CodeEditor({
     setSaveStatus("idle");
   }, [initialContent, filePath]);
 
-  const handleEditorDidMount = (editor: any, _monaco: any) => {
+  const handleEditorDidMount = (editor: any, monacoInstance: any) => {
     editorRef.current = editor;
+    monacoRef.current = monacoInstance;
 
-    // Restore scroll and cursor for the active file path
+    // Restore scroll and cursor
     if (filePath) {
       const model = editor.getModel();
       if (model) {
@@ -187,13 +305,15 @@ export default React.memo(function CodeEditor({
         editor.setScrollTop(savedScroll);
       }
     }
+
+    // ── Apply git diff decorations IMMEDIATELY after mount ──
+    applyDiffDecorations();
   };
 
   const handleSave = async () => {
     if (!filePath || saveStatus === "saving") return;
     setSaveStatus("saving");
     try {
-      // Get latest content from editor if available, to make sure it is 100% in sync
       const latestContent = editorRef.current
         ? editorRef.current.getValue()
         : content;
@@ -203,6 +323,8 @@ export default React.memo(function CodeEditor({
       });
       setOriginalContent(latestContent);
       setSaveStatus("success");
+      // Bump revision to refresh git diff after save
+      setSaveRevision((r) => r + 1);
       if (onFileSaved) onFileSaved();
       if (onSave) onSave(latestContent);
       setTimeout(() => setSaveStatus("idle"), 2000);
@@ -248,6 +370,11 @@ export default React.memo(function CodeEditor({
           <FileCode size={14} className="file-icon" />
           <span className="file-name">{fileName}</span>
           {isDirty && <span className="dirty-dot" title="Unsaved changes" />}
+          {isUntracked && (
+            <span className="untracked-badge" title="File chưa được commit">
+              U
+            </span>
+          )}
           <span className="file-path">{filePath}</span>
         </div>
         <div className="editor-actions">
@@ -311,6 +438,7 @@ export default React.memo(function CodeEditor({
               insertSpaces: true,
               wordWrap: "on",
               renderLineHighlight: "all",
+              glyphMargin: true,
               scrollbar: {
                 vertical: "visible",
                 horizontal: "visible",

@@ -7347,6 +7347,82 @@ select option {
     opacity: 0.5;
 }
 
+/* ── Git Diff Gutter Decorations ── */
+
+/* Added lines — green bar */
+.git-glyph-added {
+    background: #2da44e;
+    width: 4px !important;
+    margin-left: 2px;
+}
+.git-line-added {
+    background: rgba(45, 164, 78, 0.1);
+}
+
+/* Modified lines — amber/orange bar */
+.git-glyph-modified {
+    background: #d29922;
+    width: 4px !important;
+    margin-left: 2px;
+}
+.git-line-modified {
+    background: rgba(210, 153, 34, 0.1);
+}
+
+/* Deleted lines — red bar */
+.git-glyph-deleted {
+    background: #da3633;
+    width: 4px !important;
+    margin-left: 2px;
+    position: relative;
+}
+/* Red triangle indicator for deletions */
+.git-glyph-deleted::before {
+    content: "";
+    position: absolute;
+    top: -4px;
+    left: -1px;
+    width: 0;
+    height: 0;
+    border-left: 5px solid transparent;
+    border-right: 5px solid transparent;
+    border-top: 6px solid #da3633;
+}
+
+/* Subtle top border for the line above a deletion */
+.git-line-deleted-above {
+    border-top: 1px solid rgba(218, 54, 51, 0.3);
+}
+
+/* Light theme adjustments */
+[data-theme="light"] .git-glyph-added {
+    background: #1a7f37;
+}
+[data-theme="light"] .git-glyph-modified {
+    background: #9a6700;
+}
+[data-theme="light"] .git-glyph-deleted {
+    background: #cf222e;
+}
+[data-theme="light"] .git-glyph-deleted::before {
+    border-top-color: #cf222e;
+}
+
+/* Untracked badge in the editor header */
+.untracked-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    font-size: 9px;
+    font-weight: 700;
+    color: #fff;
+    background-color: #2da44e;
+    border-radius: 2px !important;
+    flex-shrink: 0;
+}
+
 /* Custom Floating Context Menu */
 .custom-context-menu {
     position: fixed;

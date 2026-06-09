@@ -4,6 +4,7 @@ pub mod cloudflare;
 pub mod file_watcher;
 pub mod files;
 pub mod git;
+pub mod git_diff;
 pub mod language;
 pub mod network;
 pub mod process;
