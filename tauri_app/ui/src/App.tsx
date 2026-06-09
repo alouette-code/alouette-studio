@@ -448,8 +448,8 @@ export default function App() {
     }
   }, [activePaneIndex, panes]);
 
-  // Handle opening file in the active pane
-  const handleFileOpenCustom = (path: string) => {
+  // Handle opening file in the active pane (có hỗ trợ line number)
+  const handleFileOpenCustom = (path: string, line?: number) => {
     const normalizedPath = path.replace(/\\/g, "/");
     setPanes((prevPanes) => {
       const copy = [...prevPanes];
@@ -462,6 +462,18 @@ export default function App() {
       return copy;
     });
     setOpenFilePath(normalizedPath);
+    // Scroll to line nếu được chỉ định (Monaco sẽ xử lý)
+    if (line && line > 0) {
+      setTimeout(() => {
+        const editorEl = document.querySelector(".monaco-editor");
+        if (editorEl) {
+          // Monaco tự động scroll khi set position
+          window.dispatchEvent(
+            new CustomEvent("rag-go-to-line", { detail: { line } }),
+          );
+        }
+      }, 300);
+    }
   };
 
   // Close tab in a specific pane
@@ -1198,6 +1210,7 @@ export default function App() {
                                   : null
                               }
                               cwd={activeProject?.cwd}
+                              activeProjectId={activeProject?.id}
                               onChange={(newVal) => {
                                 if (paneOpenFilePath) {
                                   setFilesContent((prev) => ({
@@ -1493,6 +1506,7 @@ export default function App() {
           >
             <Sparkles size={14} />
           </button>
+
           <button
             className="tool-btn tool-ping"
             title="3. Ping"

@@ -5117,6 +5117,35 @@ select option {
     align-items: flex-end;
 }
 
+.tool-rag.active {
+    color: #6366f1;
+    background-color: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.15);
+}
+
+/* ── Code RAG Panel ── */
+.code-rag-panel {
+    user-select: none;
+}
+
+.code-rag-panel input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+
+.code-rag-panel select option {
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+.code-rag-result-item:last-child {
+    border-bottom: none !important;
+}
+
+.code-rag-result-item:hover {
+    background: var(--bg-hover, #1e2030) !important;
+}
+
 .input-group {
     display: flex;
     flex-direction: column;

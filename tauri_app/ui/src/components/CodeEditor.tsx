@@ -19,6 +19,7 @@ interface CodeEditorProps {
   error: string | null;
   /** Git working directory for diff decorations */
   cwd?: string;
+  activeProjectId?: string | null;
   onFileSaved?: () => void;
   onChange?: (val: string) => void;
   onSave?: (val: string) => void;

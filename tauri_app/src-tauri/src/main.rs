@@ -14,6 +14,8 @@ use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::{Mutex, RwLock};
 
+use commands::code_rag::init_code_rag;
+
 fn main() {
     // Resolve paths relative to the project root (parent of src-tauri)
     // to keep app_data out of Tauri's file watcher scope.
@@ -82,6 +84,7 @@ fn main() {
             agent_registry,
             active_agent_project,
         })
+        .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.
             let window = app
@@ -271,6 +274,19 @@ fn main() {
             commands::git_diff::git_get_file_diff,
             commands::cloudflare::load_cloudflare_config,
             commands::cloudflare::save_cloudflare_config,
+            // Code RAG commands
+            commands::code_rag::code_rag_supported_languages,
+            commands::code_rag::code_rag_extension_map,
+            commands::code_rag::code_rag_query,
+            commands::code_rag::code_rag_query_by_name,
+            commands::code_rag::code_rag_index_file,
+            commands::code_rag::code_rag_rescan_project,
+            commands::code_rag::code_rag_delete_project,
+            commands::code_rag::code_rag_stats,
+            commands::code_rag::code_rag_resolve_language,
+            commands::code_rag::code_rag_extract_functions,
+            commands::code_rag::code_rag_scan_directory,
+            commands::code_rag::code_rag_debug,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
