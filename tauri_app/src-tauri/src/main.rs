@@ -175,6 +175,11 @@ fn main() {
             // 5. Spawn Alouette Open log monitor task
             alouette_open::spawn_alouette_open_monitor(app.handle().clone());
 
+            // 6. Spawn file-system event watcher (thay thế polling ở frontend)
+            let watch_dir =
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            commands::file_watcher::spawn_file_watcher(app.handle().clone(), watch_dir);
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

@@ -126,53 +126,47 @@ export function useProjects(deps: UseProjectsDeps) {
         setIsFileLoading(true);
         setFileError(null);
         try {
-          const base64Data = await invoke<string>("read_file_content", {
+          // Tauri v2 trả về Vec<u8> → serialize thành number[] (JSON array), convert sang Uint8Array
+          const raw: number[] = await invoke<number[]>("read_file_content", {
             path,
           });
+          const bytes = new Uint8Array(raw);
 
-          const binaryString = window.atob(base64Data);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-
+          // Phát hiện BOM và decode encoding
           let decodedText = "";
           if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
-            const decoder = new TextDecoder("utf-16le");
-            decodedText = decoder.decode(bytes.slice(2));
+            decodedText = new TextDecoder("utf-16le").decode(bytes.slice(2));
           } else if (
             bytes.length >= 2 &&
             bytes[0] === 0xfe &&
             bytes[1] === 0xff
           ) {
-            const decoder = new TextDecoder("utf-16be");
-            decodedText = decoder.decode(bytes.slice(2));
+            decodedText = new TextDecoder("utf-16be").decode(bytes.slice(2));
           } else if (
             bytes.length >= 3 &&
             bytes[0] === 0xef &&
             bytes[1] === 0xbb &&
             bytes[2] === 0xbf
           ) {
-            const decoder = new TextDecoder("utf-8");
-            decodedText = decoder.decode(bytes.slice(3));
+            decodedText = new TextDecoder("utf-8").decode(bytes.slice(3));
           } else {
             try {
-              const decoder = new TextDecoder("utf-8", { fatal: true });
-              decodedText = decoder.decode(bytes);
-            } catch (e) {
+              decodedText = new TextDecoder("utf-8", { fatal: true }).decode(
+                bytes,
+              );
+            } catch (_e) {
+              // UTF-8 thất bại → thử UTF-16LE nếu có nhiều null bytes
               let nullCount = 0;
               for (let i = 0; i < Math.min(bytes.length, 100); i++) {
                 if (bytes[i] === 0) nullCount++;
               }
               if (nullCount > 10) {
-                const decoder = new TextDecoder("utf-16le");
-                decodedText = decoder.decode(bytes);
+                decodedText = new TextDecoder("utf-16le").decode(bytes);
               } else {
                 console.warn(
                   "UTF-8 fail, falling back to Windows-1258 (Vietnamese)",
                 );
-                const fallbackDecoder = new TextDecoder("windows-1258");
-                decodedText = fallbackDecoder.decode(bytes);
+                decodedText = new TextDecoder("windows-1258").decode(bytes);
               }
             }
           }
@@ -378,7 +372,7 @@ export function useProjects(deps: UseProjectsDeps) {
           `WARNING: Exposing port ${activeProject.port || 3000} via Cloudflare Tunnel. Ensure the service requires authentication. Do you understand the risk?`,
           () => {
             handleStart(true);
-          }
+          },
         );
         return;
       }
@@ -414,7 +408,7 @@ export function useProjects(deps: UseProjectsDeps) {
           `WARNING: Exposing port ${proj.port || 3000} via Cloudflare Tunnel. Ensure the service requires authentication. Do you understand the risk?`,
           () => {
             handleStartProject(id, true);
-          }
+          },
         );
         return;
       }

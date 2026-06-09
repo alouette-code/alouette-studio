@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod browser;
 pub mod cloudflare;
+pub mod file_watcher;
 pub mod files;
 pub mod git;
 pub mod language;

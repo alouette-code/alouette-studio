@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Save, FileCode, Check, AlertCircle, RefreshCw } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import Editor from "@monaco-editor/react";
@@ -75,7 +75,7 @@ const getLanguageFromPath = (path: string | null): string => {
   }
 };
 
-export default function CodeEditor({
+export default React.memo(function CodeEditor({
   theme = "dark",
   filePath,
   content: initialContent,
@@ -323,4 +323,4 @@ export default function CodeEditor({
       )}
     </div>
   );
-}
+});

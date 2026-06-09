@@ -1,14 +1,45 @@
-use crate::state::{AppState, log_to_app_file};
-use base64::{Engine as _, engine::general_purpose};
-use std::fs;
+use crate::state::{log_to_app_file, AppState};
+use dashmap::DashMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
+use std::time::{Duration, Instant};
 use tauri::State;
+use tokio::fs;
+
+// ── Canonical path cache (TTL 10 giây) ──
+static CANONICAL_CACHE: LazyLock<DashMap<String, (Instant, PathBuf)>> =
+    LazyLock::new(|| DashMap::new());
+const CACHE_TTL: Duration = Duration::from_secs(10);
+
+fn cached_canonicalize(path: &Path) -> Result<PathBuf, String> {
+    let key = path.to_string_lossy().to_string();
+
+    // Check cache
+    if let Some(entry) = CANONICAL_CACHE.get(&key) {
+        if entry.0.elapsed() < CACHE_TTL {
+            return Ok(entry.1.clone());
+        }
+    }
+
+    // Miss — canonicalize thật
+    let canonical = std::fs::canonicalize(path)
+        .map_err(|e| format!("Failed to canonicalize '{}': {}", path.display(), e))?;
+
+    CANONICAL_CACHE.insert(key, (Instant::now(), canonical.clone()));
+    Ok(canonical)
+}
+
+/// Resolve workspace root một lần và cache lại.
+fn workspace_root() -> PathBuf {
+    static ROOT: LazyLock<PathBuf> =
+        LazyLock::new(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+    ROOT.clone()
+}
 
 async fn validate_path(state: &AppState, path_str: &str) -> Result<PathBuf, String> {
-    let workspace_root = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let canonical_root = fs::canonicalize(&workspace_root)
-        .map_err(|e| format!("Failed to canonicalize workspace root: {}", e))?;
-    
+    let workspace_root = workspace_root();
+    let canonical_root = cached_canonicalize(&workspace_root)?;
+
     let path = Path::new(path_str);
     let absolute_target = if path.is_absolute() {
         path.to_path_buf()
@@ -19,7 +50,10 @@ async fn validate_path(state: &AppState, path_str: &str) -> Result<PathBuf, Stri
     // Prevent traversal using component checks
     for component in path.components() {
         if component == std::path::Component::ParentDir {
-            return Err("Security Boundary Error: Parent directory traversal (..) is forbidden.".to_string());
+            return Err(
+                "Security Boundary Error: Parent directory traversal (..) is forbidden."
+                    .to_string(),
+            );
         }
     }
 
@@ -29,7 +63,7 @@ async fn validate_path(state: &AppState, path_str: &str) -> Result<PathBuf, Stri
 
     while let Some(parent) = ancestor.parent() {
         if ancestor.exists() {
-            if let Ok(canon) = fs::canonicalize(&ancestor) {
+            if let Ok(canon) = cached_canonicalize(&ancestor) {
                 canonical_ancestor = Some(canon);
                 break;
             }
@@ -38,13 +72,17 @@ async fn validate_path(state: &AppState, path_str: &str) -> Result<PathBuf, Stri
     }
 
     if canonical_ancestor.is_none() && ancestor.exists() {
-        if let Ok(canon) = fs::canonicalize(&ancestor) {
+        if let Ok(canon) = cached_canonicalize(&ancestor) {
             canonical_ancestor = Some(canon);
         }
     }
 
-    let canonical_ancestor = canonical_ancestor
-        .ok_or_else(|| format!("Security Error: Path parent does not exist or cannot be resolved: {}", absolute_target.display()))?;
+    let canonical_ancestor = canonical_ancestor.ok_or_else(|| {
+        format!(
+            "Security Error: Path parent does not exist or cannot be resolved: {}",
+            absolute_target.display()
+        )
+    })?;
 
     // Allow access if the path is inside the main workspace root
     if canonical_ancestor.starts_with(&canonical_root) {
@@ -56,7 +94,7 @@ async fn validate_path(state: &AppState, path_str: &str) -> Result<PathBuf, Stri
     let configs = pm.get_configs();
     for config in configs {
         if let Some(cwd) = &config.cwd {
-            if let Ok(canonical_cwd) = fs::canonicalize(Path::new(cwd)) {
+            if let Ok(canonical_cwd) = cached_canonicalize(Path::new(cwd)) {
                 if canonical_ancestor.starts_with(&canonical_cwd) {
                     return Ok(absolute_target);
                 }
@@ -79,36 +117,47 @@ pub struct FileNode {
 }
 
 #[tauri::command]
-pub async fn get_project_files(state: State<'_, AppState>, dir_path: Option<String>) -> Result<Vec<FileNode>, String> {
-    let path_str = dir_path.unwrap_or_else(|| {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-    });
+pub async fn get_project_files(
+    state: State<'_, AppState>,
+    dir_path: Option<String>,
+) -> Result<Vec<FileNode>, String> {
+    let path_str = dir_path.unwrap_or_else(|| workspace_root().to_string_lossy().to_string());
 
     let validated = validate_path(&state, &path_str).await?;
     get_directory_contents(state, validated.to_string_lossy().to_string()).await
 }
 
+/// Đọc file và trả về Vec<u8> — Tauri v2 tự serialize thành Uint8Array ở frontend.
 #[tauri::command]
-pub async fn read_file_content(state: State<'_, AppState>, path: String) -> Result<String, String> {
+pub async fn read_file_content(
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<Vec<u8>, String> {
     log_to_app_file(&format!("Reading file: {}", path));
     let validated = validate_path(&state, &path).await?;
-    let bytes = std::fs::read(&validated).map_err(|e| e.to_string())?;
+    let metadata = fs::metadata(&validated).await.map_err(|e| e.to_string())?;
 
-    if bytes.len() > 10 * 1024 * 1024 {
-        return Err("File quá lớn để mở trong trình soạn thảo. Vui lòng sử dụng terminal.".to_string());
+    if metadata.len() > 10 * 1024 * 1024 {
+        return Err(
+            "File quá lớn để mở trong trình soạn thảo. Vui lòng sử dụng terminal.".to_string(),
+        );
     }
 
-    Ok(general_purpose::STANDARD.encode(bytes))
+    let bytes = fs::read(&validated).await.map_err(|e| e.to_string())?;
+    Ok(bytes)
 }
 
 #[tauri::command]
-pub async fn write_file_content(state: State<'_, AppState>, path: String, content: String) -> Result<(), String> {
+pub async fn write_file_content(
+    state: State<'_, AppState>,
+    path: String,
+    content: String,
+) -> Result<(), String> {
     log_to_app_file(&format!("Writing file: {}", path));
     let validated = validate_path(&state, &path).await?;
-    std::fs::write(&validated, content).map_err(|e| e.to_string())
+    fs::write(&validated, &content)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -119,9 +168,11 @@ pub async fn create_file(state: State<'_, AppState>, path: String) -> Result<(),
         return Err("File already exists".to_string());
     }
     if let Some(parent) = validated.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+        fs::create_dir_all(parent)
+            .await
+            .map_err(|e| e.to_string())?;
     }
-    fs::write(validated, "").map_err(|e| e.to_string())?;
+    fs::write(&validated, "").await.map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -132,33 +183,38 @@ pub async fn create_folder(state: State<'_, AppState>, path: String) -> Result<(
     if validated.exists() {
         return Err("Folder already exists".to_string());
     }
-    fs::create_dir_all(validated).map_err(|e| e.to_string())?;
+    fs::create_dir_all(&validated)
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }
 
 #[tauri::command]
-pub async fn get_directory_contents(state: State<'_, AppState>, dir_path: String) -> Result<Vec<FileNode>, String> {
+pub async fn get_directory_contents(
+    state: State<'_, AppState>,
+    dir_path: String,
+) -> Result<Vec<FileNode>, String> {
     let validated = validate_path(&state, &dir_path).await?;
     let mut entries = Vec::new();
-    let read_entries = fs::read_dir(&validated).map_err(|e| e.to_string())?;
+    let mut read_dir = tokio::fs::read_dir(&validated)
+        .await
+        .map_err(|e| e.to_string())?;
 
-    for entry_result in read_entries {
-        if let Ok(entry) = entry_result {
-            let entry_path = entry.path();
-            let name = entry.file_name().to_string_lossy().to_string();
+    while let Some(entry) = read_dir.next_entry().await.map_err(|e| e.to_string())? {
+        let entry_path = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
 
-            if name == ".git" {
-                continue;
-            }
-
-            let is_dir = entry_path.is_dir();
-            entries.push(FileNode {
-                name,
-                path: entry_path.to_string_lossy().to_string(),
-                is_dir,
-                children: None,
-            });
+        if name == ".git" {
+            continue;
         }
+
+        let is_dir = entry_path.is_dir();
+        entries.push(FileNode {
+            name,
+            path: entry_path.to_string_lossy().to_string(),
+            is_dir,
+            children: None,
+        });
     }
 
     entries.sort_by(|a, b| {
@@ -180,19 +236,16 @@ pub struct SearchFileItem {
 }
 
 #[tauri::command]
-pub async fn get_all_files_and_folders(state: State<'_, AppState>, dir_path: Option<String>) -> Result<Vec<SearchFileItem>, String> {
-    let path_str = dir_path.unwrap_or_else(|| {
-        std::env::current_dir()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string()
-    });
+pub async fn get_all_files_and_folders(
+    state: State<'_, AppState>,
+    dir_path: Option<String>,
+) -> Result<Vec<SearchFileItem>, String> {
+    let path_str = dir_path.unwrap_or_else(|| workspace_root().to_string_lossy().to_string());
 
     let validated = validate_path(&state, &path_str).await?;
     let mut items = Vec::new();
-    collect_files_and_folders_recursive(&validated, &validated, &mut items)?;
+    collect_files_and_folders_recursive(&validated, &validated, &mut items).await?;
 
-    // Sort to have shorter paths and directories first, which usually feels cleaner
     items.sort_by(|a, b| {
         let depth_a = a.path.matches('/').count();
         let depth_b = b.path.matches('/').count();
@@ -208,52 +261,52 @@ pub async fn get_all_files_and_folders(state: State<'_, AppState>, dir_path: Opt
     Ok(items)
 }
 
-fn collect_files_and_folders_recursive(
+async fn collect_files_and_folders_recursive(
     root: &Path,
     dir: &Path,
     items: &mut Vec<SearchFileItem>,
 ) -> Result<(), String> {
     if dir.is_dir() {
-        let read_entries = fs::read_dir(dir).map_err(|e| e.to_string())?;
-        for entry_result in read_entries {
-            if let Ok(entry) = entry_result {
-                let entry_path = entry.path();
-                let name = entry.file_name().to_string_lossy().to_string();
+        let mut read_dir = tokio::fs::read_dir(dir).await.map_err(|e| e.to_string())?;
 
-                if name == ".git"
-                    || name == ".idea"
-                    || name == "target"
-                    || name == "node_modules"
-                    || name == "dist"
-                    || name == "build"
-                    || name == "logs"
-                    || name == ".tauri"
-                {
-                    continue;
-                }
+        while let Some(entry) = read_dir.next_entry().await.map_err(|e| e.to_string())? {
+            let entry_path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
 
-                let is_dir = entry_path.is_dir();
-                let rel_path = match entry_path.strip_prefix(root) {
-                    Ok(p) => p.to_string_lossy().to_string(),
-                    Err(_) => entry_path.to_string_lossy().to_string(),
-                };
-                let normalized_path = rel_path.replace("\\", "/");
+            if name == ".git"
+                || name == ".idea"
+                || name == "target"
+                || name == "node_modules"
+                || name == "dist"
+                || name == "build"
+                || name == "logs"
+                || name == ".tauri"
+            {
+                continue;
+            }
 
-                items.push(SearchFileItem {
-                    name,
-                    path: normalized_path,
-                    is_dir,
-                });
+            let is_dir = entry_path.is_dir();
+            let rel_path = match entry_path.strip_prefix(root) {
+                Ok(p) => p.to_string_lossy().to_string(),
+                Err(_) => entry_path.to_string_lossy().to_string(),
+            };
+            let normalized_path = rel_path.replace("\\", "/");
 
-                if is_dir {
-                    collect_files_and_folders_recursive(root, &entry_path, items)?;
-                }
+            items.push(SearchFileItem {
+                name,
+                path: normalized_path,
+                is_dir,
+            });
+
+            if is_dir {
+                Box::pin(collect_files_and_folders_recursive(
+                    root,
+                    &entry_path,
+                    items,
+                ))
+                .await?;
             }
         }
     }
     Ok(())
 }
-
-
-
-

@@ -1,6 +1,18 @@
 import { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Folder, FolderOpen, File, ChevronRight, ChevronDown, Code, Braces, FilePlus, FolderPlus, RotateCw } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import {
+  Folder,
+  FolderOpen,
+  File,
+  ChevronRight,
+  ChevronDown,
+  Code,
+  Braces,
+  FilePlus,
+  FolderPlus,
+  RotateCw,
+} from "lucide-react";
 
 interface FileNode {
   name: string;
@@ -27,7 +39,7 @@ const getRelativePath = (absolutePath: string, baseCwd: string | undefined) => {
   if (!baseCwd) return absolutePath;
   const absNormalized = absolutePath.replace(/\\/g, "/");
   const baseNormalized = baseCwd.replace(/\\/g, "/");
-  
+
   if (absNormalized.startsWith(baseNormalized)) {
     let rel = absNormalized.substring(baseNormalized.length);
     if (rel.startsWith("/")) {
@@ -49,9 +61,14 @@ function TreeNode({
 }: {
   node: FileNode;
   onFileSelect: (filePath: string) => void;
-  onNodeContextMenu: (x: number, y: number, path: string, isDir: boolean) => void;
+  onNodeContextMenu: (
+    x: number,
+    y: number,
+    path: string,
+    isDir: boolean,
+  ) => void;
   onNodeChildrenLoaded: (path: string, children: FileNode[]) => void;
-  gitFileStatuses: {[relPath: string]: string};
+  gitFileStatuses: { [relPath: string]: string };
   activeCwd: string | undefined;
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -113,8 +130,15 @@ function TreeNode({
   const gitStatus = gitFileStatuses[relPath];
 
   return (
-    <div style={{ display: "flex", flexDirection: "column" }} onContextMenu={handleContextMenu}>
-      <div className="tree-node-row" onClick={handleRowClick} style={{ display: "flex", alignItems: "center", width: "100%" }}>
+    <div
+      style={{ display: "flex", flexDirection: "column" }}
+      onContextMenu={handleContextMenu}
+    >
+      <div
+        className="tree-node-row"
+        onClick={handleRowClick}
+        style={{ display: "flex", alignItems: "center", width: "100%" }}
+      >
         {node.is_dir ? (
           <span style={{ display: "inline-flex", marginRight: "2px" }}>
             {isOpen ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
@@ -123,32 +147,34 @@ function TreeNode({
           <span style={{ width: "13px", display: "inline-block" }} />
         )}
         {getFileIcon(node.name, node.is_dir)}
-        <span 
+        <span
           className="tree-node-name"
-          style={{ 
-            color: gitStatus === "modified" 
-              ? "var(--git-modified, #eab308)" 
-              : gitStatus === "untracked" || gitStatus === "added"
-                ? "var(--git-added, #10b981)" 
-                : "inherit",
+          style={{
+            color:
+              gitStatus === "modified"
+                ? "var(--git-modified, #eab308)"
+                : gitStatus === "untracked" || gitStatus === "added"
+                  ? "var(--git-added, #10b981)"
+                  : "inherit",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            whiteSpace: "nowrap"
+            whiteSpace: "nowrap",
           }}
         >
           {node.name}
         </span>
         {gitStatus && (
-          <span 
-            style={{ 
-              fontSize: "9px", 
+          <span
+            style={{
+              fontSize: "9px",
               fontWeight: "bold",
               marginLeft: "auto",
               marginRight: "8px",
-              color: gitStatus === "modified" 
-                ? "var(--git-modified, #eab308)" 
-                : "var(--git-added, #10b981)",
-              opacity: 0.8
+              color:
+                gitStatus === "modified"
+                  ? "var(--git-modified, #eab308)"
+                  : "var(--git-added, #10b981)",
+              opacity: 0.8,
             }}
           >
             {gitStatus === "modified" ? "M" : "U"}
@@ -157,21 +183,41 @@ function TreeNode({
       </div>
 
       {node.is_dir && isOpen && (
-        <div style={{ paddingLeft: "12px", borderLeft: "1px solid var(--border-primary)", marginLeft: "18px" }}>
-          {isLazyLoading && <div className="explorer-empty" style={{ padding: "4px 8px", textAlign: "left" }}>Loading...</div>}
-          {!isLazyLoading && node.children && node.children.map((child, idx) => (
-            <TreeNode
-              key={idx}
-              node={child}
-              onFileSelect={onFileSelect}
-              onNodeContextMenu={onNodeContextMenu}
-              onNodeChildrenLoaded={onNodeChildrenLoaded}
-              gitFileStatuses={gitFileStatuses}
-              activeCwd={activeCwd}
-            />
-          ))}
+        <div
+          style={{
+            paddingLeft: "12px",
+            borderLeft: "1px solid var(--border-primary)",
+            marginLeft: "18px",
+          }}
+        >
+          {isLazyLoading && (
+            <div
+              className="explorer-empty"
+              style={{ padding: "4px 8px", textAlign: "left" }}
+            >
+              Loading...
+            </div>
+          )}
+          {!isLazyLoading &&
+            node.children &&
+            node.children.map((child, idx) => (
+              <TreeNode
+                key={idx}
+                node={child}
+                onFileSelect={onFileSelect}
+                onNodeContextMenu={onNodeContextMenu}
+                onNodeChildrenLoaded={onNodeChildrenLoaded}
+                gitFileStatuses={gitFileStatuses}
+                activeCwd={activeCwd}
+              />
+            ))}
           {!isLazyLoading && (!node.children || node.children.length === 0) && (
-            <div className="explorer-empty" style={{ padding: "4px 8px", textAlign: "left" }}>Empty</div>
+            <div
+              className="explorer-empty"
+              style={{ padding: "4px 8px", textAlign: "left" }}
+            >
+              Empty
+            </div>
           )}
         </div>
       )}
@@ -181,24 +227,29 @@ function TreeNode({
 
 // Tree Merging Helper
 const mergeTrees = (newNodes: FileNode[], oldNodes: FileNode[]): FileNode[] => {
-  return newNodes.map(newNode => {
-    const oldNode = oldNodes.find(o => o.path === newNode.path);
+  return newNodes.map((newNode) => {
+    const oldNode = oldNodes.find((o) => o.path === newNode.path);
     if (oldNode && oldNode.is_dir) {
-      const mergedChildren = (newNode.children && newNode.children.length > 0)
-        ? mergeTrees(newNode.children, oldNode.children || [])
-        : (oldNode.children || []);
+      const mergedChildren =
+        newNode.children && newNode.children.length > 0
+          ? mergeTrees(newNode.children, oldNode.children || [])
+          : oldNode.children || [];
       return { ...newNode, children: mergedChildren };
     }
     return newNode;
   });
 };
 
-export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerProps) {
+export default function FileExplorer({
+  activeCwd,
+  onFileSelect,
+}: FileExplorerProps) {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [gitFileStatuses, setGitFileStatuses] = useState<{[relPath: string]: string}>({});
-
+  const [gitFileStatuses, setGitFileStatuses] = useState<{
+    [relPath: string]: string;
+  }>({});
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
@@ -224,7 +275,7 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
     if (!activeCwd) return;
     try {
       const status: any = await invoke("git_get_status", { cwd: activeCwd });
-      const statusMap: {[relPath: string]: string} = {};
+      const statusMap: { [relPath: string]: string } = {};
       status.staged.forEach((f: any) => {
         statusMap[f.path.replace(/\\/g, "/")] = f.status;
       });
@@ -244,7 +295,7 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
       const data = await invoke<FileNode[]>("get_project_files", {
         dirPath: activeCwd || null,
       });
-      setFiles(prev => mergeTrees(data, prev));
+      setFiles((prev) => mergeTrees(data, prev));
       await fetchGitStatus();
     } catch (e: any) {
       console.error("Failed to load project files tree:", e);
@@ -257,21 +308,41 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
   useEffect(() => {
     fetchFiles(false);
 
-    // Auto-polling mechanism to periodically fetch the project file status in the background
-    const interval = setInterval(() => {
-      fetchFiles(true);
-    }, 1000);
+    // Thay thế polling bằng event-driven: lắng nghe file-system-changed từ Rust notify
+    let unlisten: (() => void) | undefined;
+    const setupListener = async () => {
+      unlisten = await listen("file-system-changed", () => {
+        fetchFiles(true);
+      });
+    };
+    setupListener();
 
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, [activeCwd]);
+
+  // Pool git status riêng biệt ở tần suất thấp (10 giây)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchGitStatus();
+    }, 10000);
     return () => clearInterval(interval);
   }, [activeCwd]);
 
   useEffect(() => {
-    const closeMenu = () => setContextMenu(prev => ({ ...prev, visible: false }));
+    const closeMenu = () =>
+      setContextMenu((prev) => ({ ...prev, visible: false }));
     window.addEventListener("click", closeMenu);
     return () => window.removeEventListener("click", closeMenu);
   }, []);
 
-  const handleNodeContextMenu = (x: number, y: number, path: string, isDir: boolean) => {
+  const handleNodeContextMenu = (
+    x: number,
+    y: number,
+    path: string,
+    isDir: boolean,
+  ) => {
     setContextMenu({
       visible: true,
       x,
@@ -294,7 +365,7 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
 
   const handleNodeChildrenLoaded = (path: string, children: FileNode[]) => {
     const updateTree = (nodes: FileNode[]): FileNode[] => {
-      return nodes.map(n => {
+      return nodes.map((n) => {
         if (n.path === path) {
           return { ...n, children };
         }
@@ -304,7 +375,7 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
         return n;
       });
     };
-    setFiles(prev => updateTree(prev));
+    setFiles((prev) => updateTree(prev));
   };
 
   const triggerCreateItem = (type: "file" | "folder") => {
@@ -319,11 +390,16 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
 
     let targetDir = activeCwd || "";
     if (contextMenu.targetPath) {
-      targetDir = getParentPath(contextMenu.targetPath, contextMenu.targetIsDir);
+      targetDir = getParentPath(
+        contextMenu.targetPath,
+        contextMenu.targetIsDir,
+      );
     }
 
     const separator = targetDir.includes("\\") ? "\\" : "/";
-    const fullPath = targetDir ? `${targetDir}${separator}${newItemName.trim()}` : newItemName.trim();
+    const fullPath = targetDir
+      ? `${targetDir}${separator}${newItemName.trim()}`
+      : newItemName.trim();
 
     try {
       if (promptType === "file") {
@@ -341,7 +417,10 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
   };
 
   return (
-    <div className="explorer-container" onContextMenu={handleContainerContextMenu}>
+    <div
+      className="explorer-container"
+      onContextMenu={handleContainerContextMenu}
+    >
       {/* Dynamic Styling block for action buttons & context menu */}
       <style>{`
         .explorer-action-btn {
@@ -385,17 +464,31 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
         }
       `}</style>
 
-      <header className="explorer-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <header
+        className="explorer-header"
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <Folder size={11} />
           <span>PROJECT EXPLORER</span>
         </div>
-        <div style={{ display: "flex", gap: "6px" }} onClick={e => e.stopPropagation()}>
+        <div
+          style={{ display: "flex", gap: "6px" }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <button
             className="explorer-action-btn"
             title="New File"
             onClick={() => {
-              setContextMenu(prev => ({ ...prev, targetPath: activeCwd || null, targetIsDir: true }));
+              setContextMenu((prev) => ({
+                ...prev,
+                targetPath: activeCwd || null,
+                targetIsDir: true,
+              }));
               triggerCreateItem("file");
             }}
           >
@@ -405,7 +498,11 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
             className="explorer-action-btn"
             title="New Folder"
             onClick={() => {
-              setContextMenu(prev => ({ ...prev, targetPath: activeCwd || null, targetIsDir: true }));
+              setContextMenu((prev) => ({
+                ...prev,
+                targetPath: activeCwd || null,
+                targetIsDir: true,
+              }));
               triggerCreateItem("folder");
             }}
           >
@@ -424,7 +521,10 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
       <div className="explorer-scroll-viewport">
         {loading && <div className="explorer-empty">Traversing files...</div>}
         {!loading && error && (
-          <div className="explorer-empty" style={{ color: "var(--color-danger)" }}>
+          <div
+            className="explorer-empty"
+            style={{ color: "var(--color-danger)" }}
+          >
             Error listing directory
           </div>
         )}
@@ -458,7 +558,7 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
             left: contextMenu.x,
             zIndex: 1000,
           }}
-          onClick={e => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
         >
           <div
             className="context-menu-item"
@@ -479,11 +579,26 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
 
       {/* Styled Inline Prompt Modal */}
       {showPrompt && (
-        <div className="modal-overlay animate-fade-in" style={{ zIndex: 1001 }} onClick={() => setShowPrompt(false)}>
-          <div className="modal-content" style={{ width: "320px", borderRadius: "4px" }} onClick={e => e.stopPropagation()}>
+        <div
+          className="modal-overlay animate-fade-in"
+          style={{ zIndex: 1001 }}
+          onClick={() => setShowPrompt(false)}
+        >
+          <div
+            className="modal-content"
+            style={{ width: "320px", borderRadius: "4px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
-              <span className="modal-title">Create New {promptType === "file" ? "File" : "Folder"}</span>
-              <button className="terminal-action-btn" onClick={() => setShowPrompt(false)}>✕</button>
+              <span className="modal-title">
+                Create New {promptType === "file" ? "File" : "Folder"}
+              </span>
+              <button
+                className="terminal-action-btn"
+                onClick={() => setShowPrompt(false)}
+              >
+                ✕
+              </button>
             </div>
             <form onSubmit={submitCreation}>
               <div className="modal-body">
@@ -491,15 +606,41 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
                   autoFocus
                   type="text"
                   className="admin-input"
-                  placeholder={promptType === "file" ? "filename.txt" : "Folder Name"}
+                  placeholder={
+                    promptType === "file" ? "filename.txt" : "Folder Name"
+                  }
                   value={newItemName}
                   onChange={(e) => setNewItemName(e.target.value)}
-                  style={{ width: "100%", background: "var(--bg-primary)", border: "1px solid var(--border-primary)", color: "var(--text-primary)", padding: "6px 10px", borderRadius: "4px", outline: "none" }}
+                  style={{
+                    width: "100%",
+                    background: "var(--bg-primary)",
+                    border: "1px solid var(--border-primary)",
+                    color: "var(--text-primary)",
+                    padding: "6px 10px",
+                    borderRadius: "4px",
+                    outline: "none",
+                  }}
                 />
               </div>
-              <div className="modal-footer" style={{ padding: "8px 12px", display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                <button type="button" className="btn btn-secondary btn-xs" onClick={() => setShowPrompt(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-xs">Create</button>
+              <div
+                className="modal-footer"
+                style={{
+                  padding: "8px 12px",
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  gap: "8px",
+                }}
+              >
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-xs"
+                  onClick={() => setShowPrompt(false)}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary btn-xs">
+                  Create
+                </button>
               </div>
             </form>
           </div>
@@ -508,4 +649,3 @@ export default function FileExplorer({ activeCwd, onFileSelect }: FileExplorerPr
     </div>
   );
 }
-
