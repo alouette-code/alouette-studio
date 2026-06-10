@@ -5,9 +5,17 @@ use tokio::sync::Mutex;
 
 use core_engine::code_rag::{
     all_languages, embedding::EmbeddingModel, extension_map, extract_functions,
-    language_resolver::LanguageResolver, IndexEvent, Indexer, IndexerConfig, QueryEngine,
-    QueryResult, VectorDb,
+    language_resolver::LanguageResolver, seed_code_library, IndexEvent, Indexer, IndexerConfig,
+    QueryEngine, QueryResult, VectorDb,
 };
+
+/// Kết quả kiểm tra nhanh DB
+#[derive(serde::Serialize)]
+pub struct CodeRagHealth {
+    pub has_data: bool,
+    pub total_entries: usize,
+    pub model_loaded: bool,
+}
 
 /// AppState mở rộng cho Code RAG
 pub struct CodeRagState {
@@ -23,6 +31,16 @@ pub struct CodeRagState {
 pub fn init_code_rag(app_data_dir: &PathBuf) -> CodeRagState {
     let db_path = app_data_dir.join("code_rag_db");
     let db = Arc::new(VectorDb::new(db_path));
+
+    // 🌱 Seed thư viện code mẫu từ file seed_library.json (nằm ở core_engine/app_data/db_RAG/)
+    // app_data_dir hiện tại trỏ vào tauri_app/app_data/, cần lùi về project root rồi sang core_engine
+    let project_root = app_data_dir.parent().unwrap_or(app_data_dir);
+    let seed_path = project_root
+        .join("core_engine")
+        .join("app_data")
+        .join("db_RAG")
+        .join("seed_library.json");
+    seed_code_library(&db, &seed_path);
 
     let config = IndexerConfig::default();
     let indexer = Arc::new(Indexer::new(db.clone(), config));
@@ -100,20 +118,49 @@ pub fn code_rag_extension_map() -> std::collections::HashMap<String, String> {
     extension_map()
 }
 
-/// Query function definitions bằng text search (semantic)
+/// Kiểm tra nhanh tình trạng DB (có data không? model đã load chưa?)
+/// KHÔNG block — chỉ đọc vài atomic/refcount.
 #[tauri::command]
-pub fn code_rag_query(
+pub async fn code_rag_health(
+    state: State<'_, Mutex<CodeRagState>>,
+) -> Result<CodeRagHealth, String> {
+    let s = state.lock().await;
+    Ok(CodeRagHealth {
+        has_data: s.db.len() > 0,
+        total_entries: s.db.len(),
+        model_loaded: s.query_engine.is_model_loaded(),
+    })
+}
+
+/// Query function definitions bằng text search (semantic)
+///
+/// Async để không block UI thread.
+/// CPU-heavy work (ONNX embedding) chạy trên blocking thread pool.
+#[tauri::command]
+pub async fn code_rag_query(
     state: State<'_, Mutex<CodeRagState>>,
     query: String,
     lang_id: Option<String>,
     project_id: Option<String>,
     top_k: Option<usize>,
-) -> QueryResult {
-    let state = state.blocking_lock();
+) -> Result<QueryResult, String> {
     let top_k = top_k.unwrap_or(10);
-    state
-        .query_engine
-        .query(&query, lang_id.as_deref(), project_id.as_deref(), top_k)
+
+    // Chỉ clone Arc<QueryEngine> — rất rẻ, không copy dữ liệu
+    let qe = {
+        let s = state.lock().await;
+        s.query_engine.clone()
+    };
+
+    // CPU-heavy work (ONNX inference + cosine similarity)
+    // chạy trên blocking thread pool, không block async runtime
+    let result = tokio::task::spawn_blocking(move || {
+        qe.query(&query, lang_id.as_deref(), project_id.as_deref(), top_k)
+    })
+    .await
+    .map_err(|e| format!("Query task failed: {}", e))?;
+
+    Ok(result)
 }
 
 /// Query function definitions bằng tên function — SIÊU NHANH

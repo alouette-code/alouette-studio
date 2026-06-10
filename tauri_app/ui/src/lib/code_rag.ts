@@ -101,6 +101,15 @@ export async function deleteProjectIndex(projectId: string): Promise<void> {
   return invoke("code_rag_delete_project", { projectId });
 }
 
+/** Kiểm tra nhanh sức khỏe DB (có data? model loaded?) */
+export async function getCodeRagHealth(): Promise<{
+  has_data: boolean;
+  total_entries: number;
+  model_loaded: boolean;
+}> {
+  return invoke("code_rag_health");
+}
+
 /** Lấy stats */
 export async function getCodeRagStats(): Promise<CodeRagStats> {
   return invoke("code_rag_stats");

@@ -7484,6 +7484,22 @@ select option {
     flex-shrink: 0;
 }
 
+/* ── CodeRAG Search highlight line ── */
+.rag-highlight-line {
+    background: rgba(58, 134, 255, 0.12) !important;
+    border-left: 3px solid var(--color-accent) !important;
+}
+.rag-highlight-gutter {
+    background: var(--color-accent);
+    width: 3px !important;
+}
+
+/* ── Monaco context menu entries ── */
+.monaco-action.codicon-rag-search::before {
+    content: "🔍";
+    font-size: 12px;
+}
+
 /* Custom Floating Context Menu */
 .custom-context-menu {
     position: fixed;

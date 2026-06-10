@@ -15,8 +15,8 @@ pub use agent_harness::{
 };
 pub use code_rag::{
     all_languages, embedding::EmbeddingModel, extension_map, extract_functions, normalize_entry,
-    IndexEvent, Indexer, IndexerConfig, LanguageConfig, LanguageResolver, QueryEngine, QueryResult,
-    Tier, VectorDb,
+    seed_code_library, IndexEvent, Indexer, IndexerConfig, LanguageConfig, LanguageResolver,
+    QueryEngine, QueryResult, Tier, VectorDb,
 };
 pub use config::{
     EnvSimulationConfig, LanguageRuntime, LanguageTool, ProjectConfig, ProjectsConfig,

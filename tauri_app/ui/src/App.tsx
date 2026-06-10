@@ -1229,6 +1229,7 @@ export default function App() {
                               }}
                               scrollPositionsRef={editorScrollPositionsRef}
                               cursorPositionsRef={editorCursorPositionsRef}
+                              onOpenFile={handleFileOpenCustom}
                             />
                           )}
                         </div>

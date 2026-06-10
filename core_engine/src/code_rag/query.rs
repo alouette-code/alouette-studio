@@ -85,20 +85,45 @@ impl QueryEngine {
             }
         };
 
-        // Search trong DB
+        // Search trong DB — luôn bao gồm cả seed library (lang_id="common")
         let candidates = match (lang_filter, project_filter) {
-            (Some(lang), _) => self.db.by_language(lang),
+            (Some(lang), _) => {
+                let mut c = self.db.by_language(lang);
+                // Luôn thêm entries từ seed library (common patterns)
+                c.extend(self.db.by_language("common"));
+                c
+            }
             (_, Some(proj)) => self.db.by_project(proj),
             (None, None) => self.db.all_entries(),
         };
 
         let candidates_count = candidates.len();
 
+        let model_loaded = self.model.read().is_some();
+        let query_lower = query.to_lowercase();
+
         // Score từng candidate
         let mut scored: Vec<QueryMatch> = candidates
             .into_iter()
             .filter_map(|entry| {
-                let score = cosine_similarity(&query_vector, &entry.vector)?;
+                let mut score = cosine_similarity(&query_vector, &entry.vector)?;
+
+                // Fallback: nếu chưa có model thật (dummy hash), boost bằng name match
+                if !model_loaded {
+                    let name_match = entry.func_name.to_lowercase().contains(&query_lower)
+                        || entry.signature.to_lowercase().contains(&query_lower)
+                        || entry
+                            .docstring
+                            .as_deref()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(&query_lower);
+                    if name_match {
+                        // Boost name match lên 2x so với hash random
+                        score = score * 2.0 + 0.5;
+                    }
+                }
+
                 Some(QueryMatch { entry, score })
             })
             .collect();

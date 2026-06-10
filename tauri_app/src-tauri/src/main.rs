@@ -277,6 +277,7 @@ fn main() {
             // Code RAG commands
             commands::code_rag::code_rag_supported_languages,
             commands::code_rag::code_rag_extension_map,
+            commands::code_rag::code_rag_health,
             commands::code_rag::code_rag_query,
             commands::code_rag::code_rag_query_by_name,
             commands::code_rag::code_rag_index_file,

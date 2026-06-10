@@ -10,6 +10,7 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import Editor from "@monaco-editor/react";
 import { useGitDiff } from "../hooks/useGitDiff";
+import CodeRagSearchWidget from "./CodeRagSearchWidget";
 
 interface CodeEditorProps {
   theme?: "dark" | "light";
@@ -23,6 +24,8 @@ interface CodeEditorProps {
   onFileSaved?: () => void;
   onChange?: (val: string) => void;
   onSave?: (val: string) => void;
+  /** Mở file từ kết quả RAG search */
+  onOpenFile?: (path: string, line?: number) => void;
   scrollPositionsRef: React.MutableRefObject<{ [path: string]: number }>;
   cursorPositionsRef: React.MutableRefObject<{
     [path: string]: { start: number; end: number };
@@ -155,6 +158,8 @@ export default React.memo(function CodeEditor({
   onFileSaved,
   onChange,
   onSave,
+  onOpenFile,
+  activeProjectId,
   scrollPositionsRef,
   cursorPositionsRef,
 }: CodeEditorProps) {
@@ -174,6 +179,14 @@ export default React.memo(function CodeEditor({
   const latestContentRef = useRef<string>("");
   // RAF ref cho batching onChange — giảm re-render khi gõ nhanh
   const rafRef = useRef<number | null>(null);
+  // Ref cho editor container để tính vị trí overlay
+  const editorContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // ── CodeRag Search Widget state ──
+  const [ragSearchOpen, setRagSearchOpen] = useState(false);
+  const [ragSearchLine, setRagSearchLine] = useState(1);
+  const ragSearchEditorRef = useRef<any>(null);
+  const ragSearchColumnRef = useRef<number>(1);
 
   // ── Git diff decorations from backend (HEAD vs disk) ──
   const { diffLines, isUntracked } = useGitDiff({
@@ -666,6 +679,55 @@ export default React.memo(function CodeEditor({
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
 
+    // ── Add context menu action: Tìm kiếm cấu trúc code (RAG) ──
+    editor.addAction({
+      id: "code-rag-search",
+      label: "🔍 Tìm cấu trúc code...",
+      contextMenuGroupId: "navigation",
+      contextMenuOrder: 1.5,
+      run: (ed: any) => {
+        const position = ed.getPosition();
+        const lineNumber = position?.lineNumber || 1;
+        const column = position?.column || 1;
+        ragSearchEditorRef.current = ed;
+        ragSearchColumnRef.current = column;
+        setRagSearchLine(lineNumber);
+        setRagSearchOpen(true);
+      },
+    });
+
+    // Lắng nghe sự kiện rag-go-to-line để scroll đến dòng
+    // (khi mở file từ RAG search ở panel khác)
+    const goToLineHandler = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail?.line) {
+        const lineNumber = detail.line;
+        const position = { lineNumber, column: 1 };
+        editor.setPosition(position);
+        editor.revealPositionInCenter(position);
+        editor.focus();
+        // Highlight tạm thời
+        const decorations = editor.createDecorationsCollection([
+          {
+            range: new monacoInstance.Range(lineNumber, 1, lineNumber, 1),
+            options: {
+              isWholeLine: true,
+              className: "rag-highlight-line",
+              linesDecorationsClassName: "rag-highlight-gutter",
+            },
+          },
+        ]);
+        setTimeout(() => decorations.clear(), 2000);
+      }
+    };
+    window.addEventListener("rag-go-to-line", goToLineHandler);
+    // Cleanup event listener khi editor unmount
+    const cleanupListener = () => {
+      window.removeEventListener("rag-go-to-line", goToLineHandler);
+    };
+    // Lưu cleanup function
+    editor.onDidDispose(cleanupListener);
+
     if (filePath) {
       const model = editor.getModel();
       if (model) {
@@ -800,7 +862,34 @@ export default React.memo(function CodeEditor({
           <span>{error}</span>
         </div>
       ) : (
-        <div className="editor-body" style={{ minHeight: 0, flex: 1 }}>
+        <div
+          className="editor-body"
+          ref={(el) => {
+            editorContainerRef.current = el;
+          }}
+          style={{ minHeight: 0, flex: 1, position: "relative" }}
+        >
+          {/* CodeRag Search Widget overlay */}
+          {ragSearchOpen && editorContainerRef.current && (
+            <CodeRagSearchWidget
+              editorContainer={editorContainerRef.current}
+              lineNumber={ragSearchLine}
+              column={ragSearchColumnRef.current}
+              editor={ragSearchEditorRef.current}
+              monaco={monacoRef.current}
+              languageId={getLanguageFromPath(filePath)}
+              projectId={activeProjectId}
+              projectPath={cwd || null}
+              onOpenFile={(path, line) => {
+                if (onOpenFile) {
+                  onOpenFile(path, line);
+                } else {
+                  console.warn("[CodeRAG] onOpenFile not provided");
+                }
+              }}
+              onClose={() => setRagSearchOpen(false)}
+            />
+          )}
           <Editor
             height="100%"
             width="100%"
