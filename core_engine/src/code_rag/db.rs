@@ -32,6 +32,39 @@ pub struct VectorEntry {
     pub docstring: Option<String>,
 }
 
+/// Entry nhẹ — không chứa vector (384 f32) — dùng cho name-based query
+/// Giảm ~90% dung lượng clone so với VectorEntry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorEntryMeta {
+    pub id: String,
+    pub normalized_text: String,
+    pub lang_id: String,
+    pub project_id: String,
+    pub func_name: String,
+    pub file_path: String,
+    pub line_start: usize,
+    pub line_end: usize,
+    pub signature: String,
+    pub docstring: Option<String>,
+}
+
+impl From<VectorEntry> for VectorEntryMeta {
+    fn from(e: VectorEntry) -> Self {
+        VectorEntryMeta {
+            id: e.id,
+            normalized_text: e.normalized_text,
+            lang_id: e.lang_id,
+            project_id: e.project_id,
+            func_name: e.func_name,
+            file_path: e.file_path,
+            line_start: e.line_start,
+            line_end: e.line_end,
+            signature: e.signature,
+            docstring: e.docstring,
+        }
+    }
+}
+
 /// Kết quả query từ vector DB
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryMatch {
@@ -123,12 +156,12 @@ impl VectorDb {
         self.entries.read().get(id).cloned()
     }
 
-    /// Lấy tất cả entries
+    /// Lấy tất cả entries (bao gồm vector — nặng)
     pub fn all_entries(&self) -> Vec<VectorEntry> {
         self.entries.read().values().cloned().collect()
     }
 
-    /// Lấy entries theo lang_id
+    /// Lấy entries theo lang_id (bao gồm vector)
     pub fn by_language(&self, lang_id: &str) -> Vec<VectorEntry> {
         let ids: Vec<String> = {
             let li = self.lang_index.read();
@@ -141,7 +174,7 @@ impl VectorDb {
             .collect()
     }
 
-    /// Lấy entries theo project_id
+    /// Lấy entries theo project_id (bao gồm vector)
     pub fn by_project(&self, project_id: &str) -> Vec<VectorEntry> {
         let ids: Vec<String> = {
             let pi = self.project_index.read();
@@ -151,6 +184,83 @@ impl VectorDb {
         let entries = self.entries.read();
         ids.iter()
             .filter_map(|id| entries.get(id).cloned())
+            .collect()
+    }
+
+    // ── Meta-only methods (không clone vector) ──
+
+    /// Lấy tất cả entries dạng meta (KHÔNG có vector) — NHẸ
+    pub fn all_entries_meta(&self) -> Vec<VectorEntryMeta> {
+        self.entries
+            .read()
+            .values()
+            .map(|e| {
+                let entry: &VectorEntry = e;
+                VectorEntryMeta {
+                    id: entry.id.clone(),
+                    normalized_text: entry.normalized_text.clone(),
+                    lang_id: entry.lang_id.clone(),
+                    project_id: entry.project_id.clone(),
+                    func_name: entry.func_name.clone(),
+                    file_path: entry.file_path.clone(),
+                    line_start: entry.line_start,
+                    line_end: entry.line_end,
+                    signature: entry.signature.clone(),
+                    docstring: entry.docstring.clone(),
+                }
+            })
+            .collect()
+    }
+
+    /// Lấy entries theo lang_id dạng meta (KHÔNG có vector)
+    pub fn by_language_meta(&self, lang_id: &str) -> Vec<VectorEntryMeta> {
+        let ids: Vec<String> = {
+            let li = self.lang_index.read();
+            li.get(lang_id).cloned().unwrap_or_default()
+        };
+
+        let entries = self.entries.read();
+        ids.iter()
+            .filter_map(|id| {
+                entries.get(id).map(|e| VectorEntryMeta {
+                    id: e.id.clone(),
+                    normalized_text: e.normalized_text.clone(),
+                    lang_id: e.lang_id.clone(),
+                    project_id: e.project_id.clone(),
+                    func_name: e.func_name.clone(),
+                    file_path: e.file_path.clone(),
+                    line_start: e.line_start,
+                    line_end: e.line_end,
+                    signature: e.signature.clone(),
+                    docstring: e.docstring.clone(),
+                })
+            })
+            .collect()
+    }
+
+    /// Lấy entries theo project_id dạng meta (KHÔNG có vector)
+    pub fn by_project_meta(&self, project_id: &str) -> Vec<VectorEntryMeta> {
+        let ids: Vec<String> = {
+            let pi = self.project_index.read();
+            pi.get(project_id).cloned().unwrap_or_default()
+        };
+
+        let entries = self.entries.read();
+        ids.iter()
+            .filter_map(|id| {
+                entries.get(id).map(|e| VectorEntryMeta {
+                    id: e.id.clone(),
+                    normalized_text: e.normalized_text.clone(),
+                    lang_id: e.lang_id.clone(),
+                    project_id: e.project_id.clone(),
+                    func_name: e.func_name.clone(),
+                    file_path: e.file_path.clone(),
+                    line_start: e.line_start,
+                    line_end: e.line_end,
+                    signature: e.signature.clone(),
+                    docstring: e.docstring.clone(),
+                })
+            })
             .collect()
     }
 

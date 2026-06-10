@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
 
-use crate::code_rag::db::{QueryMatch, VectorDb, VectorEntry};
+use crate::code_rag::db::{QueryMatch, VectorDb, VectorEntry, VectorEntryMeta};
 use crate::code_rag::EmbeddingModel;
 
 /// Kết quả query trả về cho frontend
@@ -121,7 +121,8 @@ impl QueryEngine {
         }
     }
 
-    /// Query nhanh bằng function name (dùng regex prefix match)
+    /// Query nhanh bằng function name — trả về VectorEntry (bao gồm vector)
+    /// Dùng cho semantic search. Không dùng cho autocomplete gõ phím.
     pub fn query_by_name(
         &self,
         name: &str,
@@ -130,50 +131,46 @@ impl QueryEngine {
         top_k: usize,
     ) -> Vec<VectorEntry> {
         let candidates = match (lang_filter, project_filter) {
-            (Some(lang), _) => {
-                eprintln!("[CodeRAG] query_by_name: filtering by lang={}", lang);
-                self.db.by_language(lang)
-            }
-            (_, Some(proj)) => {
-                eprintln!("[CodeRAG] query_by_name: filtering by project={}", proj);
-                self.db.by_project(proj)
-            }
-            (None, None) => {
-                eprintln!(
-                    "[CodeRAG] query_by_name: no filter, scanning all {} entries",
-                    self.db.len()
-                );
-                self.db.all_entries()
-            }
+            (Some(lang), _) => self.db.by_language(lang),
+            (_, Some(proj)) => self.db.by_project(proj),
+            (None, None) => self.db.all_entries(),
         };
 
         let name_lower = name.to_lowercase();
-        eprintln!(
-            "[CodeRAG] query_by_name: {} candidates, searching for '{}'",
-            candidates.len(),
-            name_lower
-        );
-
         let mut matched: Vec<VectorEntry> = candidates
             .into_iter()
-            .filter(|e| {
-                let match_found = e.func_name.to_lowercase().contains(&name_lower);
-                if match_found {
-                    eprintln!(
-                        "[CodeRAG]   MATCH: {} ({}:{})",
-                        e.func_name, e.file_path, e.line_start
-                    );
-                }
-                match_found
-            })
+            .filter(|e| e.func_name.to_lowercase().contains(&name_lower))
             .collect();
 
         matched.sort_by(|a, b| a.func_name.len().cmp(&b.func_name.len()));
         matched.truncate(top_k);
-        eprintln!(
-            "[CodeRAG] query_by_name: returning {} matches",
-            matched.len()
-        );
+        matched
+    }
+
+    /// Query NHANH bằng function name — trả về VectorEntryMeta (KHÔNG có vector)
+    /// Dùng cho autocomplete real-time. NHẸ hơn ~90% so với query_by_name.
+    pub fn query_by_name_meta(
+        &self,
+        name: &str,
+        lang_filter: Option<&str>,
+        project_filter: Option<&str>,
+        top_k: usize,
+    ) -> Vec<VectorEntryMeta> {
+        // Dùng meta methods — không clone vector 384-dim
+        let candidates = match (lang_filter, project_filter) {
+            (Some(lang), _) => self.db.by_language_meta(lang),
+            (_, Some(proj)) => self.db.by_project_meta(proj),
+            (None, None) => self.db.all_entries_meta(),
+        };
+
+        let name_lower = name.to_lowercase();
+        let mut matched: Vec<VectorEntryMeta> = candidates
+            .into_iter()
+            .filter(|e| e.func_name.to_lowercase().contains(&name_lower))
+            .collect();
+
+        matched.sort_by(|a, b| a.func_name.len().cmp(&b.func_name.len()));
+        matched.truncate(top_k);
         matched
     }
 

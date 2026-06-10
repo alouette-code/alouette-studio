@@ -170,6 +170,10 @@ export default React.memo(function CodeEditor({
   const lastPathRef = useRef<string | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref cho content mới nhất — tránh closure stale trong save handler
+  const latestContentRef = useRef<string>("");
+  // RAF ref cho batching onChange — giảm re-render khi gõ nhanh
+  const rafRef = useRef<number | null>(null);
 
   // ── Git diff decorations from backend (HEAD vs disk) ──
   const { diffLines, isUntracked } = useGitDiff({
@@ -397,6 +401,267 @@ export default React.memo(function CodeEditor({
     setSaveStatus("idle");
   }, [initialContent, filePath]);
 
+  // ── Simple keyword completion để Monaco hiện suggest popup ──
+  // Không cần backend, không scan, chạy hoàn toàn trên frontend
+  const handleBeforeMount = (monaco: any) => {
+    const keywords: { [lang: string]: string[] } = {
+      typescript: [
+        "function",
+        "const",
+        "let",
+        "var",
+        "if",
+        "else",
+        "return",
+        "async",
+        "await",
+        "import",
+        "export",
+        "from",
+        "class",
+        "interface",
+        "type",
+        "extends",
+        "implements",
+        "new",
+        "throw",
+        "try",
+        "catch",
+        "finally",
+        "switch",
+        "case",
+        "break",
+        "continue",
+        "for",
+        "while",
+        "do",
+        "in",
+        "of",
+        "typeof",
+        "instanceof",
+        "keyof",
+        "readonly",
+        "public",
+        "private",
+        "protected",
+        "static",
+        "abstract",
+        "enum",
+      ],
+      javascript: [
+        "function",
+        "const",
+        "let",
+        "var",
+        "if",
+        "else",
+        "return",
+        "async",
+        "await",
+        "import",
+        "export",
+        "from",
+        "class",
+        "new",
+        "throw",
+        "try",
+        "catch",
+        "finally",
+        "switch",
+        "case",
+        "break",
+        "continue",
+        "for",
+        "while",
+        "do",
+        "typeof",
+        "instanceof",
+        "this",
+        "super",
+        "yield",
+        "delete",
+        "void",
+        "debugger",
+      ],
+      python: [
+        "def",
+        "class",
+        "return",
+        "if",
+        "elif",
+        "else",
+        "for",
+        "while",
+        "try",
+        "except",
+        "finally",
+        "with",
+        "as",
+        "import",
+        "from",
+        "async",
+        "await",
+        "yield",
+        "lambda",
+        "pass",
+        "break",
+        "continue",
+        "raise",
+        "assert",
+        "del",
+        "global",
+        "nonlocal",
+        "True",
+        "False",
+        "None",
+        "self",
+        "in",
+        "not",
+        "and",
+        "or",
+        "is",
+      ],
+      rust: [
+        "fn",
+        "let",
+        "mut",
+        "const",
+        "if",
+        "else",
+        "match",
+        "return",
+        "for",
+        "while",
+        "loop",
+        "impl",
+        "struct",
+        "enum",
+        "trait",
+        "pub",
+        "use",
+        "mod",
+        "crate",
+        "self",
+        "super",
+        "where",
+        "async",
+        "await",
+        "move",
+        "ref",
+        "static",
+        "unsafe",
+        "type",
+        "dyn",
+        "in",
+        "as",
+      ],
+      go: [
+        "func",
+        "var",
+        "const",
+        "if",
+        "else",
+        "for",
+        "range",
+        "return",
+        "switch",
+        "case",
+        "break",
+        "continue",
+        "go",
+        "defer",
+        "select",
+        "chan",
+        "map",
+        "struct",
+        "interface",
+        "type",
+        "package",
+        "import",
+        "nil",
+        "true",
+        "false",
+        "make",
+        "new",
+        "append",
+        "len",
+        "cap",
+      ],
+      java: [
+        "public",
+        "private",
+        "protected",
+        "static",
+        "void",
+        "class",
+        "interface",
+        "extends",
+        "implements",
+        "new",
+        "return",
+        "if",
+        "else",
+        "for",
+        "while",
+        "do",
+        "switch",
+        "case",
+        "break",
+        "continue",
+        "try",
+        "catch",
+        "finally",
+        "throw",
+        "throws",
+        "import",
+        "package",
+        "final",
+        "abstract",
+        "synchronized",
+        "volatile",
+        "transient",
+        "this",
+        "super",
+        "null",
+        "true",
+        "false",
+      ],
+    };
+
+    const allLanguages = Object.keys(keywords);
+    monaco.languages.registerCompletionItemProvider(allLanguages, {
+      triggerCharacters: [".", " ", "("],
+      provideCompletionItems: (model: any, position: any) => {
+        const word = model.getWordUntilPosition(position);
+        const currentWord = word ? word.word : "";
+        const langId = model.getLanguageId() || "plaintext";
+
+        if (currentWord.length < 1) return { suggestions: [] };
+
+        const langKeywords = keywords[langId] || [];
+        const wordLower = currentWord.toLowerCase();
+
+        const suggestions = langKeywords
+          .filter((kw) => kw.startsWith(wordLower))
+          .map((kw) => ({
+            label: kw,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: kw,
+            range: {
+              startLineNumber: position.lineNumber,
+              startColumn:
+                word?.startColumn || position.column - currentWord.length,
+              endLineNumber: position.lineNumber,
+              endColumn: position.column,
+            },
+            sortText: `0${kw}`,
+          }));
+
+        return { suggestions };
+      },
+    });
+  };
+
   const handleEditorDidMount = (editor: any, monacoInstance: any) => {
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
@@ -460,6 +725,16 @@ export default React.memo(function CodeEditor({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [content, filePath, saveStatus]);
+
+  // Cleanup RAF khi unmount
+  useEffect(() => {
+    return () => {
+      if (rafRef.current !== null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+      }
+    };
+  }, []);
 
   const isDirty = content !== originalContent;
   const fileName = filePath ? filePath.split(/[\\/]/).pop() : "";
@@ -534,9 +809,19 @@ export default React.memo(function CodeEditor({
             value={content}
             onChange={(val) => {
               const newVal = val || "";
-              setContent(newVal);
+              // Luôn cập nhật ref (cho save handler)
+              latestContentRef.current = newVal;
+              // Batch setContent bằng requestAnimationFrame — giảm re-render
+              if (rafRef.current === null) {
+                rafRef.current = requestAnimationFrame(() => {
+                  rafRef.current = null;
+                  const latest = latestContentRef.current;
+                  setContent((prev) => (prev === latest ? prev : latest));
+                });
+              }
               if (onChange) onChange(newVal);
             }}
+            beforeMount={handleBeforeMount}
             onMount={handleEditorDidMount}
             options={{
               fontSize: 12,
@@ -553,6 +838,19 @@ export default React.memo(function CodeEditor({
               wordWrap: "on",
               renderLineHighlight: "all",
               glyphMargin: true,
+              // ── Suggest / Autocomplete configuration ──
+              quickSuggestions: true,
+              suggestOnTriggerCharacters: true,
+              quickSuggestionsDelay: 100,
+              wordBasedSuggestions: "currentDocument",
+              suggest: {
+                showMethods: true,
+                showFunctions: true,
+                showConstructors: false,
+                showFields: false,
+                showVariables: false,
+                showKeywords: false,
+              },
               scrollbar: {
                 vertical: "visible",
                 horizontal: "visible",

@@ -12,7 +12,7 @@ pub mod tier;
 #[cfg(feature = "tree-sitter")]
 pub mod parser;
 
-pub use db::VectorDb;
+pub use db::{VectorDb, VectorEntry, VectorEntryMeta};
 pub use embedding::EmbeddingModel;
 pub use extractor::extract_functions;
 pub use indexer::{IndexEvent, IndexPriority, Indexer, IndexerConfig};
