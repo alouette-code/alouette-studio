@@ -28,9 +28,7 @@ interface HeaderProps {
   setFileMenuOpen: (o: boolean) => void;
   settingMenuOpen: boolean;
   setSettingMenuOpen: (o: boolean) => void;
-  handleExportConfig: () => void;
-  handleImportMockConfig: () => void;
-  wipeConfig: () => void;
+  handleFileAction: (action: string, payload?: any) => void;
   activeProject?: any;
   activeState?: any;
   handleStart?: () => void;
@@ -77,14 +75,11 @@ export default function Header({
   setFileMenuOpen,
   settingMenuOpen,
   setSettingMenuOpen,
-  handleExportConfig,
-  handleImportMockConfig,
-  wipeConfig,
+  handleFileAction,
   activeProject,
   activeState,
   handleStart,
   handleStop,
-  triggerConfirm,
   triggerToast,
   onOpenResources,
   onToggleTunnel,
@@ -142,34 +137,340 @@ export default function Header({
               <FileText size={13} />
               <span>File</span>
             </button>
-            {fileMenuOpen && (
-              <div className="dropdown-menu">
-                <button className="dropdown-item" onClick={handleExportConfig}>
-                  Export Configurations
-                </button>
-                <button
-                  className="dropdown-item"
-                  onClick={handleImportMockConfig}
-                >
-                  Load Demo Templates
-                </button>
-                <div className="dropdown-divider"></div>
-                <button
-                  className="dropdown-item text-danger"
-                  onClick={() => {
-                    triggerConfirm(
-                      "Are you sure you want to wipe all configurations?",
-                      () => {
-                        wipeConfig();
-                        triggerToast("All configurations wiped.", "info");
-                      },
-                    );
-                  }}
-                >
-                  Wipe Configurations
-                </button>
-              </div>
-            )}
+            {fileMenuOpen && (() => {
+              const recentFiles: string[] = JSON.parse(localStorage.getItem("recent_files") || "[]");
+              const recentFolders: string[] = JSON.parse(localStorage.getItem("recent_folders") || "[]");
+              const autoSaveEnabled = localStorage.getItem("auto_save_enabled") === "true";
+              const getBaseName = (p: string) => {
+                const normalized = p.replace(/\\/g, "/");
+                const lastSlash = normalized.lastIndexOf("/");
+                return lastSlash !== -1 ? normalized.substring(lastSlash + 1) : p;
+              };
+
+              return (
+                <div className="dropdown-menu" style={{ minWidth: "240px", padding: "4px 0" }}>
+                  <style>{`
+                    .dropdown-item {
+                      display: flex;
+                      justify-content: space-between;
+                      align-items: center;
+                      padding: 6px 12px;
+                      width: 100%;
+                      background: none;
+                      border: none;
+                      color: var(--text-primary);
+                      font-size: 11.5px;
+                      cursor: pointer;
+                      text-align: left;
+                      position: relative;
+                      transition: background-color var(--transition-fast);
+                    }
+                    .dropdown-item:hover {
+                      background-color: var(--bg-tertiary);
+                    }
+                    .dropdown-item-label {
+                      display: flex;
+                      align-items: center;
+                      gap: 8px;
+                    }
+                    .dropdown-item-shortcut {
+                      font-size: 10px;
+                      color: var(--text-muted);
+                      opacity: 0.7;
+                      margin-left: 20px;
+                      white-space: nowrap;
+                    }
+                    .dropdown-item-arrow {
+                      font-size: 9px;
+                      color: var(--text-muted);
+                      margin-left: auto;
+                    }
+                    .has-submenu:hover {
+                      background-color: var(--bg-tertiary);
+                    }
+                    .submenu {
+                      display: none;
+                      position: absolute;
+                      top: -4px;
+                      left: 100%;
+                      background-color: var(--bg-secondary);
+                      border: 1px solid var(--border-primary);
+                      box-shadow: 4px 4px 12px rgba(0, 0, 0, 0.4);
+                      padding: 4px 0;
+                      min-width: 200px;
+                      border-radius: 4px;
+                      z-index: 120;
+                    }
+                    .has-submenu:hover > .submenu {
+                      display: block;
+                    }
+                    .dropdown-item-check {
+                      display: inline-block;
+                      width: 12px;
+                      font-size: 12px;
+                      font-weight: bold;
+                      color: var(--accent-purple, #a78bfa);
+                      margin-right: 6px;
+                      text-align: center;
+                    }
+                  `}</style>
+                  
+                  {/* Section 1 */}
+                  <button className="dropdown-item" onClick={() => { handleFileAction("new-text-file"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      New Text File
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+N</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("new-file"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      New File...
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+Alt+Super+N</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("new-window"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      New Window
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+Shift+N</span>
+                  </button>
+                  <div className="dropdown-item has-submenu">
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      New Window with Profile
+                    </span>
+                    <span className="dropdown-item-arrow">▶</span>
+                    <div className="submenu">
+                      <button className="dropdown-item" onClick={() => { handleFileAction("new-window-profile", "Default"); setFileMenuOpen(false); }}>
+                        Default
+                      </button>
+                      <button className="dropdown-item" onClick={() => { handleFileAction("new-window-profile", "Development"); setFileMenuOpen(false); }}>
+                        Development
+                      </button>
+                      <button className="dropdown-item" onClick={() => { handleFileAction("new-window-profile", "Minimal"); setFileMenuOpen(false); }}>
+                        Minimal
+                      </button>
+                    </div>
+                  </div>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("new-project"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      New Project...
+                    </span>
+                  </button>
+
+                  <div className="dropdown-divider"></div>
+
+                  {/* Section 2 */}
+                  <button className="dropdown-item" onClick={() => { handleFileAction("open-file"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Open File...
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+O</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("open-folder"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Open Folder...
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+K Ctrl+O</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("open-workspace"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Open Workspace from File...
+                    </span>
+                  </button>
+                  <div className="dropdown-item has-submenu">
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Open Recent
+                    </span>
+                    <span className="dropdown-item-arrow">▶</span>
+                    <div className="submenu">
+                      {recentFolders.length === 0 && recentFiles.length === 0 ? (
+                        <div className="dropdown-item disabled" style={{ opacity: 0.5, cursor: "default" }}>
+                          No Recent Items
+                        </div>
+                      ) : (
+                        <>
+                          {recentFolders.map((folder, idx) => (
+                            <button
+                              key={`f-${idx}`}
+                              className="dropdown-item"
+                              onClick={() => { handleFileAction("open-folder-path", folder); setFileMenuOpen(false); }}
+                              title={folder}
+                            >
+                              📁 {getBaseName(folder)}
+                            </button>
+                          ))}
+                          {recentFiles.map((file, idx) => (
+                            <button
+                              key={`fl-${idx}`}
+                              className="dropdown-item"
+                              onClick={() => { handleFileAction("open-file-path", file); setFileMenuOpen(false); }}
+                              title={file}
+                            >
+                              📄 {getBaseName(file)}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="dropdown-divider"></div>
+
+                  {/* Section 3 */}
+                  <button className="dropdown-item" onClick={() => { handleFileAction("add-folder"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Add Folder to Workspace...
+                    </span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("save-workspace"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Save Workspace As...
+                    </span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("duplicate-workspace"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Duplicate Workspace
+                    </span>
+                  </button>
+
+                  <div className="dropdown-divider"></div>
+
+                  {/* Section 4 */}
+                  <button className="dropdown-item" onClick={() => { handleFileAction("save"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Save
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+S</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("save-as"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Save As...
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+Shift+S</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("save-all"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Save All
+                    </span>
+                  </button>
+
+                  <div className="dropdown-divider"></div>
+
+                  {/* Section 5 */}
+                  <div className="dropdown-item has-submenu">
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Share
+                    </span>
+                    <span className="dropdown-item-arrow">▶</span>
+                    <div className="submenu">
+                      <button className="dropdown-item" onClick={() => {
+                        if (localStorage.getItem("openFilePath")) {
+                          navigator.clipboard.writeText(localStorage.getItem("openFilePath") || "");
+                          triggerToast("Copied file path to clipboard", "success");
+                        } else {
+                          triggerToast("No active file open", "info");
+                        }
+                        setFileMenuOpen(false);
+                      }}>
+                        Copy File Path
+                      </button>
+                      <button className="dropdown-item" onClick={() => { triggerToast("Sharing features are coming soon!", "info"); setFileMenuOpen(false); }}>
+                        Share via Email
+                      </button>
+                      <button className="dropdown-item" onClick={() => { triggerToast("Gist export features are coming soon!", "info"); setFileMenuOpen(false); }}>
+                        Export to Gist
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="dropdown-divider"></div>
+
+                  {/* Section 6 */}
+                  <button className="dropdown-item" onClick={() => { handleFileAction("toggle-auto-save"); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check">{autoSaveEnabled ? "✓" : ""}</span>
+                      Auto Save
+                    </span>
+                  </button>
+                  <div className="dropdown-item has-submenu">
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Preferences
+                    </span>
+                    <span className="dropdown-item-arrow">▶</span>
+                    <div className="submenu">
+                      <button className="dropdown-item" onClick={() => { handleFileAction("toggle-theme"); setFileMenuOpen(false); setTheme(theme === "dark" ? "light" : "dark"); }}>
+                        Toggle Theme ({theme === "dark" ? "Light" : "Dark"})
+                      </button>
+                      <button className="dropdown-item" onClick={() => { triggerToast("Config cap: 2000 lines", "info"); setFileMenuOpen(false); }}>
+                        Log Buffer Settings
+                      </button>
+                      <button className="dropdown-item" onClick={() => { localStorage.clear(); triggerToast("App cache cleared!", "success"); setFileMenuOpen(false); }}>
+                        Clear App Cache
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="dropdown-divider"></div>
+
+                  {/* Section 7 */}
+                  <button className="dropdown-item" onClick={() => { handleFileAction("revert"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Revert File
+                    </span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("close-editor"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Close Editor
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+W</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("close-folder"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Close Folder
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+K F</span>
+                  </button>
+                  <button className="dropdown-item" onClick={() => { handleFileAction("close-window"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Close Window
+                    </span>
+                    <span className="dropdown-item-shortcut">Alt+F4</span>
+                  </button>
+
+                  <div className="dropdown-divider"></div>
+
+                  {/* Section 8 */}
+                  <button className="dropdown-item" onClick={() => { handleFileAction("exit"); setFileMenuOpen(false); }}>
+                    <span className="dropdown-item-label">
+                      <span className="dropdown-item-check"></span>
+                      Exit
+                    </span>
+                    <span className="dropdown-item-shortcut">Ctrl+Q</span>
+                  </button>
+                </div>
+              );
+            })()}
           </div>
 
           <div className="dropdown-container">

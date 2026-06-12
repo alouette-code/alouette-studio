@@ -332,6 +332,7 @@ export default function App() {
     filesContent,
     setFilesContent,
     setFilesOriginalContent,
+    filesOriginalContent,
     showTabsMenu,
     setShowTabsMenu,
     newProjName,
@@ -362,15 +363,13 @@ export default function App() {
     setNewProjMaxLogLines,
     portConflict,
     setPortConflict,
+    loadProjects,
     handleStart,
     handleStartProject,
     handleStopProject,
     handleStop,
     handleAddProject,
     handleDeleteProject,
-    handleExportConfig,
-    handleImportMockConfig,
-    wipeConfig,
     handleResetSetupForm,
     handleForceKillAndStart,
     handleSaveAndCloseAllTabs,
@@ -504,6 +503,380 @@ export default function App() {
     setFilesContent({});
     setFilesOriginalContent({});
   };
+
+  // ── File action modal & functions ──
+  const [filePrompt, setFilePrompt] = useState<{
+    visible: boolean;
+    title: string;
+    placeholder: string;
+    defaultValue: string;
+    onOk: (val: string) => void;
+  }>({
+    visible: false,
+    title: "",
+    placeholder: "",
+    defaultValue: "",
+    onOk: () => {}
+  });
+
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => {
+    return localStorage.getItem("auto_save_enabled") === "true";
+  });
+
+  const handleFileAction = async (action: string, payload?: any) => {
+    switch (action) {
+      case "open-folder-path": {
+        const targetFolder = payload;
+        const folderName = targetFolder.substring(targetFolder.lastIndexOf("/") + 1);
+        const newId = "folder_" + Date.now();
+        const newConfig = {
+          id: newId,
+          name: folderName || "Open Folder",
+          cwd: targetFolder,
+          command: "",
+          args: [],
+          auto_restart: false,
+        };
+        try {
+          await invoke("register_project", { config: newConfig });
+          await loadProjects();
+          setActiveProjectId(newId);
+          triggerToast(`Opened folder: ${folderName}`, "success");
+        } catch (err: any) {
+          triggerToast(`Failed to open folder: ${err}`, "error");
+        }
+        break;
+      }
+      case "open-file-path": {
+        const targetFile = payload;
+        const lastSlash = targetFile.lastIndexOf("/");
+        const parentDir = lastSlash !== -1 ? targetFile.substring(0, lastSlash) : "";
+        if (parentDir) {
+          const alreadyRegistered = projects.some(p => p.cwd && parentDir.startsWith(p.cwd.replace(/\\/g, "/")));
+          if (!alreadyRegistered) {
+            const folderName = parentDir.substring(parentDir.lastIndexOf("/") + 1);
+            const newId = "folder_" + Date.now();
+            const newConfig = {
+              id: newId,
+              name: folderName || "Open File Folder",
+              cwd: parentDir,
+              command: "",
+              args: [],
+              auto_restart: false,
+            };
+            try {
+              await invoke("register_project", { config: newConfig });
+              await loadProjects();
+              setActiveProjectId(newId);
+            } catch (err: any) {
+              console.error(err);
+            }
+          }
+        }
+        setTimeout(() => {
+          handleFileOpenCustom(targetFile);
+        }, 150);
+        break;
+      }
+      case "new-project": {
+        handleResetSetupForm();
+        break;
+      }
+      case "new-text-file":
+      case "new-file": {
+        const defaultName = action === "new-text-file" ? "untitled.txt" : "";
+        setFilePrompt({
+          visible: true,
+          title: action === "new-text-file" ? "New Text File" : "New File...",
+          placeholder: "Enter file path/name...",
+          defaultValue: defaultName,
+          onOk: async (name) => {
+            if (!name || !name.trim()) return;
+            let targetDir = activeProject?.cwd || "";
+            const fullPath = targetDir ? `${targetDir}/${name.trim()}` : name.trim();
+            try {
+              await invoke("create_file", { path: fullPath });
+              triggerToast(`Created file ${name}`, "success");
+              handleFileOpenCustom(fullPath);
+            } catch (err: any) {
+              triggerToast(`Failed to create file: ${err}`, "error");
+            }
+          }
+        });
+        break;
+      }
+      case "new-window": {
+        try {
+          await invoke("open_new_window");
+        } catch (err: any) {
+          triggerToast(`Failed to open new window: ${err}`, "error");
+        }
+        break;
+      }
+      case "new-window-profile": {
+        try {
+          await invoke("open_new_window");
+          triggerToast(`Opening new window with profile: ${payload}`, "info");
+        } catch (err: any) {
+          triggerToast(`Failed: ${err}`, "error");
+        }
+        break;
+      }
+      case "open-file": {
+        try {
+          const selectedPath: string | null = await invoke("open_file_dialog");
+          if (selectedPath) {
+            const normalizedPath = selectedPath.replace(/\\/g, "/");
+            const lastSlash = normalizedPath.lastIndexOf("/");
+            const parentDir = lastSlash !== -1 ? normalizedPath.substring(0, lastSlash) : "";
+            
+            if (parentDir) {
+              const alreadyRegistered = projects.some(p => p.cwd && parentDir.startsWith(p.cwd.replace(/\\/g, "/")));
+              if (!alreadyRegistered) {
+                const folderName = parentDir.substring(parentDir.lastIndexOf("/") + 1);
+                const newId = "folder_" + Date.now();
+                const newConfig = {
+                  id: newId,
+                  name: folderName || "Open File Folder",
+                  cwd: parentDir,
+                  command: "",
+                  args: [],
+                  auto_restart: false,
+                };
+                await invoke("register_project", { config: newConfig });
+                await loadProjects();
+                setActiveProjectId(newId);
+              }
+            }
+            
+            setTimeout(() => {
+              handleFileOpenCustom(normalizedPath);
+              
+              let recents = JSON.parse(localStorage.getItem("recent_files") || "[]");
+              recents = [normalizedPath, ...recents.filter((f: string) => f !== normalizedPath)].slice(0, 10);
+              localStorage.setItem("recent_files", JSON.stringify(recents));
+            }, 150);
+          }
+        } catch (err: any) {
+          triggerToast(`Failed to open file: ${err}`, "error");
+        }
+        break;
+      }
+      case "open-folder":
+      case "add-folder": {
+        try {
+          const selectedFolder: string | null = await invoke("open_folder_dialog");
+          if (selectedFolder) {
+            const normalizedFolder = selectedFolder.replace(/\\/g, "/");
+            const folderName = normalizedFolder.substring(normalizedFolder.lastIndexOf("/") + 1);
+            
+            const existingProj = projects.find(p => p.cwd && p.cwd.replace(/\\/g, "/") === normalizedFolder);
+            if (existingProj) {
+              if (action === "open-folder") {
+                setActiveProjectId(existingProj.id);
+              }
+              triggerToast(`Folder is already in workspace`, "info");
+              return;
+            }
+
+            const newId = "folder_" + Date.now();
+            const newConfig = {
+              id: newId,
+              name: folderName || "Open Folder",
+              cwd: normalizedFolder,
+              command: "",
+              args: [],
+              auto_restart: false,
+            };
+            await invoke("register_project", { config: newConfig });
+            await loadProjects();
+            
+            if (action === "open-folder") {
+              setActiveProjectId(newId);
+            }
+            
+            triggerToast(`${action === "open-folder" ? "Opened" : "Added"} folder: ${folderName}`, "success");
+
+            let recents = JSON.parse(localStorage.getItem("recent_folders") || "[]");
+            recents = [normalizedFolder, ...recents.filter((f: string) => f !== normalizedFolder)].slice(0, 10);
+            localStorage.setItem("recent_folders", JSON.stringify(recents));
+          }
+        } catch (err: any) {
+          triggerToast(`Failed to select folder: ${err}`, "error");
+        }
+        break;
+      }
+      case "open-workspace": {
+        try {
+          const selectedPath: string | null = await invoke("open_file_dialog");
+          if (selectedPath && selectedPath.endsWith(".json")) {
+            const rawBytes: number[] = await invoke("read_file_content", { path: selectedPath });
+            const decoded = new TextDecoder("utf-8").decode(new Uint8Array(rawBytes));
+            const parsed = JSON.parse(decoded);
+            if (Array.isArray(parsed)) {
+              for (const p of parsed) {
+                if (p.id && p.name) {
+                  await invoke("register_project", { config: p });
+                }
+              }
+              await loadProjects();
+              triggerToast("Loaded workspace from config", "success");
+            } else {
+              triggerToast("Invalid workspace format", "error");
+            }
+          } else if (selectedPath) {
+            triggerToast("Please select a JSON config file", "info");
+          }
+        } catch (err: any) {
+          triggerToast(`Failed to load workspace: ${err}`, "error");
+        }
+        break;
+      }
+      case "save-workspace": {
+        if (projects.length === 0) {
+          triggerToast("No configurations to save", "info");
+          return;
+        }
+        try {
+          const selectedPath: string | null = await invoke("save_file_dialog", { defaultName: "workspace.json" });
+          if (selectedPath) {
+            const content = JSON.stringify(projects, null, 2);
+            await invoke("write_file_content", { path: selectedPath, content });
+            triggerToast("Workspace saved successfully", "success");
+          }
+        } catch (err: any) {
+          triggerToast(`Failed to save workspace: ${err}`, "error");
+        }
+        break;
+      }
+      case "duplicate-workspace": {
+        if (!activeProject) {
+          triggerToast("No active project to duplicate", "info");
+          return;
+        }
+        try {
+          const newId = "dup_" + Date.now();
+          const duplicated = {
+            ...activeProject,
+            id: newId,
+            name: `${activeProject.name} - Duplicate`,
+          };
+          await invoke("register_project", { config: duplicated });
+          await loadProjects();
+          setActiveProjectId(newId);
+          triggerToast("Workspace duplicated", "success");
+        } catch (err: any) {
+          triggerToast(`Failed to duplicate: ${err}`, "error");
+        }
+        break;
+      }
+      case "save": {
+        window.dispatchEvent(new CustomEvent("trigger-save-active-file"));
+        break;
+      }
+      case "save-as": {
+        window.dispatchEvent(new CustomEvent("trigger-save-as-active-file"));
+        break;
+      }
+      case "save-all": {
+        const savePromises = Object.entries(filesContent).map(
+          async ([path, content]) => {
+            const original = filesOriginalContent[path] || "";
+            if (content !== original) {
+              try {
+                await invoke("write_file_content", { path, content });
+                setFilesOriginalContent((prev) => ({ ...prev, [path]: content }));
+              } catch (err) {
+                console.error("Failed to save file: " + path, err);
+              }
+            }
+          }
+        );
+        await Promise.all(savePromises);
+        window.dispatchEvent(new CustomEvent("files-saved-all"));
+        triggerToast("Saved all open files", "success");
+        break;
+      }
+      case "revert": {
+        window.dispatchEvent(new CustomEvent("trigger-revert-active-file"));
+        break;
+      }
+      case "close-editor": {
+        if (openFilePath) {
+          handleFileCloseCustom(activePaneIndex, openFilePath);
+        }
+        break;
+      }
+      case "close-folder": {
+        if (activeProjectId) {
+          setActiveProjectId("");
+          triggerToast("Folder closed", "info");
+        }
+        break;
+      }
+      case "close-window": {
+        getCurrentWindow().close();
+        break;
+      }
+      case "exit": {
+        try {
+          await invoke("hide_or_close_window");
+        } catch {
+          getCurrentWindow().close();
+        }
+        break;
+      }
+      case "toggle-auto-save": {
+        const nextVal = !autoSaveEnabled;
+        setAutoSaveEnabled(nextVal);
+        localStorage.setItem("auto_save_enabled", String(nextVal));
+        triggerToast(`Auto Save ${nextVal ? "Enabled" : "Disabled"}`, "info");
+        break;
+      }
+    }
+  };
+
+  // Listen to open saved as file
+  useEffect(() => {
+    const handleOpenSavedAs = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.path) {
+        handleFileOpenCustom(detail.path);
+      }
+    };
+    window.addEventListener("open-saved-as-file", handleOpenSavedAs);
+    return () => window.removeEventListener("open-saved-as-file", handleOpenSavedAs);
+  }, []);
+
+  // Global Keyboard Shortcuts
+  useEffect(() => {
+    const handleGlobalShortcuts = (e: KeyboardEvent) => {
+      const isInput = document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA";
+      if (isInput && !e.ctrlKey && !e.altKey && !e.metaKey) return;
+
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && e.key === "n") {
+        e.preventDefault();
+        handleFileAction("new-text-file");
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "n") {
+        e.preventDefault();
+        handleFileAction("new-window");
+      } else if (e.ctrlKey && !e.shiftKey && e.key === "o") {
+        e.preventDefault();
+        handleFileAction("open-file");
+      } else if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        handleFileAction("save-as");
+      } else if (e.ctrlKey && e.key === "w") {
+        e.preventDefault();
+        handleFileAction("close-editor");
+      } else if (e.ctrlKey && e.key === "q") {
+        e.preventDefault();
+        handleFileAction("exit");
+      }
+    };
+    window.addEventListener("keydown", handleGlobalShortcuts);
+    return () => window.removeEventListener("keydown", handleGlobalShortcuts);
+  }, [activeProject, projects, openFilePath, filesContent, filesOriginalContent, autoSaveEnabled, activePaneIndex]);
 
   // Tab container context menu handler
   const handleTabContainerContextMenu = (
@@ -797,9 +1170,7 @@ export default function App() {
         setFileMenuOpen={setFileMenuOpen}
         settingMenuOpen={settingMenuOpen}
         setSettingMenuOpen={setSettingMenuOpen}
-        handleExportConfig={handleExportConfig}
-        handleImportMockConfig={handleImportMockConfig}
-        wipeConfig={wipeConfig}
+        handleFileAction={handleFileAction}
         activeProject={activeProject}
         activeState={activeState}
         handleStart={handleStart}
@@ -880,13 +1251,6 @@ export default function App() {
             />
           </div>
 
-          {/* Zone 6: New Project Button */}
-          <div className="zone zone-6">
-            <button className="btn-new-project" onClick={handleResetSetupForm}>
-              <Plus size={14} />
-              <span>New Project</span>
-            </button>
-          </div>
 
           <div
             className={`resizer-v ${isDraggingLeft ? "dragging" : ""}`}
@@ -1752,6 +2116,129 @@ export default function App() {
           )}
         </div>
       )}
+      {/* File Creation Modal */}
+      {filePrompt.visible && (
+        <FilePromptModal
+          title={filePrompt.title}
+          placeholder={filePrompt.placeholder}
+          defaultValue={filePrompt.defaultValue}
+          onClose={() => setFilePrompt(prev => ({ ...prev, visible: false }))}
+          onOk={(val) => {
+            filePrompt.onOk(val);
+            setFilePrompt(prev => ({ ...prev, visible: false }));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function FilePromptModal({
+  title,
+  placeholder,
+  defaultValue,
+  onClose,
+  onOk,
+}: {
+  title: string;
+  placeholder: string;
+  defaultValue: string;
+  onClose: () => void;
+  onOk: (val: string) => void;
+}) {
+  const [value, setValue] = useState(defaultValue);
+  return (
+    <div
+      className="modal-overlay animate-fade-in"
+      style={{
+        zIndex: 1100,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "rgba(0,0,0,0.5)",
+      }}
+      onClick={onClose}
+    >
+      <div
+        className="modal-content animate-scale-up"
+        style={{
+          width: "360px",
+          padding: "16px",
+          background: "var(--bg-secondary)",
+          border: "1px solid var(--border-primary)",
+          borderRadius: "8px",
+          boxShadow: "0 10px 25px rgba(0,0,0,0.5)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: "12px",
+          }}
+        >
+          <h4
+            style={{
+              margin: 0,
+              fontSize: "14px",
+              fontWeight: 600,
+              color: "var(--text-primary)",
+            }}
+          >
+            {title}
+          </h4>
+          <button
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        <input
+          autoFocus
+          type="text"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          placeholder={placeholder}
+          style={{
+            width: "100%",
+            padding: "8px 12px",
+            background: "var(--bg-primary)",
+            border: "1px solid var(--border-primary)",
+            borderRadius: "4px",
+            color: "var(--text-primary)",
+            fontSize: "12px",
+            outline: "none",
+            marginBottom: "16px",
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              onOk(value);
+            }
+          }}
+        />
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+          <button className="btn btn-secondary btn-xs" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary btn-xs" onClick={() => onOk(value)}>
+            OK
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

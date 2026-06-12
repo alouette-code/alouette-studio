@@ -776,6 +776,28 @@ export default React.memo(function CodeEditor({
     }
   };
 
+  const handleSaveAs = async () => {
+    if (!filePath) return;
+    try {
+      const defaultName = filePath.substring(filePath.lastIndexOf("/") + 1);
+      const selectedPath: string | null = await invoke("save_file_dialog", { defaultName });
+      if (selectedPath) {
+        const latestContent = editorRef.current
+          ? editorRef.current.getValue()
+          : content;
+        await invoke("write_file_content", {
+          path: selectedPath,
+          content: latestContent,
+        });
+        
+        window.dispatchEvent(new CustomEvent("open-saved-as-file", { detail: { path: selectedPath } }));
+      }
+    } catch (err: any) {
+      console.error("Save As error:", err);
+      alert(`Save As failed: ${err.toString()}`);
+    }
+  };
+
   // Keyboard shortcut Ctrl+S
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -787,6 +809,58 @@ export default React.memo(function CodeEditor({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [content, filePath, saveStatus]);
+
+  // Window Custom Event Listeners
+  useEffect(() => {
+    const handleTriggerSave = () => {
+      handleSave();
+    };
+    const handleTriggerSaveAs = () => {
+      handleSaveAs();
+    };
+    const handleTriggerRevert = () => {
+      if (window.confirm("Discard all unsaved changes for this file?")) {
+        const latest = originalContent;
+        setContent(latest);
+        if (editorRef.current) {
+          editorRef.current.setValue(latest);
+        }
+        latestContentRef.current = latest;
+        setUnsavedChanges([]);
+      }
+    };
+    const handleFilesSavedAll = () => {
+      setOriginalContent(content);
+      setUnsavedChanges([]);
+      setSaveStatus("success");
+      setTimeout(() => setSaveStatus("idle"), 2000);
+    };
+
+    window.addEventListener("trigger-save-active-file", handleTriggerSave);
+    window.addEventListener("trigger-save-as-active-file", handleTriggerSaveAs);
+    window.addEventListener("trigger-revert-active-file", handleTriggerRevert);
+    window.addEventListener("files-saved-all", handleFilesSavedAll);
+
+    return () => {
+      window.removeEventListener("trigger-save-active-file", handleTriggerSave);
+      window.removeEventListener("trigger-save-as-active-file", handleTriggerSaveAs);
+      window.removeEventListener("trigger-revert-active-file", handleTriggerRevert);
+      window.removeEventListener("files-saved-all", handleFilesSavedAll);
+    };
+  }, [content, filePath, saveStatus, originalContent]);
+
+  // Auto Save Effect
+  useEffect(() => {
+    const isAutoSave = localStorage.getItem("auto_save_enabled") === "true";
+    if (!isAutoSave || !filePath || content === originalContent || originalContent === "") return;
+
+    const timer = setTimeout(() => {
+      handleSave();
+    }, 1500); // Save after 1.5 seconds of inactivity
+
+    return () => clearTimeout(timer);
+  }, [content, originalContent, filePath]);
+
 
   // Cleanup RAF khi unmount
   useEffect(() => {

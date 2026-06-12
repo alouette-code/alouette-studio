@@ -310,3 +310,48 @@ async fn collect_files_and_folders_recursive(
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn open_file_dialog() -> Result<Option<String>, String> {
+    let file = rfd::FileDialog::new()
+        .pick_file();
+    
+    Ok(file.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn open_folder_dialog() -> Result<Option<String>, String> {
+    let folder = rfd::FileDialog::new()
+        .pick_folder();
+    
+    Ok(folder.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn save_file_dialog(default_name: Option<String>) -> Result<Option<String>, String> {
+    let mut dialog = rfd::FileDialog::new();
+    if let Some(name) = default_name {
+        dialog = dialog.set_file_name(&name);
+    }
+    let file = dialog.save_file();
+    
+    Ok(file.map(|p| p.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
+pub async fn open_new_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let label = format!("window_{}", chrono::Utc::now().timestamp_millis());
+    let _window = tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        &label,
+        tauri::WebviewUrl::App("index.html".into()),
+    )
+    .title("Alouette Studio")
+    .inner_size(1200.0, 800.0)
+    .resizable(true)
+    .decorations(true)
+    .build()
+    .map_err(|e: tauri::Error| e.to_string())?;
+    Ok(())
+}
+

@@ -2,7 +2,6 @@ import { useState } from "react";
 import { 
   ChevronDown, 
   ChevronRight, 
-  Activity, 
   Layers, 
   Globe,
   HardDrive
@@ -62,7 +61,6 @@ export default function ProcessManager({
     <div className="lower-panel-manager" style={{ padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px', height: '100%', overflow: 'hidden' }}>
       <div className="panel-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-primary)', paddingBottom: '8px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Activity size={14} style={{ color: 'var(--color-accent)' }} />
           <h3 style={{ fontSize: '11px', margin: 0, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>Process Tree</h3>
         </div>
         <span className="sys-badge" style={{ fontSize: '9px', padding: '2px 6px', borderRadius: '4px', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-muted)', border: '1px solid var(--border-primary)' }}>OS: Linux</span>
