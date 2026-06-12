@@ -120,7 +120,12 @@ export default function Header({
   return (
     <header className="global-header" data-tauri-drag-region>
       <div className="header-left">
-        <div className="brand" data-tauri-drag-region>
+        <div
+          className="brand clickable"
+          onClick={() => handleFileAction("open-welcome")}
+          style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: "8px" }}
+          title="Trang chủ / Mở trang chào mừng"
+        >
           <img src={brandIcon} className="brand-icon" alt="App Icon" />
         </div>
 
@@ -694,6 +699,14 @@ export default function Header({
             )}
           </div>
         )}
+
+        <button
+          className="btn-header-logo-right"
+          onClick={() => handleFileAction("open-welcome")}
+          title="Trang chủ / Mở trang chào mừng"
+        >
+          <img src={brandIcon} style={{ width: "14px", height: "14px", objectFit: "contain" }} alt="App Logo" />
+        </button>
 
         <button
           className="btn-theme-toggle"

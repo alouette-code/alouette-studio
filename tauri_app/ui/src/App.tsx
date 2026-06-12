@@ -37,6 +37,7 @@ import ProjectResources from "./components/ProjectResources";
 import CloudflareTunnel from "./components/CloudflareTunnel";
 import EnvironmentSetup from "./components/EnvironmentSetup";
 import GitPanel from "./components/GitPanel";
+import WelcomePage from "./components/WelcomePage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 // Search Engine
@@ -270,6 +271,7 @@ export default function App() {
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true);
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [isAiViewActive, setIsAiViewActive] = useState(false);
+  const [initialAiMessage, setInitialAiMessage] = useState("");
   const [isGitViewActive, setIsGitViewActive] = useState(false);
   const [wasAiActiveBeforeGit, setWasAiActiveBeforeGit] = useState(false);
   const [initialAgentSessionData, setInitialAgentSessionData] =
@@ -373,6 +375,7 @@ export default function App() {
     handleResetSetupForm,
     handleForceKillAndStart,
     handleSaveAndCloseAllTabs,
+    handleImportMockConfig,
   } = projectHook;
 
   // 2. Resource monitoring
@@ -525,6 +528,10 @@ export default function App() {
 
   const handleFileAction = async (action: string, payload?: any) => {
     switch (action) {
+      case "open-welcome": {
+        setActiveProjectId("");
+        break;
+      }
       case "open-folder-path": {
         const targetFolder = payload;
         const folderName = targetFolder.substring(targetFolder.lastIndexOf("/") + 1);
@@ -1184,13 +1191,30 @@ export default function App() {
       />
 
       {/* 2. Main Workspace — Full Dashboard Grid */}
-      <div
-        className="workspace-grid"
-        style={{
-          gridTemplateColumns: `${isLeftSidebarOpen ? leftSidebarWidth : 0}px 1fr ${isRightSidebarOpen ? rightSidebarWidth : 0}px`,
-          position: "relative",
-        }}
-      >
+      {!activeProjectId ? (
+        <WelcomePage
+          projects={projects}
+          projectStates={projectStates}
+          setActiveProjectId={setActiveProjectId}
+          handleFileAction={handleFileAction}
+          handleStartProject={handleStartProject}
+          handleStopProject={handleStopProject}
+          handleImportMockConfig={handleImportMockConfig}
+          triggerToast={triggerToast}
+          onSubmitPrompt={(prompt) => {
+            setInitialAiMessage(prompt);
+            setIsAiViewActive(true);
+            setIsRightSidebarOpen(true);
+          }}
+        />
+      ) : (
+        <div
+          className="workspace-grid"
+          style={{
+            gridTemplateColumns: `${isLeftSidebarOpen ? leftSidebarWidth : 0}px 1fr ${isRightSidebarOpen ? rightSidebarWidth : 0}px`,
+            position: "relative",
+          }}
+        >
         {/* ── LEFT COLUMN: Zone 1 (Tab list) + Zone 3 (File Explorer) + Zone 6 (New project btn) ── */}
         <div
           className="col-left"
@@ -1664,6 +1688,8 @@ export default function App() {
                 const path = `__agent_history__:${sessId}:${title}`;
                 handleFileOpenCustom(path);
               }}
+              initialMessage={initialAiMessage}
+              onClearInitialMessage={() => setInitialAiMessage("")}
             />
           ) : isGitViewActive ? (
             <GitPanel
@@ -1742,6 +1768,7 @@ export default function App() {
           )}
         </div>
       </div>
+      )}
 
       <footer className="global-footer-navbar">
         <div className="navbar-nav-tabs">

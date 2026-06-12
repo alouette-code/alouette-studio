@@ -90,6 +90,8 @@ interface AiAgentProps {
   initialSessionData?: any;
   onClearInitialSessionData?: () => void;
   onLoadSession?: (sessionId: string, title: string) => void;
+  initialMessage?: string;
+  onClearInitialMessage?: () => void;
 }
 
 // ─── Tool Card Item (compact, expandable) ───────────────────────────────
@@ -508,6 +510,8 @@ export default function AiAgent({
   initialSessionData,
   onClearInitialSessionData,
   onLoadSession,
+  initialMessage,
+  onClearInitialMessage,
 }: AiAgentProps) {
   const [chatHistory, setChatHistory] = useState<ChatItem[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -859,7 +863,14 @@ export default function AiAgent({
       }
     }
   }, [initialSessionData]);
-
+  useEffect(() => {
+    if (initialMessage && initialMessage.trim()) {
+      triggerSendMessage(initialMessage);
+      if (onClearInitialMessage) {
+        onClearInitialMessage();
+      }
+    }
+  }, [initialMessage]);
   // ─── Multi-Session: Watch Project Switch ────────────────────────────
   // Debounce 150ms + AbortController + Global Lock serialize
   useEffect(() => {

@@ -7557,3 +7557,467 @@ select option {
         transform: scale(1) translateY(0);
     }
 }
+
+/* ── Welcome/Landing Dashboard Styles (Monochrome) ── */
+.welcome-container.welcome-monochrome {
+    position: relative;
+    flex: 1;
+    width: 100%;
+    height: calc(100vh - 80px); /* header (40px) + footer (40px) */
+    background-color: var(--bg-primary);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 60px 24px;
+    z-index: 1;
+}
+
+.welcome-content-wrapper {
+    max-width: 800px;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+/* Hero Title */
+.welcome-hero {
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.welcome-hero h1 {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
+    margin: 0;
+}
+
+/* Central Rounded AI Chat Input Box */
+/* Central Epic/Colorful Rounded AI Chat Input Box */
+.welcome-chat-section {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    margin: 20px 0 32px 0;
+}
+
+.welcome-chat-wrapper-outer {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 680px;
+}
+
+.welcome-chat-box {
+    display: flex;
+    align-items: center;
+    background: linear-gradient(var(--bg-secondary), var(--bg-secondary)) padding-box,
+                linear-gradient(135deg, #6366f1, #a78bfa, #ec4899) border-box;
+    border: 2px solid transparent !important;
+    border-radius: 30px !important; /* Larger rounded container */
+    padding: 10px 20px;
+    flex: 1; /* Stretch horizontally in outer wrapper */
+    height: 58px; /* Taller input box */
+    box-shadow: 0 8px 32px -4px rgba(99, 102, 241, 0.15), 
+                0 0 16px 0 rgba(139, 92, 246, 0.1),
+                inset 0 1px 1px rgba(255, 255, 255, 0.05);
+    transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.welcome-chat-box:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px -4px rgba(99, 102, 241, 0.25), 
+                0 0 24px 2px rgba(236, 72, 153, 0.15),
+                inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    background: linear-gradient(var(--bg-tertiary), var(--bg-tertiary)) padding-box,
+                linear-gradient(135deg, #8b5cf6, #ec4899, #3b82f6) border-box;
+}
+
+.welcome-chat-box:focus-within {
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: 0 12px 48px -4px rgba(99, 102, 241, 0.35), 
+                0 0 32px 4px rgba(236, 72, 153, 0.25),
+                inset 0 1px 1px rgba(255, 255, 255, 0.1);
+    background: linear-gradient(var(--bg-tertiary), var(--bg-tertiary)) padding-box,
+                linear-gradient(135deg, #a78bfa, #ec4899, #60a5fa) border-box;
+}
+
+.welcome-chat-input {
+    flex: 1;
+    background: transparent;
+    border: none !important;
+    color: var(--text-primary);
+    font-size: 15px; /* Larger text */
+    font-weight: 500;
+    outline: none;
+    padding: 8px 0;
+    letter-spacing: -0.01em;
+}
+
+.welcome-chat-input::placeholder {
+    color: var(--text-muted);
+    font-weight: 400;
+    opacity: 0.8;
+}
+
+.welcome-chat-send-btn {
+    background: linear-gradient(135deg, #6366f1, #a78bfa, #ec4899);
+    border: none;
+    color: #ffffff !important;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px; /* Taller button outside */
+    height: 48px;
+    border-radius: 50% !important; /* Circular button */
+    margin-left: 0;
+    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    transition: all 0.2s ease;
+    flex-shrink: 0; /* Keep circular shape */
+}
+
+.welcome-chat-send-btn:hover {
+    transform: scale(1.08) rotate(-10deg);
+    box-shadow: 0 6px 16px rgba(236, 72, 153, 0.5);
+    background: linear-gradient(135deg, #8b5cf6, #ec4899, #3b82f6);
+}
+
+.welcome-chat-send-btn:active {
+    transform: scale(0.95);
+}
+
+/* Flat Quick Actions Row */
+.welcome-quick-actions.flat-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.qa-flat-btn {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 6px 14px;
+    font-size: 11.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all var(--transition-fast);
+}
+
+.qa-flat-btn:hover {
+    color: var(--text-primary);
+    background-color: var(--bg-tertiary);
+    border-color: var(--text-secondary);
+}
+
+/* Flat Layout Grid */
+.welcome-main-grid.flat-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 20px;
+}
+
+@media (max-width: 768px) {
+    .welcome-main-grid.flat-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.flat-section {
+    background-color: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 240px;
+}
+
+.welcome-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+    border-bottom: 1px solid var(--border-primary);
+    padding-bottom: 8px;
+}
+
+.welcome-section-header .title-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-primary);
+}
+
+.welcome-section-header h2 {
+    font-size: 12.5px;
+    font-weight: 600;
+    margin: 0;
+}
+
+.badge-count {
+    background-color: var(--bg-tertiary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 1px 5px;
+    font-size: 10px;
+    font-weight: 600;
+}
+
+/* Projects scroll */
+.projects-list-scroll {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    max-height: 280px;
+}
+
+.project-row-card.flat-card {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px;
+    transition: all var(--transition-fast);
+}
+
+.project-row-card.flat-card:hover {
+    background-color: var(--bg-tertiary);
+    border-color: var(--text-secondary);
+}
+
+.project-row-main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    cursor: pointer;
+    min-width: 0;
+}
+
+.project-status-dot-container {
+    display: flex;
+    align-items: center;
+}
+
+.status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50% !important;
+    background-color: var(--text-muted);
+    display: inline-block;
+}
+
+.status-dot.running {
+    background-color: var(--color-success);
+}
+
+.status-dot.setup {
+    background-color: var(--color-setup);
+}
+
+.project-row-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+}
+
+.project-row-title-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.project-row-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.project-row-port {
+    font-size: 9px;
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 0 3px;
+    background-color: var(--bg-secondary);
+}
+
+.project-row-toolchain {
+    font-size: 9px;
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 0 3px;
+    background-color: var(--bg-secondary);
+}
+
+.project-row-cwd {
+    font-size: 10px;
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.project-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-row-action {
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    height: 22px;
+    padding: 0 6px;
+    font-size: 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-row-action:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+}
+
+.btn-row-action.start:hover {
+    background-color: rgba(16, 185, 129, 0.08);
+}
+
+.btn-row-action.stop:hover {
+    background-color: rgba(239, 68, 68, 0.08);
+}
+
+/* Empty Project Card */
+.empty-projects-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 20px;
+    gap: 8px;
+}
+
+.empty-projects-card .empty-icon {
+    color: var(--text-muted);
+}
+
+.empty-projects-card p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.btn-welcome-secondary {
+    background: transparent;
+    border: 1px solid var(--border-primary);
+    color: var(--text-primary);
+    padding: 4px 10px;
+    font-size: 10.5px;
+    cursor: pointer;
+}
+
+.btn-welcome-secondary:hover {
+    border-color: var(--text-secondary);
+}
+
+/* Recent Items (Monochrome flat) */
+.recents-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.recent-sub-section h4 {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+}
+
+.recent-item {
+    background: transparent;
+    border: none;
+    padding: 4px 0;
+    text-align: left;
+    width: 100%;
+    cursor: pointer;
+}
+
+.recent-item-name {
+    font-size: 11.5px;
+    color: var(--text-secondary);
+    transition: color var(--transition-fast);
+}
+
+.recent-item:hover .recent-item-name {
+    color: var(--text-primary);
+    text-decoration: underline;
+}
+
+.recents-empty {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* Tools Buttons Grid flat */
+.tools-buttons-grid.flat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.tool-btn-welcome.flat-tool-btn {
+    background-color: var(--bg-primary);
+    border: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    padding: 8px;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all var(--transition-fast);
+}
+
+.tool-btn-welcome.flat-tool-btn:hover {
+    color: var(--text-primary);
+    border-color: var(--text-secondary);
+    background-color: var(--bg-tertiary);
+}
+
+.btn-header-logo-right {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    width: 32px;
+    height: 100%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    -webkit-app-region: no-drag;
+}
+
+.btn-header-logo-right:hover {
+    background-color: var(--bg-tertiary);
+}
+
