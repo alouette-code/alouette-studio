@@ -1,3 +1,0 @@
-rust_input: crate::api
-rust_root: flutter_app/rust/
-dart_output: flutter_app/lib/src/rust/
