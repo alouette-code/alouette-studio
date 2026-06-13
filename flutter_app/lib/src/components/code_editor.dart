@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_provider.dart';
 import '../theme/app_theme.dart';
@@ -24,11 +25,16 @@ class CodeEditorWidget extends StatefulWidget {
 
 class _CodeEditorWidgetState extends State<CodeEditorWidget> {
   late TextEditingController _controller;
+  final FocusNode _editorFocusNode = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final ScrollController _lineNumberScrollController = ScrollController();
   bool _isDirty = false;
   bool _isLoading = false;
   String? _errorMessage;
+
+  // Indentation settings
+  static const int _tabSize = 2;
+  static const String _indent = '  '; // 2 spaces
 
   // RAG search panel state
   bool _showRagPanel = false;
@@ -47,6 +53,18 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
     _controller.addListener(_onTextChanged);
 
     _scrollController.addListener(_syncLineNumberScroll);
+
+    // Capture Tab key to insert indentation instead of moving focus
+    _editorFocusNode.onKeyEvent = (node, event) {
+      if (event is KeyDownEvent || event is KeyRepeatEvent) {
+        if (event.logicalKey == LogicalKeyboardKey.tab) {
+          final isShift = HardwareKeyboard.instance.isShiftPressed;
+          _handleTabKey(isShift);
+          return KeyEventResult.handled;
+        }
+      }
+      return KeyEventResult.ignored;
+    };
   }
 
   @override
@@ -64,6 +82,7 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
 
   @override
   void dispose() {
+    _editorFocusNode.dispose();
     _scrollController.removeListener(_syncLineNumberScroll);
     _scrollController.dispose();
     _lineNumberScrollController.dispose();
@@ -82,6 +101,88 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
   void _onTextChanged() {
     _isDirty = true;
     widget.onChange?.call(_controller.text);
+  }
+
+  /// Handle Tab / Shift+Tab for indentation
+  void _handleTabKey(bool isShift) {
+    final text = _controller.text;
+    final sel = _controller.selection;
+    final start = sel.start;
+    final end = sel.end;
+
+    if (start == -1) return;
+
+    if (isShift) {
+      // Shift+Tab: outdent (remove indentation) on current line or selection
+      _outdentSelection(text, start, end);
+    } else if (sel.isCollapsed) {
+      // Tab with no selection: insert spaces at cursor
+      final newText = text.substring(0, start) + _indent + text.substring(start);
+      _controller.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: start + _indent.length),
+      );
+    } else {
+      // Tab with selection: indent all selected lines
+      _indentSelection(text, start, end);
+    }
+  }
+
+  /// Indent all lines in the selected range
+  void _indentSelection(String text, int start, int end) {
+    final lineStart = text.lastIndexOf('\n', start - 1) + 1;
+    if (lineStart == 0 && start > 0) {
+      // start is not at beginning of first line
+    }
+    var lineEnd = text.indexOf('\n', end);
+    if (lineEnd == -1) lineEnd = text.length;
+
+    // Build new text with indentation added
+    final before = text.substring(0, lineStart);
+    final selectedPortion = text.substring(lineStart, lineEnd);
+    final after = text.substring(lineEnd);
+
+    final indented = selectedPortion.split('\n').map((line) => _indent + line).join('\n');
+    final newText = before + indented + after;
+
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection(
+        baseOffset: lineStart,
+        extentOffset: lineStart + indented.length,
+      ),
+    );
+  }
+
+  /// Outdent (remove one indent level) from the current line or selection
+  void _outdentSelection(String text, int start, int end) {
+    final lineStart = text.lastIndexOf('\n', start - 1) + 1;
+    var lineEnd = text.indexOf('\n', end);
+    if (lineEnd == -1) lineEnd = text.length;
+
+    final before = text.substring(0, lineStart);
+    final selectedPortion = text.substring(lineStart, lineEnd);
+    final after = text.substring(lineEnd);
+
+    final outdented = selectedPortion.split('\n').map((line) {
+      if (line.startsWith(_indent)) {
+        return line.substring(_indent.length);
+      } else if (line.startsWith('\t')) {
+        return line.substring(1);
+      }
+      return line;
+    }).join('\n');
+
+    final newText = before + outdented + after;
+    final newEnd = lineStart + outdented.length;
+
+    _controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection(
+        baseOffset: lineStart,
+        extentOffset: newEnd,
+      ),
+    );
   }
 
   String get _fileName {
@@ -562,6 +663,7 @@ class _CodeEditorWidgetState extends State<CodeEditorWidget> {
               Expanded(
                 child: TextField(
                   controller: _controller,
+                  focusNode: _editorFocusNode,
                   scrollController: _scrollController,
                   maxLines: null,
                   expands: true,

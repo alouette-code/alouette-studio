@@ -448,6 +448,7 @@ class _FooterNavbar extends StatelessWidget {
               children: [
                 _NavTab(
                   icon: Icons.grid_view_rounded,
+                  isActive: provider.activeProjectId.isNotEmpty,
                   onTap: () {
                     if (provider.filteredProjects.isNotEmpty) {
                       provider.activeProjectId = provider.filteredProjects.first.id;
@@ -456,7 +457,13 @@ class _FooterNavbar extends StatelessWidget {
                 ),
                 _NavTab(
                   icon: Icons.terminal_rounded,
-                  onTap: () {},
+                  onTap: () {
+                    // Ensure bottom panel is open and scroll to terminal
+                    if (!provider.isBottomPanelOpen) {
+                      provider.toggleBottomPanel();
+                    }
+                    provider.showToast('Terminal', type: 'info');
+                  },
                 ),
                 Container(
                   width: 1,
@@ -496,8 +503,18 @@ class _FooterNavbar extends StatelessWidget {
                 onTap: () {
                   if (!provider.isRightSidebarOpen) {
                     provider.toggleRightSidebar();
+                    if (!provider.isGitViewActive) {
+                      provider.setGitViewActive(true);
+                    }
+                  } else {
+                    if (provider.isGitViewActive) {
+                      final wasAi = provider.wasAiActiveBeforeGit;
+                      provider.setGitViewActive(false);
+                      if (wasAi) provider.setAiViewActive(true);
+                    } else {
+                      provider.setGitViewActive(true);
+                    }
                   }
-                  provider.setGitViewActive(!provider.isGitViewActive);
                 },
               ),
               _ToolButton(
@@ -506,17 +523,39 @@ class _FooterNavbar extends StatelessWidget {
                 onTap: () {
                   if (!provider.isRightSidebarOpen) {
                     provider.toggleRightSidebar();
+                    if (!provider.isAiViewActive) {
+                      provider.setAiViewActive(true);
+                    }
+                  } else {
+                    if (provider.isAiViewActive) {
+                      provider.setAiViewActive(false);
+                    } else {
+                      provider.setAiViewActive(true);
+                    }
                   }
-                  provider.setAiViewActive(!provider.isAiViewActive);
                 },
               ),
               _ToolButton(
                 icon: Icons.swap_horiz_rounded,
-                onTap: () => provider.showToast('Opening Ping window...'),
+                onTap: () async {
+                  try {
+                    await provider.bridge.openPingWindow();
+                    provider.showToast('Ping window opened', type: 'success');
+                  } catch (e) {
+                    provider.showToast('Failed to open Ping window', type: 'error');
+                  }
+                },
               ),
               _ToolButton(
                 icon: Icons.language_outlined,
-                onTap: () => provider.showToast('Opening Browser...'),
+                onTap: () async {
+                  try {
+                    await provider.bridge.openBrowserWindow();
+                    provider.showToast('Browser opened', type: 'success');
+                  } catch (e) {
+                    provider.showToast('Failed to open Browser', type: 'error');
+                  }
+                },
               ),
               _ToolButton(
                 icon: Icons.dns_outlined,
@@ -524,7 +563,14 @@ class _FooterNavbar extends StatelessWidget {
               ),
               _ToolButton(
                 icon: Icons.settings_outlined,
-                onTap: () => provider.showToast('Opening Settings...'),
+                onTap: () async {
+                  try {
+                    await provider.bridge.openAdminWindow();
+                    provider.showToast('Admin panel opened', type: 'success');
+                  } catch (e) {
+                    provider.showToast('Failed to open Admin panel', type: 'error');
+                  }
+                },
               ),
               _ToolButton(
                 icon: Icons.help_outline,

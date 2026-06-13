@@ -44,6 +44,16 @@ abstract class RustBridgeService {
   Future<Map<String, dynamic>> dnsLookup(String host);
   Future<Map<String, dynamic>> pingHost(String host);
   Future<Map<String, dynamic>> sslCertificateInfo(String url);
+  Future<Map<String, dynamic>> validateJsonSchema(String schema, String instance);
+  Future<String> jsonFormatTool(String json);
+  Future<String> base64Tool(String action, String input);
+  Future<String> generateCurlCommand(Map<String, dynamic> request);
+  Future<String> httpStatusInfo(int statusCode);
+  Future<String> hashTool(String algorithm, String input);
+  Future<Map<String, dynamic>> jwtDecode(String token);
+  Future<String> timestampConvert(String action, String value);
+  Future<String> responseDiff(String responseA, String responseB);
+  Future<String> prettifyXml(String xml);
 
   // ── Settings ──
   Future<AppSettings> getSettings();
@@ -68,6 +78,10 @@ abstract class RustBridgeService {
   Future<Map<String, dynamic>> loadAgentSession(String sessionId);
   Future<void> saveAgentSession(Map<String, dynamic> session);
   Future<void> agentDeleteSession(String sessionId);
+  Future<Map<String, dynamic>> getCustomAiConfig();
+  Future<void> saveCustomAiConfig(Map<String, dynamic> config);
+  Future<void> switchAgentProject(String projectId);
+  Future<List<Map<String, dynamic>>> loadHistoryPage(int page, int pageSize);
 
   // ── Git ──
   Future<Map<String, dynamic>> gitGetStatus(String cwd);
@@ -80,6 +94,8 @@ abstract class RustBridgeService {
   Future<void> gitPush(String cwd);
   Future<void> gitPull(String cwd);
   Future<List<Map<String, dynamic>>> gitGetLog(String cwd, {int limit = 20});
+  Future<List<Map<String, dynamic>>> gitGetCommitFiles(String cwd, String commitId);
+  Future<Map<String, dynamic>> gitGetFileDiff(String cwd, String file, {String? commitA, String? commitB});
 
   // ── Sandbox ──
   Future<List<Map<String, dynamic>>> loadSandboxConfigs();
@@ -99,6 +115,7 @@ abstract class RustBridgeService {
   Future<List<Map<String, dynamic>>> getLanguageRuntimes();
   Future<void> saveLanguageRuntime(Map<String, dynamic> runtime);
   Future<void> deleteLanguageRuntime(String name);
+  Future<void> installProtoTool(String name, String version);
 
   // ── Code RAG ──
   Future<List<String>> codeRagSupportedLanguages();
@@ -106,6 +123,14 @@ abstract class RustBridgeService {
   Future<Map<String, dynamic>> codeRagHealth();
   Future<List<Map<String, dynamic>>> codeRagQuery(String query, {List<String>? files});
   Future<Map<String, dynamic>> codeRagStats();
+  Future<List<Map<String, dynamic>>> codeRagQueryByName(String name);
+  Future<void> codeRagIndexFile(String path);
+  Future<void> codeRagRescanProject(String projectId);
+  Future<void> codeRagDeleteProject(String projectId);
+  Future<String> codeRagResolveLanguage(String fileName);
+  Future<List<Map<String, dynamic>>> codeRagExtractFunctions(String path);
+  Future<List<Map<String, dynamic>>> codeRagScanDirectory(String path);
+  Future<Map<String, dynamic>> codeRagDebug();
 
   // ── Windows & Dialogs ──
   Future<void> openNewWindow();
@@ -117,6 +142,10 @@ abstract class RustBridgeService {
   // ── Alouette Open ──
   Future<void> toggleAlouetteOpen(bool enabled);
   Future<bool> isAlouetteOpenActive();
+
+  // ── Local Chat ──
+  Future<String> localChatSend(Map<String, dynamic> message);
+  Future<void> localChatStop();
 }
 
 /// Placeholder implementation that will be replaced by real FRB-generated code.
@@ -197,6 +226,36 @@ class PlaceholderRustBridge implements RustBridgeService {
   Future<String?> saveFileDialog(String defaultName) async => null;
 
   @override
+  Future<Map<String, dynamic>> validateJsonSchema(String schema, String instance) async => {};
+
+  @override
+  Future<String> jsonFormatTool(String json) async => json;
+
+  @override
+  Future<String> base64Tool(String action, String input) async => '';
+
+  @override
+  Future<String> generateCurlCommand(Map<String, dynamic> request) async => '';
+
+  @override
+  Future<String> httpStatusInfo(int statusCode) async => '';
+
+  @override
+  Future<String> hashTool(String algorithm, String input) async => '';
+
+  @override
+  Future<Map<String, dynamic>> jwtDecode(String token) async => {};
+
+  @override
+  Future<String> timestampConvert(String action, String value) async => '';
+
+  @override
+  Future<String> responseDiff(String responseA, String responseB) async => '';
+
+  @override
+  Future<String> prettifyXml(String xml) async => xml;
+
+  @override
   Future<bool> checkPortStatus(int port) async => false;
 
   @override
@@ -269,6 +328,18 @@ class PlaceholderRustBridge implements RustBridgeService {
   Future<void> agentDeleteSession(String sessionId) async {}
 
   @override
+  Future<Map<String, dynamic>> getCustomAiConfig() async => {};
+
+  @override
+  Future<void> saveCustomAiConfig(Map<String, dynamic> config) async {}
+
+  @override
+  Future<void> switchAgentProject(String projectId) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> loadHistoryPage(int page, int pageSize) async => [];
+
+  @override
   Future<Map<String, dynamic>> gitGetStatus(String cwd) async => {};
 
   @override
@@ -297,6 +368,12 @@ class PlaceholderRustBridge implements RustBridgeService {
 
   @override
   Future<List<Map<String, dynamic>>> gitGetLog(String cwd, {int limit = 20}) async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> gitGetCommitFiles(String cwd, String commitId) async => [];
+
+  @override
+  Future<Map<String, dynamic>> gitGetFileDiff(String cwd, String file, {String? commitA, String? commitB}) async => {};
 
   @override
   Future<List<Map<String, dynamic>>> loadSandboxConfigs() async => [];
@@ -332,6 +409,9 @@ class PlaceholderRustBridge implements RustBridgeService {
   Future<void> deleteLanguageRuntime(String name) async {}
 
   @override
+  Future<void> installProtoTool(String name, String version) async {}
+
+  @override
   Future<List<String>> codeRagSupportedLanguages() async => [];
 
   @override
@@ -345,6 +425,30 @@ class PlaceholderRustBridge implements RustBridgeService {
 
   @override
   Future<Map<String, dynamic>> codeRagStats() async => {};
+
+  @override
+  Future<List<Map<String, dynamic>>> codeRagQueryByName(String name) async => [];
+
+  @override
+  Future<void> codeRagIndexFile(String path) async {}
+
+  @override
+  Future<void> codeRagRescanProject(String projectId) async {}
+
+  @override
+  Future<void> codeRagDeleteProject(String projectId) async {}
+
+  @override
+  Future<String> codeRagResolveLanguage(String fileName) async => '';
+
+  @override
+  Future<List<Map<String, dynamic>>> codeRagExtractFunctions(String path) async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> codeRagScanDirectory(String path) async => [];
+
+  @override
+  Future<Map<String, dynamic>> codeRagDebug() async => {};
 
   @override
   Future<void> openNewWindow() async {}
@@ -366,4 +470,10 @@ class PlaceholderRustBridge implements RustBridgeService {
 
   @override
   Future<bool> isAlouetteOpenActive() async => false;
+
+  @override
+  Future<String> localChatSend(Map<String, dynamic> message) async => '';
+
+  @override
+  Future<void> localChatStop() async {}
 }

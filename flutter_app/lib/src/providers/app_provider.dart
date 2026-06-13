@@ -150,15 +150,25 @@ class AppProvider extends ChangeNotifier {
   bool get isAiViewActive => _isAiViewActive;
   void setAiViewActive(bool v) {
     _isAiViewActive = v;
-    if (v) _isGitViewActive = false;
+    if (v) {
+      _isGitViewActive = false;
+      _wasAiActiveBeforeGit = true;
+    }
     notifyListeners();
   }
 
   bool _isGitViewActive = false;
   bool get isGitViewActive => _isGitViewActive;
+  bool _wasAiActiveBeforeGit = false;
+  bool get wasAiActiveBeforeGit => _wasAiActiveBeforeGit;
   void setGitViewActive(bool v) {
     _isGitViewActive = v;
-    if (v) _isAiViewActive = false;
+    if (v) {
+      _wasAiActiveBeforeGit = _isAiViewActive;
+      _isAiViewActive = false;
+    } else if (_wasAiActiveBeforeGit) {
+      _isAiViewActive = true;
+    }
     notifyListeners();
   }
 
