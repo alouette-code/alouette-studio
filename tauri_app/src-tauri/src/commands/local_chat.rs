@@ -44,12 +44,12 @@ fn resolve_llama_server_path() -> std::path::PathBuf {
 }
 
 fn resolve_model_path() -> std::path::PathBuf {
-    let p = std::path::PathBuf::from("/home/nhatanh/projet/alouette_studio/tauri_app/app_data/model_embedding/model-small-phi-3/phi-3-mini-4k-instruct-q2_k.gguf");
+    let p = std::path::PathBuf::from("/home/nhatanh/projet/alouette_studio/tauri_app/app_data/model_embedding/model-small-phi-3/phi-3-mini-4k-instruct-q4_k_m.gguf");
     if p.exists() {
         return p;
     }
     crate::state::project_root()
-        .join("app_data/model_embedding/model-small-phi-3/phi-3-mini-4k-instruct-q2_k.gguf")
+        .join("app_data/model_embedding/model-small-phi-3/phi-3-mini-4k-instruct-q4_k_m.gguf")
 }
 
 fn spawn_llama_server() -> Result<(), String> {

@@ -61,12 +61,6 @@ export default function WelcomePage({
   const activeStreamContentRef = useRef<string>("");
 
   useEffect(() => {
-    if (isChatting) {
-      chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages, isTyping, isChatting]);
-
-  useEffect(() => {
     const loadRecents = () => {
       try {
         const folders = JSON.parse(
