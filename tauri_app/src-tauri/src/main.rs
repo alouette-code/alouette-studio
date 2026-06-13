@@ -4,6 +4,7 @@
 mod alouette_open;
 mod commands;
 mod events;
+mod model_manager;
 mod state;
 mod system_manager;
 
@@ -69,6 +70,9 @@ fn main() {
     let agent_registry = Arc::new(DashMap::new());
     let active_agent_project = Arc::new(RwLock::new(None));
 
+    let model_manager = model_manager::create_shared();
+    let model_manager_for_cleanup = model_manager.clone();
+
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
 
@@ -84,6 +88,7 @@ fn main() {
             agent_registry,
             active_agent_project,
         })
+        .manage(model_manager)
         .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.
@@ -305,6 +310,7 @@ fn main() {
                 let pm_clone = state.process_manager.clone();
                 let rm_clone = state.resource_monitor.clone();
                 let app_handle_clone = app_handle.clone();
+                let mm_for_cleanup = model_manager_for_cleanup.clone();
 
                 tauri::async_runtime::spawn(async move {
                     let mut pids: Vec<(String, u32)> = Vec::new();
@@ -331,6 +337,12 @@ fn main() {
 
                     for pid in term_pids {
                         core_engine::terminate_process_tree(pid).await;
+                    }
+
+                    // Cleanup: stop the local model server
+                    {
+                        let mut mm = mm_for_cleanup.lock().await;
+                        mm.stop().await;
                     }
 
                     app_handle_clone.exit(0);

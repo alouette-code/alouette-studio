@@ -1,9 +1,10 @@
+use crate::model_manager::SharedModelManager;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
-use tauri::{Emitter, WebviewWindow};
+use tauri::{Emitter, State, WebviewWindow};
 
 static CANCEL_FLAG: OnceLock<AtomicBool> = OnceLock::new();
 
@@ -17,89 +18,6 @@ pub struct LocalChatMessage {
     pub content: String,
 }
 
-async fn check_server_health() -> bool {
-    let client = reqwest::Client::new();
-    match client.get("http://127.0.0.1:8080/health").send().await {
-        Ok(res) => res.status().is_success(),
-        Err(_) => false,
-    }
-}
-
-fn resolve_llama_server_path() -> std::path::PathBuf {
-    let paths = vec![
-        "/home/nhatanh/projet/alouette_studio/core_engine/app_data/bin/llama-bin/llama-server"
-            .into(),
-        crate::state::project_root()
-            .parent()
-            .unwrap_or(std::path::Path::new("."))
-            .join("core_engine/app_data/bin/llama-bin/llama-server"),
-        crate::state::project_root().join("core_engine/app_data/bin/llama-bin/llama-server"),
-    ];
-    for p in paths {
-        if p.exists() {
-            return p;
-        }
-    }
-    std::path::PathBuf::from("llama-server")
-}
-
-fn resolve_model_path() -> std::path::PathBuf {
-    let p = std::path::PathBuf::from("/home/nhatanh/projet/alouette_studio/tauri_app/app_data/model_embedding/model-small-phi-3/phi-3-mini-4k-instruct-q4_k_m.gguf");
-    if p.exists() {
-        return p;
-    }
-    crate::state::project_root()
-        .join("app_data/model_embedding/model-small-phi-3/phi-3-mini-4k-instruct-q4_k_m.gguf")
-}
-
-fn spawn_llama_server() -> Result<(), String> {
-    let bin_path = resolve_llama_server_path();
-    let model_path = resolve_model_path();
-
-    let log_dir = crate::state::project_root().join("logs");
-    let _ = std::fs::create_dir_all(&log_dir);
-    let log_file = std::fs::File::create(log_dir.join("llama-server.log")).ok();
-
-    let mut cmd = std::process::Command::new(bin_path);
-    cmd.args(&[
-        "-m",
-        &model_path.to_string_lossy(),
-        "-c",
-        "4096",
-        "--port",
-        "8080",
-    ]);
-
-    if let Some(f) = log_file {
-        cmd.stdout(std::process::Stdio::from(f.try_clone().unwrap()));
-        cmd.stderr(std::process::Stdio::from(f));
-    } else {
-        cmd.stdout(std::process::Stdio::null());
-        cmd.stderr(std::process::Stdio::null());
-    }
-
-    cmd.spawn()
-        .map_err(|e| format!("Failed to spawn llama-server: {}", e))?;
-    Ok(())
-}
-
-async fn ensure_llama_server_running() -> Result<(), String> {
-    if check_server_health().await {
-        return Ok(());
-    }
-
-    spawn_llama_server()?;
-
-    for _ in 0..10 {
-        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-        if check_server_health().await {
-            return Ok(());
-        }
-    }
-
-    Err("llama-server did not start and become healthy in time (port 8080)".to_string())
-}
-
 #[tauri::command]
 pub fn local_chat_stop() {
     get_cancel_flag().store(true, Ordering::SeqCst);
@@ -110,13 +28,21 @@ pub async fn local_chat_send(
     message: String,
     history: Vec<LocalChatMessage>,
     window: WebviewWindow,
+    model_manager: State<'_, SharedModelManager>,
 ) -> Result<String, String> {
     get_cancel_flag().store(false, Ordering::SeqCst);
 
+    // ── Step 1: Emit "starting" status ──
     let _ = window.emit("local-chat-status", "starting");
-    ensure_llama_server_running().await?;
+
+    // ── Step 2: Ensure model server is running (managed lifecycle) ──
+    {
+        let mut mgr = model_manager.lock().await;
+        mgr.ensure_running().await?;
+    }
     let _ = window.emit("local-chat-status", "running");
 
+    // ── Step 3: Build request payload ──
     let mut messages = Vec::new();
     for msg in history {
         messages.push(json!({
@@ -129,6 +55,7 @@ pub async fn local_chat_send(
         "content": message,
     }));
 
+    // ── Step 4: Send streaming request ──
     let client = reqwest::Client::new();
     let response = client
         .post("http://127.0.0.1:8080/v1/chat/completions")
@@ -141,14 +68,18 @@ pub async fn local_chat_send(
         }))
         .send()
         .await
-        .map_err(|e| format!("Failed to connect to local llama-server: {}", e))?;
+        .map_err(|e| format!("Failed to connect to local model server: {}", e))?;
 
     if !response.status().is_success() {
         let status = response.status();
         let err_txt = response.text().await.unwrap_or_default();
-        return Err(format!("Local server error ({}): {}", status, err_txt));
+        return Err(format!(
+            "Local model server error ({}): {}",
+            status, err_txt
+        ));
     }
 
+    // ── Step 5: Stream response tokens ──
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
     let mut full_response = String::new();

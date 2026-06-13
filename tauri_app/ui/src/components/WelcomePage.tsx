@@ -171,7 +171,7 @@ export default function WelcomePage({
         if (next.length > 0 && next[next.length - 1].role === "assistant") {
           next[next.length - 1] = {
             role: "assistant",
-            content: `❌ Lỗi: ${err?.message || err || "Không thể kết nối đến local server. Hãy đảm bảo bạn đã cài đặt llama.cpp."}`,
+            content: `❌ Lỗi: ${err?.message || err || "Không thể kết nối đến local model server."}`,
           };
         }
         return next;

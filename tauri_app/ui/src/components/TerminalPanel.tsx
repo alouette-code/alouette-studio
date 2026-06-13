@@ -643,7 +643,7 @@ export default function TerminalPanel({
         lineHeight: 1.35,
         letterSpacing: 0,
         fontFamily:
-          "'Ubuntu Mono', 'Noto Sans Mono', 'Noto Sans CJK SC', 'Noto Color Emoji', monospace",
+          "\"Ubuntu Mono\", \"DejaVu Sans Mono\", \"Noto Sans Mono\", monospace",
         theme: activeTheme,
         convertEol: true,
         rows: 24,
@@ -808,6 +808,9 @@ export default function TerminalPanel({
 
       const doFit = () => {
         try {
+          const font = term.options.fontFamily || "monospace";
+          term.options.fontFamily = "monospace";
+          term.options.fontFamily = font;
           fit.fit();
           term.refresh(0, term.rows - 1);
         } catch {}
@@ -816,6 +819,7 @@ export default function TerminalPanel({
       doFit();
       requestAnimationFrame(doFit);
       setTimeout(doFit, 80);
+      setTimeout(doFit, 300);
 
       // Replay buffered output + force refresh to render initial content
       const buf = terminalBufferRef.current[sessionId];
@@ -1160,6 +1164,9 @@ export default function TerminalPanel({
       const inst = instancesRef.current[activeTerminalId];
       setTimeout(() => {
         try {
+          const font = inst.term.options.fontFamily || "monospace";
+          inst.term.options.fontFamily = "monospace";
+          inst.term.options.fontFamily = font;
           inst.fit.fit();
           inst.term.refresh(0, inst.term.rows - 1);
           inst.term.focus();
@@ -1176,7 +1183,7 @@ export default function TerminalPanel({
           try {
             const term = instancesRef.current[sid].term;
             // Force re-measurement of characters by toggling fontFamily to clear the metrics cache
-            const font = term.options.fontFamily || "'Ubuntu Mono', monospace";
+            const font = term.options.fontFamily || "monospace";
             term.options.fontFamily = "monospace";
             term.options.fontFamily = font;
 
@@ -1186,8 +1193,10 @@ export default function TerminalPanel({
         });
       };
       document.fonts.ready.then(handleFontsLoaded);
+      // Run once immediately in case fonts are already loaded
+      handleFontsLoaded();
     }
-  }, [terminals]);
+  }, [terminals, viewMode, activeTerminalId]);
 
   // ── Debug: log status changes ──────────────────────────────────────
   useEffect(() => {
