@@ -48,3 +48,7 @@ core_engine/src/agent_harness/report_C/
 
 # ── Test Artifacts ──
 **/alouette_test_*
+
+#llama.cpp
+
+tauri_app/llama-b9616

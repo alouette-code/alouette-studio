@@ -292,6 +292,8 @@ fn main() {
             commands::code_rag::code_rag_extract_functions,
             commands::code_rag::code_rag_scan_directory,
             commands::code_rag::code_rag_debug,
+            commands::local_chat::local_chat_send,
+            commands::local_chat::local_chat_stop,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
