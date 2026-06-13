@@ -1201,11 +1201,6 @@ export default function App() {
           handleStopProject={handleStopProject}
           handleImportMockConfig={handleImportMockConfig}
           triggerToast={triggerToast}
-          onSubmitPrompt={(prompt) => {
-            setInitialAiMessage(prompt);
-            setIsAiViewActive(true);
-            setIsRightSidebarOpen(true);
-          }}
         />
       ) : (
         <div
