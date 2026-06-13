@@ -4,7 +4,7 @@
 :root {
     /* Common Brand Tokens */
     --font-sans: "Ubuntu", sans-serif;
-    --font-mono: "Ubuntu Mono", monospace;
+    --font-mono: "Ubuntu Mono", "DejaVu Sans Mono", "Noto Sans Mono", monospace;
     --radius-none: 0px;
 
     --transition-fast: 0.1s ease;
