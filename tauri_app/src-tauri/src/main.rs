@@ -343,7 +343,7 @@ fn main() {
 
                     // Cleanup: stop the inference engine
                     {
-                        let mut mm = mm_for_cleanup.lock().await;
+                        let mut mm = mm_for_cleanup.inner.lock().await;
                         mm.stop();
                     }
 
