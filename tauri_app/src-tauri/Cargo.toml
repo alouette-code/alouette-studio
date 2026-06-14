@@ -33,8 +33,12 @@ git2 = "0.19"
 pathdiff = "0.2"
 rfd = "0.17.2"
 
-
-
+# Candle (HuggingFace Rust ML) + tokenizers
+candle-core = "0.10.2"
+candle-nn = "0.10.2"
+candle-transformers = "0.10.2"
+tokenizers = "0.21"
+fastrand = "2.3"
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }

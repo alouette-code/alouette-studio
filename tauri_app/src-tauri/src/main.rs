@@ -4,6 +4,8 @@
 mod alouette_open;
 mod commands;
 mod events;
+mod inference;
+mod minicpm;
 mod model_manager;
 mod state;
 mod system_manager;
@@ -339,10 +341,10 @@ fn main() {
                         core_engine::terminate_process_tree(pid).await;
                     }
 
-                    // Cleanup: stop the local model server
+                    // Cleanup: stop the inference engine
                     {
                         let mut mm = mm_for_cleanup.lock().await;
-                        mm.stop().await;
+                        mm.stop();
                     }
 
                     app_handle_clone.exit(0);
