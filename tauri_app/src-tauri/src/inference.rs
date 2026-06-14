@@ -132,10 +132,17 @@ impl MiniCpmInference {
             let input_ids = Tensor::from_slice(input_slice, (1, seq_len), &self.device)
                 .map_err(|e| format!("Tensor creation failed: {}", e))?;
 
-            let logits = self
+            let mut logits = self
                 .model
                 .forward(&input_ids, seqlen_offset, &mut self.cache)
                 .map_err(|e| format!("Model forward failed: {}", e))?;
+
+            // Apply repetition penalty
+            let repeat_penalty = 1.15;
+            let repeat_last_n = 64;
+            let start_at = tokens.len().saturating_sub(repeat_last_n);
+            let ctx = &tokens[start_at..];
+            logits = apply_repeat_penalty(&logits, repeat_penalty, ctx)?;
 
             let next_token = if temperature <= 0.0 {
                 sample_greedy(&logits)
@@ -146,8 +153,18 @@ impl MiniCpmInference {
 
             tokens.push(next_token);
 
-            // Check EOS
-            if self.eos_token_ids.contains(&next_token) {
+            let token_str_with_special = self
+                .tokenizer
+                .decode(&[next_token], false)
+                .unwrap_or_default();
+
+            // Check EOS (ID or String)
+            if self.eos_token_ids.contains(&next_token)
+                || token_str_with_special.contains("<|im_end|>")
+                || token_str_with_special.contains("</s>")
+                || token_str_with_special.contains("<|endoftext|>")
+                || token_str_with_special.contains("<eos>")
+            {
                 break;
             }
 
@@ -178,6 +195,33 @@ impl MiniCpmInference {
 // ──────────────────────────────────────────────────────────────────────────────
 // Sampling
 // ──────────────────────────────────────────────────────────────────────────────
+
+fn apply_repeat_penalty(logits: &Tensor, penalty: f32, context: &[u32]) -> Result<Tensor, String> {
+    if penalty == 1.0 {
+        return Ok(logits.clone());
+    }
+    let logits_dims = logits.dims();
+    let vocab_size = logits_dims[logits_dims.len() - 1];
+    let mut logits_v = logits
+        .flatten_all()
+        .map_err(|e| format!("flatten failed: {}", e))?
+        .to_vec1::<f32>()
+        .map_err(|e| format!("to_vec1 failed: {}", e))?;
+    
+    for &t in context {
+        let t = t as usize;
+        if t < vocab_size {
+            let logit = logits_v[t];
+            if logit <= 0.0 {
+                logits_v[t] = logit * penalty;
+            } else {
+                logits_v[t] = logit / penalty;
+            }
+        }
+    }
+    Tensor::from_vec(logits_v, logits_dims, logits.device())
+        .map_err(|e| format!("from_vec failed: {}", e))
+}
 
 fn sample_greedy(logits: &Tensor) -> Result<u32, String> {
     // logits shape: [1, vocab_size] (model returns last token logits)
@@ -331,6 +375,32 @@ fn find_safetensors_file(model_dir: &Path) -> Result<std::path::PathBuf, String>
 }
 
 fn detect_device() -> Device {
+    crate::state::log_to_app_file("[Inference] Auto-detecting hardware (Priority: Discrete GPU -> Integrated GPU -> CPU)...");
+    
+    // 1. Ưu tiên GPU rời (thường là CUDA cho Nvidia trên Linux/Windows)
+    if candle_core::utils::cuda_is_available() {
+        match Device::new_cuda(0) {
+            Ok(device) => {
+                crate::state::log_to_app_file("[Inference] ✅ Đã tìm thấy và sử dụng Discrete GPU (CUDA)");
+                return device;
+            }
+            Err(e) => crate::state::log_to_app_file(&format!("[Inference] ❌ Lỗi khởi tạo CUDA GPU: {}", e)),
+        }
+    }
+
+    // 2. Ưu tiên GPU tích hợp / Apple Silicon (Metal)
+    if candle_core::utils::metal_is_available() {
+        match Device::new_metal(0) {
+            Ok(device) => {
+                crate::state::log_to_app_file("[Inference] ✅ Đã tìm thấy và sử dụng GPU (Metal)");
+                return device;
+            }
+            Err(e) => crate::state::log_to_app_file(&format!("[Inference] ❌ Lỗi khởi tạo Metal GPU: {}", e)),
+        }
+    }
+
+    // 3. Nếu không có GPU nào khả dụng (hoặc code build không bật features), fallback về CPU
+    crate::state::log_to_app_file("[Inference] ⚠️ Không tìm thấy GPU rời hoặc GPU tích hợp khả dụng. Đang chuyển về sử dụng CPU.");
     Device::Cpu
 }
 

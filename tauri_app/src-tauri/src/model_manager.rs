@@ -15,11 +15,11 @@ pub struct ModelManager {
 }
 
 impl ModelManager {
-    pub fn new() -> Self {
+    pub fn new(cancel_flag: Arc<AtomicBool>) -> Self {
         Self {
             engine: None,
             model_dir: resolve_model_dir(),
-            cancel_flag: Arc::new(AtomicBool::new(false)),
+            cancel_flag,
         }
     }
 
@@ -88,8 +88,17 @@ fn resolve_model_dir() -> PathBuf {
 // Factory / Convenience
 // ──────────────────────────────────────────────────────────────────────────────
 
-pub type SharedModelManager = Arc<Mutex<ModelManager>>;
+pub struct ModelManagerState {
+    pub inner: Mutex<ModelManager>,
+    pub cancel_flag: Arc<AtomicBool>,
+}
+
+pub type SharedModelManager = Arc<ModelManagerState>;
 
 pub fn create_shared() -> SharedModelManager {
-    Arc::new(Mutex::new(ModelManager::new()))
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    Arc::new(ModelManagerState {
+        inner: Mutex::new(ModelManager::new(cancel_flag.clone())),
+        cancel_flag,
+    })
 }

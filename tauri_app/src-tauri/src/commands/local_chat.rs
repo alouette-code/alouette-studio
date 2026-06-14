@@ -21,7 +21,7 @@ pub async fn local_chat_send(
 
     // ── Step 2: Ensure inference engine is loaded ──
     {
-        let mut mgr = model_manager.lock().await;
+        let mut mgr = model_manager.inner.lock().await;
         mgr.ensure_running().await?;
     }
     let _ = window.emit("local-chat-status", "running");
@@ -42,16 +42,13 @@ pub async fn local_chat_send(
 
     // ── Step 4: Clone the Arc before spawn_blocking ──
     let mm_arc: SharedModelManager = (*model_manager).clone();
-    let cancel_flag = {
-        let mgr = mm_arc.lock().await;
-        mgr.cancel_flag()
-    };
+    let cancel_flag = mm_arc.cancel_flag.clone();
 
     // ── Step 5: Run CPU-heavy inference in blocking thread ──
     let (result_tx, result_rx) = std::sync::mpsc::channel();
 
     tokio::task::spawn_blocking(move || {
-        let mut mgr = mm_arc.blocking_lock();
+        let mut mgr = mm_arc.inner.blocking_lock();
         let engine = match mgr.engine() {
             Some(e) => e,
             None => {
@@ -113,6 +110,5 @@ pub async fn local_chat_send(
 
 #[tauri::command]
 pub fn local_chat_stop(model_manager: State<'_, SharedModelManager>) {
-    let mgr = model_manager.blocking_lock();
-    mgr.cancel_generation();
+    model_manager.cancel_flag.store(true, std::sync::atomic::Ordering::SeqCst);
 }
