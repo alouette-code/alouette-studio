@@ -39,6 +39,7 @@ import EnvironmentSetup from "./components/EnvironmentSetup";
 import GitPanel from "./components/GitPanel";
 import WelcomePage from "./components/WelcomePage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import GlobalDock from "./components/GlobalDock";
 
 // Search Engine
 import { searchAgentHistoryFull, detectSearchIntent } from "./lib/search";
@@ -1190,8 +1191,10 @@ export default function App() {
         onLoadAgentSession={handleLoadSessionFromSearch}
       />
 
-      {/* 2. Main Workspace — Full Dashboard Grid */}
-      {!activeProjectId ? (
+      <div className="middle-content-wrapper" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+        <GlobalDock />
+        <div className="workspace-wrapper" style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
+          {!activeProjectId ? (
         <WelcomePage
           projects={projects}
           projectStates={projectStates}
@@ -1764,6 +1767,8 @@ export default function App() {
         </div>
       </div>
       )}
+        </div>
+      </div>
 
       <footer className="global-footer-navbar">
         <div className="navbar-nav-tabs">
@@ -2138,7 +2143,6 @@ export default function App() {
           )}
         </div>
       )}
-      {/* File Creation Modal */}
       {filePrompt.visible && (
         <FilePromptModal
           title={filePrompt.title}
