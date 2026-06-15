@@ -217,6 +217,7 @@ fn main() {
             commands::files::open_folder_dialog,
             commands::files::save_file_dialog,
             commands::files::open_new_window,
+            commands::files::open_vm_window,
             commands::network::check_port_status,
             commands::network::force_kill_process,
             commands::network::open_ping_window,

@@ -3,7 +3,7 @@ use dashmap::DashMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
-use tauri::State;
+use tauri::{Manager, State};
 use tokio::fs;
 
 // ── Canonical path cache (TTL 10 giây) ──
@@ -355,3 +355,25 @@ pub async fn open_new_window(app_handle: tauri::AppHandle) -> Result<(), String>
     Ok(())
 }
 
+#[tauri::command]
+pub async fn open_vm_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("vm-manager") {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let _window = tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        "vm-manager",
+        tauri::WebviewUrl::App("index.html?window=vm-manager".into()),
+    )
+    .title("Virtual Machine Configuration")
+    .inner_size(800.0, 650.0)
+    .resizable(true)
+    .decorations(false)
+    .build()
+    .map_err(|e: tauri::Error| e.to_string())?;
+
+    Ok(())
+}
