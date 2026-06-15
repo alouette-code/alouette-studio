@@ -179,7 +179,7 @@ export default function LocalAiManager() {
                   type="text" 
                   readOnly 
                   value={fullEndpointUrl} 
-                  style={{ flex: 1, padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', fontSize: '14px', fontFamily: 'monospace', color: 'var(--success)' }} 
+                  style={{ flex: 1, padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-primary)', color: 'var(--success)', outline: 'none', fontSize: '14px', fontFamily: 'monospace' }} 
                 />
                 <button 
                   onClick={() => navigator.clipboard.writeText(fullEndpointUrl)}
