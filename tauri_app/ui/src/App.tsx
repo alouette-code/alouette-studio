@@ -41,7 +41,9 @@ import EnvironmentSetup from "./components/EnvironmentSetup";
 import GitPanel from "./components/GitPanel";
 import WelcomePage from "./components/WelcomePage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 // Search Engine
 import { searchAgentHistoryFull, detectSearchIntent } from "./lib/search";
@@ -199,6 +201,11 @@ import { useResources } from "./hooks/useResources";
 import { useTerminal } from "./hooks/useTerminal";
 
 export default function App() {
+  // Early return for sub-windows
+  if (window.location.search.includes("window=vm-manager")) {
+    return <VmManager />;
+  }
+
   // Theme State
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
@@ -620,6 +627,14 @@ export default function App() {
           await invoke("open_new_window");
         } catch (err: any) {
           triggerToast(`Failed to open new window: ${err}`, "error");
+        }
+        break;
+      }
+      case "open-vm-window": {
+        try {
+          await invoke("open_vm_window");
+        } catch (err: any) {
+          triggerToast(`Failed to open VM window via Rust backend: ${err}`, "error");
         }
         break;
       }
@@ -1194,7 +1209,10 @@ export default function App() {
       />
 
       <div className="middle-content-wrapper" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <GlobalDock onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")} />
+        <GlobalDock 
+          onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")} 
+          onOpenVmManager={() => handleFileAction("open-vm-window")}
+        />
         <div className="workspace-wrapper" style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           {!activeProjectId ? (
         <WelcomePage

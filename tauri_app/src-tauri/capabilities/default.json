@@ -2,9 +2,10 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for the app",
-  "windows": ["main", "ping_window", "browser_window", "admin_window"],
+  "windows": ["main", "ping_window", "browser_window", "admin_window", "vm-manager"],
   "permissions": [
     "core:default",
+    "core:window:allow-create",
     "core:window:allow-minimize",
     "core:window:allow-maximize",
     "core:window:allow-unmaximize",

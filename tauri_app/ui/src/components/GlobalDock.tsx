@@ -8,9 +8,10 @@ import {
 
 interface GlobalDockProps {
   onOpenLocalAi?: () => void;
+  onOpenVmManager?: () => void;
 }
 
-export default function GlobalDock({ onOpenLocalAi }: GlobalDockProps) {
+export default function GlobalDock({ onOpenLocalAi, onOpenVmManager }: GlobalDockProps) {
   return (
     <div className="global-dock">
       <div className="dock-top">
@@ -23,7 +24,7 @@ export default function GlobalDock({ onOpenLocalAi }: GlobalDockProps) {
         <button className="dock-btn" title="Memory Leak">
           <Droplets size={20} />
         </button>
-        <button className="dock-btn" title="VM (Virtual Machine)">
+        <button className="dock-btn" title="VM (Virtual Machine)" onClick={onOpenVmManager}>
           <Proportions size={20} />
         </button>
       </div>
