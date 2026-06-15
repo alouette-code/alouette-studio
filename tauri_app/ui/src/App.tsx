@@ -18,6 +18,7 @@ import {
   Settings,
   Database,
   Cloud,
+  BrainCircuit,
 } from "lucide-react";
 
 // Components
@@ -33,6 +34,7 @@ import FileExplorer from "./components/FileExplorer";
 import SqliteEditor from "./components/SqliteEditor";
 import MiniPostman from "./components/MiniPostman";
 import AiAgent from "./components/AiAgent";
+import LocalAiManager from "./components/LocalAiManager";
 import ProjectResources from "./components/ProjectResources";
 import CloudflareTunnel from "./components/CloudflareTunnel";
 import EnvironmentSetup from "./components/EnvironmentSetup";
@@ -1192,7 +1194,7 @@ export default function App() {
       />
 
       <div className="middle-content-wrapper" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        <GlobalDock />
+        <GlobalDock onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")} />
         <div className="workspace-wrapper" style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           {!activeProjectId ? (
         <WelcomePage
@@ -1419,7 +1421,9 @@ export default function App() {
                                   }}
                                   title={path}
                                 >
-                                  {path === "__resources__" ? (
+                                  {path === "__local_ai__" ? (
+                                    <BrainCircuit size={12} className="tab-icon" style={{ color: "var(--accent)" }} />
+                                  ) : path === "__resources__" ? (
                                     <Database size={12} className="tab-icon" />
                                   ) : path === "__cloudflare_tunnel__" ? (
                                     <Cloud
@@ -1447,8 +1451,10 @@ export default function App() {
                                     <FileCode size={12} className="tab-icon" />
                                   )}
                                   <span className="tab-name">
-                                    {path === "__resources__"
-                                      ? "Tài nguyên"
+                                    {path === "__local_ai__"
+                                      ? "Local AI"
+                                      : path === "__resources__"
+                                        ? "Tài nguyên"
                                       : path === "__cloudflare_tunnel__"
                                         ? "Cloudflare Tunnel"
                                         : path === "__environment__"
@@ -1547,6 +1553,8 @@ export default function App() {
                                 </button>
                               )}
                             </div>
+                          ) : paneOpenFilePath === "__local_ai__" ? (
+                            <LocalAiManager />
                           ) : paneOpenFilePath === "__resources__" ? (
                             <ProjectResources
                               activeProject={activeProject || null}
