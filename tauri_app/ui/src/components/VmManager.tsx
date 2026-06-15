@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Play, Square, Settings, HardDrive, Cpu, Network, Monitor, FolderOpen, ShieldCheck, Minus, Square as SquareIcon, X, Plus, Server, Database, Activity, MoreVertical } from "lucide-react";
+import { Play, Square, Settings, HardDrive, Cpu, Network, Monitor, FolderOpen, ShieldCheck, Minus, Square as SquareIcon, X, Plus, Server, Database, Activity, MoreVertical, Pause, RotateCw, Camera, Power, Clock, Save, History } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
 import brandIcon from "./logo_alouette.png";
@@ -22,6 +22,21 @@ export default function VmManager() {
     { id: "3", name: "Android-Emu", os: "Android 14", status: "stopped", ip: "N/A" },
   ]);
 
+  const toolbarBtnStyle: React.CSSProperties = {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '6px',
+    padding: '8px 16px',
+    background: 'transparent',
+    border: '1px solid transparent',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    color: 'var(--text-primary)',
+    minWidth: '80px'
+  };
+
   // Creation Form State
   const [activeTab, setActiveTab] = useState<"general" | "system" | "storage" | "network" | "summary">("general");
   const [vmName, setVmName] = useState("New-VM");
@@ -35,6 +50,16 @@ export default function VmManager() {
   const [diskType, setDiskType] = useState("nvme");
   const [networkType, setNetworkType] = useState("nat");
   const [macAddress, setMacAddress] = useState("auto");
+
+  // Manage Form State (Direct Editing)
+  const [editCpu, setEditCpu] = useState(4);
+  const [editRam, setEditRam] = useState(8);
+  const [editBootOrder, setEditBootOrder] = useState("disk,cdrom,net");
+  const [editNetType, setEditNetType] = useState("nat");
+  const [editMac, setEditMac] = useState("52:54:00:12:34:56");
+  const [editIso, setEditIso] = useState("");
+
+  const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
 
   return (
     <div className="vm-manager" style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', overflowY: 'hidden' }}>
@@ -98,10 +123,140 @@ export default function VmManager() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)', overflowY: 'auto' }}>
           
           {activeView === "manage" ? (
-            <div style={{ padding: '32px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
-              <Server size={48} opacity={0.5} style={{ marginBottom: '16px' }} />
-              <h2 style={{ color: 'var(--text-primary)', margin: '0 0 8px 0', fontWeight: 500 }}>{existingVms.find(v => v.id === selectedVmId)?.name} Dashboard</h2>
-              <p style={{ fontSize: '14px', maxWidth: '400px', textAlign: 'center' }}>Giao diện quản lý chi tiết dự án máy ảo có sẵn sẽ được cập nhật sau. (UI Builder placeholder)</p>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+              
+              {/* VMWare-style Toolbar (Thick Ribbon with inline inputs) */}
+              <div style={{ display: 'flex', flexDirection: 'column', borderBottom: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-secondary)', userSelect: 'none' }}>
+                
+                {/* Top Row: Power Controls & Snapshots */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid var(--border-primary)' }}>
+                  
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    {/* Power Controls Group */}
+                    <div style={{ display: 'flex', alignItems: 'center', paddingRight: '16px', borderRight: '1px solid var(--border-primary)' }}>
+                      {existingVms.find(v => v.id === selectedVmId)?.status === 'running' ? (
+                        <>
+                          <button style={toolbarBtnStyle} className="hover-bg-tertiary" title="Suspend this virtual machine">
+                            <Pause size={22} color="#ffb700" fill="#ffb700" />
+                            <span style={{ fontSize: '11px', fontWeight: 500 }}>Suspend</span>
+                          </button>
+                          <button style={toolbarBtnStyle} className="hover-bg-tertiary" title="Shut down the guest OS">
+                            <Square size={22} color="var(--error)" fill="var(--error)" />
+                            <span style={{ fontSize: '11px', fontWeight: 500 }}>Shut Down</span>
+                          </button>
+                          <button style={toolbarBtnStyle} className="hover-bg-tertiary" title="Restart the guest OS">
+                            <RotateCw size={22} color="#00bfff" />
+                            <span style={{ fontSize: '11px', fontWeight: 500 }}>Restart</span>
+                          </button>
+                          <button style={toolbarBtnStyle} className="hover-bg-tertiary" title="Power off immediately (Hard reset)">
+                            <Power size={22} color="var(--error)" />
+                            <span style={{ fontSize: '11px', fontWeight: 500 }}>Power Off</span>
+                          </button>
+                        </>
+                      ) : (
+                        <button style={toolbarBtnStyle} className="hover-bg-tertiary" title="Power on this virtual machine">
+                          <Play size={22} color="var(--success)" fill="var(--success)" />
+                          <span style={{ fontSize: '11px', fontWeight: 500 }}>Power On</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Snapshots Group */}
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <button style={toolbarBtnStyle} className="hover-bg-tertiary" title="Lưu lại trạng thái hiện tại của máy ảo (Tạo Snapshot)">
+                        <Save size={22} color="var(--text-secondary)" />
+                        <span style={{ fontSize: '11px', fontWeight: 500 }}>Save State</span>
+                      </button>
+                      <button onClick={() => setIsSnapshotModalOpen(true)} style={toolbarBtnStyle} className="hover-bg-tertiary" title="Quản lý sơ đồ và khôi phục các trạng thái cũ (Cỗ máy thời gian)">
+                        <History size={22} color="var(--text-secondary)" />
+                        <span style={{ fontSize: '11px', fontWeight: 500 }}>Time Machine</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <button style={{ padding: '8px 16px', borderRadius: '4px', backgroundColor: 'var(--accent)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>
+                    Apply Configuration
+                  </button>
+                </div>
+
+                {/* Bottom Row: Direct Configuration Inputs */}
+                <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: '24px', flexWrap: 'wrap' }}>
+                  
+                  {/* CPU Input */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Cpu size={16} color="var(--text-muted)" />
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>CPU:</span>
+                    <input type="number" min="1" max="64" value={editCpu} onChange={(e) => setEditCpu(Number(e.target.value))} style={{ width: '50px', padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }} />
+                  </div>
+
+                  {/* RAM Input */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <HardDrive size={16} color="var(--text-muted)" />
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>RAM:</span>
+                    <input type="number" min="1" max="64" value={editRam} onChange={(e) => setEditRam(Number(e.target.value))} style={{ width: '50px', padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }} />
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>GB</span>
+                  </div>
+
+                  <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-primary)' }} />
+
+                  {/* Network Input */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Network size={16} color="var(--text-muted)" />
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Network:</span>
+                    <select value={editNetType} onChange={(e) => setEditNetType(e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }}>
+                      <option value="nat">NAT</option>
+                      <option value="bridged">Bridged</option>
+                      <option value="host-only">Host-Only</option>
+                    </select>
+                  </div>
+
+                  <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-primary)' }} />
+
+                  {/* Boot Order Input */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Boot:</span>
+                    <select value={editBootOrder} onChange={(e) => setEditBootOrder(e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }}>
+                      <option value="disk,cdrom,net">Disk first</option>
+                      <option value="cdrom,disk,net">CD-ROM first</option>
+                      <option value="net,disk,cdrom">Network (PXE)</option>
+                    </select>
+                  </div>
+
+                  <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-primary)' }} />
+
+                  {/* ISO/CD-ROM Input */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '200px' }}>
+                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>ISO:</span>
+                    <input type="text" placeholder="No ISO inserted" value={editIso} onChange={(e) => setEditIso(e.target.value)} style={{ flex: 1, padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }} />
+                    <button style={{ padding: '4px 12px', borderRadius: '4px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '12px' }}><FolderOpen size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Browse</button>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* VM Details Content -> Replaced by VM DISPLAY SCREEN */}
+              <div style={{ flex: 1, backgroundColor: '#050505', position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', position: 'absolute', top: '16px', left: '16px', backgroundColor: 'rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '20px', backdropFilter: 'blur(4px)' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: existingVms.find(v => v.id === selectedVmId)?.status === 'running' ? 'var(--success)' : 'var(--error)' }} />
+                  <span style={{ fontSize: '12px', color: '#fff', fontWeight: 500 }}>{existingVms.find(v => v.id === selectedVmId)?.status === 'running' ? 'VNC Connected' : 'VM Powered Off'}</span>
+                </div>
+                
+                {existingVms.find(v => v.id === selectedVmId)?.status === 'running' ? (
+                  <div style={{ textAlign: 'center' }}>
+                    <Monitor size={64} color="rgba(255,255,255,0.1)" style={{ marginBottom: '16px' }} />
+                    <h3 style={{ color: 'rgba(255,255,255,0.5)', margin: '0 0 8px 0', fontWeight: 400 }}>Guest OS Screen</h3>
+                    <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '13px', maxWidth: '300px' }}>The virtual machine display (VNC/Spice) will be rendered here.</p>
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center' }}>
+                    <Power size={64} color="rgba(255,255,255,0.1)" style={{ marginBottom: '16px' }} />
+                    <h3 style={{ color: 'rgba(255,255,255,0.5)', margin: '0 0 8px 0', fontWeight: 400 }}>{existingVms.find(v => v.id === selectedVmId)?.name} is powered off</h3>
+                    <button style={{ marginTop: '16px', padding: '8px 24px', borderRadius: '4px', backgroundColor: 'var(--success)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '14px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '8px', margin: '0 auto' }}>
+                      <Play size={16} fill="currentColor" /> Power On VM
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -364,9 +519,84 @@ export default function VmManager() {
 
             </div>
           )}
-
         </div>
       </div>
+
+      {/* Snapshot Tree Manager Modal */}
+      {isSnapshotModalOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.7)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+          <div style={{ width: '650px', height: '500px', backgroundColor: 'var(--bg-primary)', borderRadius: '12px', border: '1px solid var(--border-primary)', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 50px rgba(0,0,0,0.5)', overflow: 'hidden' }}>
+            
+            {/* Header */}
+            <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <History size={20} color="var(--accent)" />
+                <h3 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--text-primary)' }}>Time Machine (Snapshot Tree)</h3>
+              </div>
+              <button onClick={() => setIsSnapshotModalOpen(false)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px' }} className="hover-bg-tertiary"><X size={18} /></button>
+            </div>
+
+            {/* Body: Diagram */}
+            <div style={{ flex: 1, padding: '32px', overflowY: 'auto', backgroundColor: '#111' }}>
+              <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '24px' }}>Sơ đồ cây (Tree) dưới đây thể hiện các điểm khôi phục của máy <b>{existingVms.find(v => v.id === selectedVmId)?.name}</b>. Bạn có thể rê nhánh ra từ bất kỳ điểm nào.</p>
+
+              <div style={{ marginLeft: '12px', borderLeft: '2px solid var(--border-primary)', position: 'relative' }}>
+                
+                {/* Node 1: Base */}
+                <div style={{ position: 'relative', paddingLeft: '24px', marginBottom: '16px' }}>
+                  <div style={{ position: 'absolute', left: '-6px', top: '14px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--text-secondary)' }} />
+                  <div style={{ backgroundColor: 'var(--bg-secondary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-primary)', width: 'fit-content', cursor: 'pointer' }} className="hover-bg-tertiary">
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Fresh Install (Hệ điều hành gốc)</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Oct 12, 2023 - 2.4 GB</div>
+                  </div>
+                </div>
+
+                {/* Node 2: Branch A */}
+                <div style={{ position: 'relative', paddingLeft: '24px', marginBottom: '16px' }}>
+                  <div style={{ position: 'absolute', left: '-6px', top: '14px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--text-secondary)' }} />
+                  <div style={{ backgroundColor: 'var(--bg-secondary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-primary)', width: 'fit-content', cursor: 'pointer' }} className="hover-bg-tertiary">
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Cài đặt xong Docker & Node.js</div>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Oct 15, 2023 - 800 MB</div>
+                  </div>
+                </div>
+
+                {/* Sub-branch Level */}
+                <div style={{ marginLeft: '40px', borderLeft: '2px solid var(--border-primary)', position: 'relative' }}>
+                  {/* Node 3: Current State */}
+                  <div style={{ position: 'relative', paddingLeft: '24px', marginBottom: '16px', paddingTop: '16px' }}>
+                    <div style={{ position: 'absolute', left: '-20px', top: '30px', width: '20px', borderTop: '2px dashed var(--accent)' }} />
+                    <div style={{ position: 'absolute', left: '-6px', top: '25px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--accent)', boxShadow: '0 0 10px var(--accent)' }} />
+                    <div style={{ backgroundColor: 'rgba(0,191,255,0.1)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--accent)', width: 'fit-content' }}>
+                      <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--accent)' }}>Current State (Bạn đang ở đây)</div>
+                      <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>Trạng thái máy ảo hiện hành</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Node 4: Branch B (Alternate timeline) */}
+                <div style={{ position: 'relative', paddingLeft: '24px', paddingTop: '16px' }}>
+                  <div style={{ position: 'absolute', left: '-20px', top: '30px', width: '20px', borderTop: '2px solid var(--border-primary)' }} />
+                  <div style={{ position: 'absolute', left: '-6px', top: '25px', width: '10px', height: '10px', borderRadius: '50%', backgroundColor: 'var(--text-secondary)' }} />
+                  <div style={{ backgroundColor: 'var(--bg-secondary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-primary)', width: 'fit-content', cursor: 'pointer' }} className="hover-bg-tertiary">
+                    <div style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)' }}>Dính Virus tống tiền (Test)</div>
+                    <div style={{ fontSize: '11px', color: 'var(--error)', marginTop: '4px' }}>Oct 20, 2023 - Nhánh phụ rủi ro cao</div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-secondary)', display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button style={{ padding: '8px 16px', borderRadius: '4px', backgroundColor: 'transparent', border: '1px solid var(--error)', color: 'var(--error)', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>Delete Branch</button>
+              <button style={{ padding: '8px 24px', borderRadius: '4px', backgroundColor: 'var(--accent)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 500, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <RotateCw size={14} /> Restore (Quay xe)
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
