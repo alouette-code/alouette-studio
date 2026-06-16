@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Play, Square, Settings, HardDrive, Cpu, Network, Monitor, FolderOpen, ShieldCheck, Minus, Square as SquareIcon, X, Plus, Server, Database, Activity, MoreVertical, Pause, RotateCw, Camera, Power, Clock, Save, History } from "lucide-react";
+import { Play, Square, HardDrive, Cpu, Network, Monitor, FolderOpen, ShieldCheck, Minus, Square as SquareIcon, X, Plus, MoreVertical, Pause, RotateCw, Power, Save, History } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
 import brandIcon from "./logo_alouette.png";
@@ -16,7 +16,7 @@ export default function VmManager() {
   const [selectedVmId, setSelectedVmId] = useState<string | null>(null);
 
   // Mock Data for existing VMs
-  const [existingVms, setExistingVms] = useState([
+  const [existingVms] = useState([
     { id: "1", name: "Ubuntu-Dev", os: "Ubuntu Linux 24.04", status: "stopped", ip: "N/A" },
     { id: "2", name: "Windows-Test", os: "Windows 11 Pro", status: "running", ip: "192.168.1.45" },
     { id: "3", name: "Android-Emu", os: "Android 14", status: "stopped", ip: "N/A" },
@@ -56,7 +56,7 @@ export default function VmManager() {
   const [editRam, setEditRam] = useState(8);
   const [editBootOrder, setEditBootOrder] = useState("disk,cdrom,net");
   const [editNetType, setEditNetType] = useState("nat");
-  const [editMac, setEditMac] = useState("52:54:00:12:34:56");
+
   const [editIso, setEditIso] = useState("");
 
   const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);

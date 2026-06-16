@@ -43,7 +43,7 @@ import WelcomePage from "./components/WelcomePage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
-import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+
 
 // Search Engine
 import { searchAgentHistoryFull, detectSearchIntent } from "./lib/search";

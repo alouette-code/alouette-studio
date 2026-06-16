@@ -19,8 +19,7 @@ export default function LocalAiManager() {
     { id: "tensorrt", name: "TensorRT-LLM", desc: "NVIDIA's high-performance engine for .engine files.", sourceLabel: "TensorRT Engine File", sourcePlaceholder: "/path/to/model.engine", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true },
     { id: "vllm", name: "vLLM", desc: "High-throughput serving for Safetensors, PyTorch (.bin, .pt).", sourceLabel: "HuggingFace Format Folder", sourcePlaceholder: "/path/to/safetensors_folder", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true },
     { id: "koboldcpp", name: "Koboldcpp", desc: "Easy-to-use llama.cpp fork with a built-in API.", sourceLabel: "Model Source Path (.gguf)", sourcePlaceholder: "/path/to/model.gguf", isInstalled: false, hardwareLocked: null, needsBrowse: true },
-    { id: "exllamav2", name: "ExLlamaV2", desc: "Extremely fast inference for EXL2 quantized models.", sourceLabel: "EXL2 Model Folder", sourcePlaceholder: "/path/to/exl2_folder", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true },
-    { id: "mlx", name: "MLX (Apple Silicon)", desc: "Apple Silicon optimized ML array framework.", sourceLabel: "MLX Model Folder", sourcePlaceholder: "/path/to/mlx_folder", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true } // MLX uses GPU/Metal Unified Memory
+    { id: "exllamav2", name: "ExLlamaV2", desc: "Extremely fast inference for EXL2 quantized models.", sourceLabel: "EXL2 Model Folder", sourcePlaceholder: "/path/to/exl2_folder", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true }
   ];
 
   const currentEngineInfo = engines.find(e => e.id === selectedEngine) || engines[0];
