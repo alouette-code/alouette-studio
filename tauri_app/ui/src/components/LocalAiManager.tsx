@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Play, Square, FolderOpen, Cpu, HardDrive, Network, Settings2, Link as LinkIcon, Download } from "lucide-react";
 
 export default function LocalAiManager() {
@@ -10,16 +11,13 @@ export default function LocalAiManager() {
   const [apiHost, setApiHost] = useState("127.0.0.1");
   const [apiRoute, setApiRoute] = useState("/v1");
   const [modelName, setModelName] = useState("");
+  const [sourcePath, setSourcePath] = useState("");
   const [isRunning, setIsRunning] = useState(false);
 
   const engines = [
     { id: "ollama", name: "Ollama", desc: "Lightweight, native inference for GGUF models.", sourceLabel: "Model Name / Tag", sourcePlaceholder: "e.g. llama3:8b", isInstalled: true, hardwareLocked: null, needsBrowse: false },
-    { id: "llamacpp", name: "llama.cpp Server", desc: "Highly optimized C++ inference engine for GGUF/GGML.", sourceLabel: "Model Source Path (.gguf)", sourcePlaceholder: "/path/to/model.gguf", isInstalled: false, hardwareLocked: null, needsBrowse: true },
-    { id: "onnx", name: "ONNX Runtime", desc: "Runs ONNX models with hardware acceleration.", sourceLabel: "ONNX Model Folder", sourcePlaceholder: "/path/to/onnx_model", isInstalled: false, hardwareLocked: null, needsBrowse: true },
-    { id: "tensorrt", name: "TensorRT-LLM", desc: "NVIDIA's high-performance engine for .engine files.", sourceLabel: "TensorRT Engine File", sourcePlaceholder: "/path/to/model.engine", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true },
-    { id: "vllm", name: "vLLM", desc: "High-throughput serving for Safetensors, PyTorch (.bin, .pt).", sourceLabel: "HuggingFace Format Folder", sourcePlaceholder: "/path/to/safetensors_folder", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true },
-    { id: "koboldcpp", name: "Koboldcpp", desc: "Easy-to-use llama.cpp fork with a built-in API.", sourceLabel: "Model Source Path (.gguf)", sourcePlaceholder: "/path/to/model.gguf", isInstalled: false, hardwareLocked: null, needsBrowse: true },
-    { id: "exllamav2", name: "ExLlamaV2", desc: "Extremely fast inference for EXL2 quantized models.", sourceLabel: "EXL2 Model Folder", sourcePlaceholder: "/path/to/exl2_folder", isInstalled: false, hardwareLocked: "gpu", needsBrowse: true }
+    { id: "llamacpp", name: "Llama.cpp (Candle Native)", desc: "Pure Rust inference engine for GGUF models.", sourceLabel: "Model Source Path (.gguf)", sourcePlaceholder: "/path/to/model.gguf", isInstalled: true, hardwareLocked: null, needsBrowse: true },
+    { id: "onnx", name: "ONNX Runtime (Native)", desc: "Runs ONNX models with hardware acceleration.", sourceLabel: "ONNX Model Folder", sourcePlaceholder: "/path/to/onnx_model", isInstalled: true, hardwareLocked: null, needsBrowse: true }
   ];
 
   const currentEngineInfo = engines.find(e => e.id === selectedEngine) || engines[0];
@@ -31,6 +29,49 @@ export default function LocalAiManager() {
     const engineInfo = engines.find(eng => eng.id === newEngineId);
     if (engineInfo && engineInfo.hardwareLocked) {
       setHardwareTarget(engineInfo.hardwareLocked);
+    }
+  };
+
+  const handleBrowse = async () => {
+    try {
+      const isFolder = currentEngineInfo.sourceLabel.toLowerCase().includes("folder");
+      const path = await invoke<string | null>(isFolder ? "open_folder_dialog" : "open_file_dialog");
+      if (path) {
+        setSourcePath(path);
+      }
+    } catch (err) {
+      console.error("Browse failed:", err);
+    }
+  };
+
+  const handleToggleEngine = async () => {
+    if (isRunning) {
+      try {
+        await invoke("stop_ai_engine");
+        setIsRunning(false);
+      } catch (err) {
+        console.error("Failed to stop engine:", err);
+      }
+    } else {
+      try {
+        await invoke("start_ai_engine", {
+          config: {
+            engine_id: selectedEngine,
+            model_name: modelName,
+            source_path: sourcePath,
+            hardware_target: hardwareTarget,
+            ram_limit_gb: ramLimit,
+            cpu_threads: cpuThreads,
+            api_host: apiHost,
+            port: port,
+            api_route: apiRoute
+          }
+        });
+        setIsRunning(true);
+      } catch (err) {
+        console.error("Failed to start engine:", err);
+        alert(err);
+      }
     }
   };
 
@@ -116,11 +157,13 @@ export default function LocalAiManager() {
               <div style={{ display: 'flex', gap: '8px' }}>
                 <input 
                   type="text" 
+                  value={sourcePath}
+                  onChange={(e) => setSourcePath(e.target.value)}
                   placeholder={currentEngineInfo.sourcePlaceholder} 
                   style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '14px' }} 
                 />
                 {currentEngineInfo.needsBrowse && (
-                  <button style={{ padding: '8px 16px', borderRadius: '6px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 500, transition: 'background 0.2s' }}>
+                  <button onClick={handleBrowse} style={{ padding: '8px 16px', borderRadius: '6px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: 500, transition: 'background 0.2s' }}>
                     <FolderOpen size={16} /> Browse
                   </button>
                 )}
@@ -194,7 +237,7 @@ export default function LocalAiManager() {
         <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '16px' }}>
           {currentEngineInfo.isInstalled ? (
             <button 
-              onClick={() => setIsRunning(!isRunning)}
+              onClick={handleToggleEngine}
               style={{ 
                 display: 'flex', alignItems: 'center', gap: '8px',
                 padding: '10px 24px', borderRadius: '6px', 

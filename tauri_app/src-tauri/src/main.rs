@@ -9,6 +9,7 @@ mod minicpm;
 mod model_manager;
 mod state;
 mod system_manager;
+mod ai_manager;
 
 use core_engine::{ProcessManager, ProcessState, ResourceMonitor};
 use dashmap::DashMap;
@@ -91,6 +92,7 @@ fn main() {
             active_agent_project,
         })
         .manage(model_manager)
+        .manage(ai_manager::AiEngineManager::new())
         .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.
@@ -302,6 +304,9 @@ fn main() {
             commands::code_rag::code_rag_debug,
             commands::local_chat::local_chat_send,
             commands::local_chat::local_chat_stop,
+            ai_manager::start_ai_engine,
+            ai_manager::stop_ai_engine,
+            ai_manager::get_ai_engine_status,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
