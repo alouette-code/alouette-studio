@@ -307,6 +307,9 @@ fn main() {
             ai_manager::start_ai_engine,
             ai_manager::stop_ai_engine,
             ai_manager::get_ai_engine_status,
+            ai_manager::save_ai_settings,
+            ai_manager::load_ai_settings,
+            ai_manager::delete_ai_setting,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
