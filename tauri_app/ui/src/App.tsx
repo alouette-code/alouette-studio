@@ -44,7 +44,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
 import { MemoryInspector } from "./components/MemoryInspector";
-
+import DockerManager from "./components/DockerManager";
 
 // Search Engine
 import { searchAgentHistoryFull, detectSearchIntent } from "./lib/search";
@@ -209,6 +209,10 @@ export default function App() {
 
   if (window.location.search.includes("window=memory-inspector")) {
     return <MemoryInspector />;
+  }
+
+  if (window.location.search.includes("window=docker-manager")) {
+    return <DockerManager />;
   }
 
   // Theme State
@@ -641,6 +645,14 @@ export default function App() {
           await invoke("open_vm_window");
         } catch (err: any) {
           triggerToast(`Failed to open VM window via Rust backend: ${err}`, "error");
+        }
+        break;
+      }
+      case "open-docker-window": {
+        try {
+          await invoke("open_docker_window");
+        } catch (err: any) {
+          triggerToast(`Failed to open Docker window via Rust backend: ${err}`, "error");
         }
         break;
       }
@@ -1218,6 +1230,7 @@ export default function App() {
         <GlobalDock 
           onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")}
           onOpenVmManager={() => handleFileAction("open-vm-window")}
+          onOpenDocker={() => handleFileAction("open-docker-window")}
           onOpenMemoryInspector={async () => {
             try {
               await invoke("open_memory_inspector_window");
