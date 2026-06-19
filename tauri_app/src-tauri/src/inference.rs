@@ -22,6 +22,7 @@ const HF_MODEL_ID: &str = "openbmb/MiniCPM5-1B";
 pub struct MiniCpmInference {
     model: MiniCpmModel,
     cache: MiniCpmCache,
+    #[allow(dead_code)]
     config: MiniCpmConfig,
     tokenizer: Tokenizer,
     device: Device,

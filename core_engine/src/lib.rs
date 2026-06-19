@@ -8,6 +8,8 @@ pub mod process;
 pub mod proto_manager;
 pub mod settings;
 pub mod workspace_manager;
+pub mod vm_engine;
+
 
 // Re-export key structs for convenience
 pub use agent_harness::{

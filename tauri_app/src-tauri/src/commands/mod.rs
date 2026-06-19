@@ -15,4 +15,5 @@ pub mod settings;
 pub mod sqlite;
 pub mod terminal;
 pub mod local_chat;
+pub mod vm;
 
