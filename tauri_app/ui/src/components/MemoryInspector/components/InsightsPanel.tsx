@@ -7,12 +7,13 @@ interface InsightsProps {
 }
 
 export function InsightsPanel({ state, latestData }: InsightsProps) {
-    let statusIcon = <Activity className="text-blue-400" />;
+    let statusIcon: React.ReactNode = <Activity className="text-blue-400" />;
     let statusText = "Initializing...";
 
     switch (state.status) {
         case 'Idle':
             statusText = "Ready to inspect.";
+            statusIcon = null;
             break;
         case 'Isolating':
             statusText = "Creating Sandbox Environment...";
