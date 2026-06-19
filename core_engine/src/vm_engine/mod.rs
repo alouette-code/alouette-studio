@@ -1,9 +1,10 @@
 pub mod config;
 pub mod device;
 pub mod kvm_core;
-pub mod vcpu;
 pub mod manager;
 pub mod qemu_wrapper;
+pub mod vcpu;
+pub mod qmp_client;
 
 pub use config::VmConfig;
 pub use device::SerialDevice;

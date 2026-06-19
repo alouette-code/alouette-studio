@@ -35,9 +35,10 @@ impl QemuInstance {
             "-cpu".to_string(), "host".to_string(),
             "-smp".to_string(), config.cpu_cores.to_string(),
             "-m".to_string(), config.ram_size_mb.to_string(),
-            // Display & GPU settings: hardware-accelerated virtio-gpu with host OpenGL rendering
-            "-device".to_string(), "virtio-vga-gl".to_string(),
-            "-display".to_string(), "gtk,gl=on".to_string(),
+            // Display & GPU settings: VNC Server with WebSocket for UI embedding
+            "-device".to_string(), "virtio-vga".to_string(),
+            "-display".to_string(), "none".to_string(),
+            "-vnc".to_string(), "127.0.0.1:0,websocket=5700".to_string(),
             // Input Devices (Keyboard & Mouse)
             "-device".to_string(), "virtio-keyboard-pci".to_string(),
             "-device".to_string(), "virtio-mouse-pci".to_string(),
@@ -49,7 +50,7 @@ impl QemuInstance {
         ];
 
         // Boot from ISO if provided (for OS installers)
-        if let Some(iso) = &config.kernel_path {
+        if let Some(iso) = &config.iso_path {
             if Path::new(iso).exists() {
                 args.push("-cdrom".to_string());
                 args.push(iso.clone());
@@ -57,6 +58,11 @@ impl QemuInstance {
                 args.push("d".to_string()); // Boot from CD-ROM first
             }
         }
+
+        // QMP (QEMU Monitor Protocol) over Unix Socket
+        let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", config.id));
+        args.push("-qmp".to_string());
+        args.push(format!("unix:{},server,nowait", qmp_socket_path.to_string_lossy()));
 
         // 4. Start the QEMU process
         let child = Command::new(qemu_bin)

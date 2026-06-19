@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from "react";
-import { Play, Square, HardDrive, Cpu, Network, Monitor, FolderOpen, ShieldCheck, Minus, Square as SquareIcon, X, Plus, MoreVertical, Pause, RotateCw, Power, Save, History, Terminal } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Play, Square, FolderOpen, Minus, Square as SquareIcon, X, Plus, Save, Terminal, Trash2, Monitor } from "lucide-react";
+// @ts-ignore
+import RFB from '@novnc/novnc';
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import WindowResizer from "./WindowResizer";
@@ -14,9 +16,8 @@ interface VM {
     name: string;
     cpu_cores: number;
     ram_size_mb: number;
-    kernel_path: string | null;
-    initrd_path: string | null;
-    boot_args: string | null;
+    vm_dir: string;
+    iso_path: string | null;
     disk_path: string | null;
     network_mode: string;
   };
@@ -34,6 +35,12 @@ export default function VmManager() {
   const [selectedVmId, setSelectedVmId] = useState<string | null>(null);
   const [existingVms, setExistingVms] = useState<VM[]>([]);
   const [logs, setLogs] = useState<string>("");
+  const logEndRef = useRef<HTMLDivElement>(null);
+  
+  // VNC State
+  const [consoleTab, setConsoleTab] = useState<"vnc" | "logs">("vnc");
+  const vncContainerRef = useRef<HTMLDivElement>(null);
+  const rfbRef = useRef<any>(null);
 
   const refreshVms = async () => {
     try {
@@ -62,51 +69,70 @@ export default function VmManager() {
           try {
             const currentLogs = await invoke<string>("get_virtual_machine_logs", { id: selectedVmId });
             setLogs(currentLogs);
+            // Auto-scroll
+            if (logEndRef.current) {
+              logEndRef.current.scrollIntoView({ behavior: "smooth" });
+            }
           } catch {}
         }, 1000);
         return () => clearInterval(interval);
       } else {
-        setLogs("[VM is stopped]");
+        setLogs("--- VM is stopped ---");
       }
     }
+    return undefined;
   }, [activeView, selectedVmId, existingVms]);
 
-  const toolbarBtnStyle: React.CSSProperties = {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '6px',
-    padding: '8px 16px',
-    background: 'transparent',
-    border: '1px solid transparent',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    color: 'var(--text-primary)',
-    minWidth: '80px'
-  };
+  const currentVm = existingVms.find(v => v.id === selectedVmId);
 
-  // Creation Form State
-  const [activeTab, setActiveTab] = useState<"general" | "system" | "storage" | "network" | "summary">("general");
+  // Manage VNC Connection
+  useEffect(() => {
+    let connectTimeout: any;
+
+    if (activeView === "manage" && currentVm && currentVm.status === "running" && consoleTab === "vnc") {
+      // Add a delay to ensure QEMU's VNC server has bound to the port before connecting
+      connectTimeout = setTimeout(() => {
+        if (!rfbRef.current && vncContainerRef.current) {
+          try {
+            rfbRef.current = new RFB(vncContainerRef.current, "ws://127.0.0.1:5700");
+            rfbRef.current.scaleViewport = true;
+            rfbRef.current.resizeSession = true;
+          } catch (e) {
+            console.error("VNC Connection failed:", e);
+          }
+        }
+      }, 1000);
+    } else {
+      if (rfbRef.current) {
+        try { rfbRef.current.disconnect(); } catch (e) {}
+        rfbRef.current = null;
+      }
+    }
+    return () => {
+      clearTimeout(connectTimeout);
+      if (rfbRef.current) {
+        try { rfbRef.current.disconnect(); } catch (e) {}
+        rfbRef.current = null;
+      }
+    };
+  }, [activeView, currentVm?.status, consoleTab]);
+
+  // --- Creation Form State ---
+  const [activeTab, setActiveTab] = useState<"general" | "hardware" | "storage" | "network">("general");
   const [vmName, setVmName] = useState("New-VM");
-  const [vmPath, setVmPath] = useState("~/VirtualMachines/");
-  const [osType, setOsType] = useState("ubuntu");
-  const [isoPath, setIsoPath] = useState("");
-  const [ramLimit, setRamLimit] = useState(1); // GB
+  const [vmDir, setVmDir] = useState("");
   const [cpuCores, setCpuCores] = useState(1);
-  const [cpuArch, setCpuArch] = useState("x86_64");
-  const [diskSize, setDiskSize] = useState(10); // GB
-  const [diskType, setDiskType] = useState("nvme");
+  const [ramLimit, setRamLimit] = useState(1);
   const [networkType, setNetworkType] = useState("nat");
-  const [macAddress, setMacAddress] = useState("auto");
+  const [isoPath, setIsoPath] = useState("");
+  const [diskPath, setDiskPath] = useState("");
 
-  // Manage Form State (Direct Editing)
+  // --- Manage Form State ---
   const [editCpu, setEditCpu] = useState(1);
   const [editRam, setEditRam] = useState(1);
-  const [editBootOrder, setEditBootOrder] = useState("disk,cdrom,net");
   const [editNetType, setEditNetType] = useState("nat");
   const [editIso, setEditIso] = useState("");
-  const [isSnapshotModalOpen, setIsSnapshotModalOpen] = useState(false);
+  const [editDisk, setEditDisk] = useState("");
 
   // Load configuration into manage tab when a VM is selected
   useEffect(() => {
@@ -116,7 +142,8 @@ export default function VmManager() {
         setEditCpu(selected.config.cpu_cores);
         setEditRam(Math.round(selected.config.ram_size_mb / 1024));
         setEditNetType(selected.config.network_mode);
-        setEditIso(selected.config.kernel_path || "");
+        setEditIso(selected.config.iso_path || "");
+        setEditDisk(selected.config.disk_path || "");
       }
     }
   }, [selectedVmId, existingVms]);
@@ -128,14 +155,13 @@ export default function VmManager() {
         name: vmName,
         cpu_cores: cpuCores,
         ram_size_mb: ramLimit * 1024,
-        kernel_path: isoPath ? isoPath : null,
-        initrd_path: null,
-        boot_args: "console=ttyS0 quiet panic=1",
-        disk_path: null,
+        vm_dir: vmDir,
+        iso_path: isoPath ? isoPath : null,
+        disk_path: diskPath ? diskPath : null,
         network_mode: networkType
       };
       await invoke("save_virtual_machine", { config });
-      alert("Virtual Machine created successfully!");
+      alert("VM Created Successfully!");
       setActiveView("manage");
       await refreshVms();
     } catch (err) {
@@ -145,6 +171,7 @@ export default function VmManager() {
 
   const handleStartVm = async (id: string) => {
     try {
+      setLogs("--- Starting VM ---");
       await invoke("start_virtual_machine", { id });
       await refreshVms();
     } catch (err) {
@@ -185,364 +212,342 @@ export default function VmManager() {
         cpu_cores: editCpu,
         ram_size_mb: editRam * 1024,
         network_mode: editNetType,
-        kernel_path: editIso ? editIso : null,
+        iso_path: editIso ? editIso : null,
+        disk_path: editDisk ? editDisk : null,
       };
       await invoke("save_virtual_machine", { config: updatedConfig });
-      alert("Configuration updated!");
+      alert("Configuration Saved!");
       await refreshVms();
     } catch (err) {
-      alert("Failed to update config: " + err);
+      alert("Failed to save config: " + err);
     }
   };
 
-  const handleBrowseIso = async () => {
+  const handleBrowseFile = async (setter: (val: string) => void) => {
     try {
       const path = await invoke<string | null>("open_file_dialog");
-      if (path) {
-        setIsoPath(path);
-      }
+      if (path) setter(path);
     } catch {}
   };
 
-  const handleBrowseEditIso = async () => {
+  const handleBrowseFolder = async (setter: (val: string) => void) => {
     try {
-      const path = await invoke<string | null>("open_file_dialog");
-      if (path) {
-        setEditIso(path);
-      }
+      const path = await invoke<string | null>("open_folder_dialog");
+      if (path) setter(path);
     } catch {}
   };
 
-  const currentVm = existingVms.find(v => v.id === selectedVmId);
+  // Technical UI Theme Constants
+  const THEME = {
+    bgApp: "#1e1e1e",
+    bgPanel: "#252526",
+    bgInput: "#3c3c3c",
+    bgHover: "#2a2d2e",
+    border: "#3c3c3c",
+    borderFocus: "#007acc",
+    textMain: "#cccccc",
+    textMuted: "#858585",
+    accent: "#007acc",
+    accentHover: "#005a9e",
+    success: "#89d185",
+    error: "#f48771",
+  };
+
+  const inputStyle: React.CSSProperties = {
+    padding: "4px 8px",
+    backgroundColor: THEME.bgInput,
+    border: `1px solid ${THEME.border}`,
+    color: THEME.textMain,
+    outline: "none",
+    fontSize: "12px",
+    fontFamily: "monospace",
+    width: "100%",
+    boxSizing: "border-box"
+  };
+
+  const labelStyle: React.CSSProperties = {
+    display: "block",
+    fontSize: "11px",
+    fontWeight: "bold",
+    color: THEME.textMuted,
+    marginBottom: "4px",
+    textTransform: "uppercase",
+  };
+
+  const btnStyle: React.CSSProperties = {
+    padding: "4px 12px",
+    backgroundColor: THEME.bgInput,
+    border: `1px solid ${THEME.border}`,
+    color: THEME.textMain,
+    cursor: "pointer",
+    fontSize: "12px",
+    display: "flex",
+    alignItems: "center",
+    gap: "6px"
+  };
+
+  const btnPrimaryStyle: React.CSSProperties = {
+    ...btnStyle,
+    backgroundColor: THEME.accent,
+    border: `1px solid ${THEME.accentHover}`,
+    color: "#fff",
+    fontWeight: "bold"
+  };
 
   return (
-    <div className="vm-manager" style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', overflowY: 'hidden' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: THEME.bgApp, color: THEME.textMain, fontFamily: "sans-serif", overflow: "hidden" }}>
       <WindowResizer />
       
       {/* Titlebar */}
-      <div className="postman-window-titlebar" data-tauri-drag-region>
-        <div className="titlebar-left" data-tauri-drag-region>
-          <img src={brandIcon} alt="Logo" className="titlebar-icon" style={{ width: "14px", height: "14px", objectFit: "contain", marginRight: "4px" }} />
-          <span className="titlebar-title">Virtual Machine</span>
-          <span className="titlebar-subtitle">Manager</span>
+      <div data-tauri-drag-region style={{ height: "30px", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: THEME.bgApp, borderBottom: `1px solid ${THEME.border}`, padding: "0 8px", userSelect: "none" }}>
+        <div style={{ display: "flex", alignItems: "center", pointerEvents: "none" }}>
+          <img src={brandIcon} alt="Logo" style={{ width: "14px", height: "14px", marginRight: "8px" }} />
+          <span style={{ fontSize: "12px", fontWeight: "bold" }}>Alouette VMM</span>
         </div>
-        <div className="titlebar-right">
-          <button className="window-control-btn minimize" onClick={handleMinimize}><Minus size={13} /></button>
-          <button className="window-control-btn maximize" onClick={handleMaximize}><SquareIcon size={10} /></button>
-          <button className="window-control-btn close" onClick={handleClose}><X size={14} /></button>
+        <div style={{ display: "flex" }}>
+          <button onClick={handleMinimize} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><Minus size={14} /></button>
+          <button onClick={handleMaximize} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><SquareIcon size={12} /></button>
+          <button onClick={handleClose} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><X size={14} /></button>
         </div>
       </div>
       
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         
-        {/* Left Sidebar (Taskbar) */}
-        <div style={{ width: '220px', backgroundColor: 'var(--bg-secondary)', borderRight: '1px solid var(--border-primary)', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '12px' }}>
+        {/* Left Sidebar */}
+        <div style={{ width: '240px', backgroundColor: THEME.bgPanel, borderRight: `1px solid ${THEME.border}`, display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '8px' }}>
             <button 
               onClick={() => { setActiveView("create"); setSelectedVmId(null); }}
-              style={{ width: '100%', padding: '8px', backgroundColor: 'var(--accent)', color: '#fff', border: 'none', borderRadius: '4px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '13px', fontWeight: 500 }}>
-              <Plus size={14} /> New Virtual Machine
+              style={{ ...btnStyle, width: '100%', justifyContent: 'center', backgroundColor: THEME.bgApp }}
+            >
+              <Plus size={14} /> Create VM
             </button>
           </div>
-          <div style={{ padding: '0 12px 8px 12px', fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Existing VMs</div>
+          <div style={{ padding: '4px 8px', fontSize: '10px', fontWeight: 'bold', color: THEME.textMuted, borderBottom: `1px solid ${THEME.border}` }}>VIRTUAL MACHINES</div>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {existingVms.map(vm => (
               <div 
                 key={vm.id}
                 onClick={() => { setActiveView("manage"); setSelectedVmId(vm.id); }}
-                style={{ padding: '10px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderLeft: (activeView === "manage" && selectedVmId === vm.id) ? '3px solid var(--accent)' : '3px solid transparent', backgroundColor: (activeView === "manage" && selectedVmId === vm.id) ? 'var(--bg-tertiary)' : 'transparent', borderBottom: '1px solid rgba(255,255,255,0.02)' }}
-                className="vm-sidebar-item"
+                style={{ 
+                  padding: '6px 8px', 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'space-between',
+                  backgroundColor: (activeView === "manage" && selectedVmId === vm.id) ? THEME.bgHover : 'transparent',
+                  borderLeft: (activeView === "manage" && selectedVmId === vm.id) ? `3px solid ${THEME.accent}` : '3px solid transparent'
+                }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', flexShrink: 0, backgroundColor: vm.status === 'running' ? 'var(--success)' : 'var(--text-muted)', boxShadow: vm.status === 'running' ? '0 0 5px var(--success)' : 'none' }} />
-                  <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                    <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{vm.name}</span>
-                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{vm.status === 'running' ? 'Running' : 'Stopped'}</span>
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: '4px', opacity: (activeView === "manage" && selectedVmId === vm.id) ? 1 : 0.4 }}>
-                  {vm.status === 'running' ? (
-                    <button onClick={(e) => { e.stopPropagation(); handleStopVm(vm.id); }} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '2px' }} title="Stop"><Square size={12} fill="currentColor" /></button>
-                  ) : (
-                    <button onClick={(e) => { e.stopPropagation(); handleStartVm(vm.id); }} style={{ background: 'none', border: 'none', color: 'var(--success)', cursor: 'pointer', padding: '2px' }} title="Start"><Play size={12} fill="currentColor" /></button>
-                  )}
-                  <button onClick={(e) => { e.stopPropagation(); handleDeleteVm(vm.id); }} style={{ background: 'none', border: 'none', color: 'var(--error)', cursor: 'pointer', padding: '2px' }} title="Delete"><X size={12} /></button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: vm.status === 'running' ? THEME.success : THEME.textMuted }} />
+                  <span style={{ fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{vm.name}</span>
                 </div>
               </div>
             ))}
+            {existingVms.length === 0 && (
+              <div style={{ padding: '12px', fontSize: '11px', color: THEME.textMuted, textAlign: 'center' }}>No VMs Found.</div>
+            )}
           </div>
         </div>
 
         {/* Main Content Area */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: 'var(--bg-primary)', overflowY: 'auto' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: THEME.bgApp }}>
           
           {activeView === "manage" && currentVm ? (
             <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
               
-              {/* Toolbar */}
-              <div style={{ display: 'flex', flexDirection: 'column', borderBottom: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-secondary)', userSelect: 'none' }}>
+              {/* Manage Toolbar */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: THEME.bgPanel, borderBottom: `1px solid ${THEME.border}` }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '14px', fontWeight: 'bold', marginRight: '16px' }}>{currentVm.name}</span>
+                  {currentVm.status === 'running' ? (
+                    <button onClick={() => handleStopVm(currentVm.id)} style={{ ...btnStyle, color: THEME.error, borderColor: THEME.error }}>
+                      <Square size={12} fill="currentColor" /> Stop VM (Kill)
+                    </button>
+                  ) : (
+                    <button onClick={() => handleStartVm(currentVm.id)} style={{ ...btnStyle, color: THEME.success, borderColor: THEME.success }}>
+                      <Play size={12} fill="currentColor" /> Start VM
+                    </button>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button onClick={handleApplyConfig} style={btnPrimaryStyle}><Save size={12} /> Save Config</button>
+                  <button onClick={() => handleDeleteVm(currentVm.id)} style={{ ...btnStyle, color: THEME.error }}><Trash2 size={12} /> Delete</button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
                 
-                {/* Top Row: Power Controls */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', borderBottom: '1px solid var(--border-primary)' }}>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', paddingRight: '16px', borderRight: '1px solid var(--border-primary)' }}>
-                      {currentVm.status === 'running' ? (
-                        <>
-                          <button onClick={() => handleStopVm(currentVm.id)} style={toolbarBtnStyle} className="hover-bg-tertiary" title="Shut down the VM">
-                            <Square size={22} color="var(--error)" fill="var(--error)" />
-                            <span style={{ fontSize: '11px', fontWeight: 500 }}>Shut Down</span>
-                          </button>
-                        </>
-                      ) : (
-                        <button onClick={() => handleStartVm(currentVm.id)} style={toolbarBtnStyle} className="hover-bg-tertiary" title="Power on this virtual machine">
-                          <Play size={22} color="var(--success)" fill="var(--success)" />
-                          <span style={{ fontSize: '11px', fontWeight: 500 }}>Power On</span>
-                        </button>
-                      )}
+                {/* Configuration Panel */}
+                <div style={{ width: '400px', padding: '16px', overflowY: 'auto', borderRight: `1px solid ${THEME.border}` }}>
+                  <h3 style={{ fontSize: '13px', borderBottom: `1px solid ${THEME.border}`, paddingBottom: '4px', marginBottom: '12px', color: THEME.accent }}>Hardware & Location</h3>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={labelStyle}>VM Directory</label>
+                    <input type="text" value={currentVm.config.vm_dir} readOnly style={{ ...inputStyle, backgroundColor: THEME.bgApp, color: THEME.textMuted }} />
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+                    <div>
+                      <label style={labelStyle}>CPU Cores</label>
+                      <input type="number" min="1" max="64" value={editCpu} onChange={(e) => setEditCpu(Number(e.target.value))} style={inputStyle} />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>RAM (GB)</label>
+                      <input type="number" min="1" max="128" value={editRam} onChange={(e) => setEditRam(Number(e.target.value))} style={inputStyle} />
                     </div>
                   </div>
 
-                  <button onClick={handleApplyConfig} style={{ padding: '8px 16px', borderRadius: '4px', backgroundColor: 'var(--accent)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}>
-                    Apply Configuration
-                  </button>
-                </div>
-
-                {/* Bottom Row: Configuration Inputs */}
-                <div style={{ display: 'flex', alignItems: 'center', padding: '12px 16px', gap: '24px', flexWrap: 'wrap' }}>
-                  
-                  {/* CPU Input */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Cpu size={16} color="var(--text-muted)" />
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>CPU:</span>
-                    <input type="number" min="1" max="64" value={editCpu} onChange={(e) => setEditCpu(Number(e.target.value))} style={{ width: '50px', padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }} />
+                  <h3 style={{ fontSize: '13px', borderBottom: `1px solid ${THEME.border}`, paddingBottom: '4px', marginBottom: '12px', color: THEME.accent }}>Storage</h3>
+                  <div style={{ marginBottom: '12px' }}>
+                    <label style={labelStyle}>Disk Image (.qcow2 / .img)</label>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <input type="text" value={editDisk} onChange={(e) => setEditDisk(e.target.value)} style={inputStyle} placeholder="Auto-created if empty" />
+                      <button onClick={() => handleBrowseFile(setEditDisk)} style={btnStyle}><FolderOpen size={12} /></button>
+                    </div>
+                  </div>
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={labelStyle}>ISO Image (CD-ROM)</label>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <input type="text" value={editIso} onChange={(e) => setEditIso(e.target.value)} style={inputStyle} placeholder="Leave empty if not booting ISO" />
+                      <button onClick={() => handleBrowseFile(setEditIso)} style={btnStyle}><FolderOpen size={12} /></button>
+                    </div>
                   </div>
 
-                  {/* RAM Input */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <HardDrive size={16} color="var(--text-muted)" />
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>RAM:</span>
-                    <input type="number" min="1" max="64" value={editRam} onChange={(e) => setEditRam(Number(e.target.value))} style={{ width: '50px', padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }} />
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>GB</span>
-                  </div>
-
-                  <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-primary)' }} />
-
-                  {/* Network Input */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <Network size={16} color="var(--text-muted)" />
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Network:</span>
-                    <select value={editNetType} onChange={(e) => setEditNetType(e.target.value)} style={{ padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }}>
-                      <option value="nat">NAT</option>
-                      <option value="bridged">Bridged</option>
-                      <option value="host-only">Host-Only</option>
+                  <h3 style={{ fontSize: '13px', borderBottom: `1px solid ${THEME.border}`, paddingBottom: '4px', marginBottom: '12px', color: THEME.accent }}>Network</h3>
+                  <div>
+                    <label style={labelStyle}>Adapter Type</label>
+                    <select value={editNetType} onChange={(e) => setEditNetType(e.target.value)} style={inputStyle}>
+                      <option value="nat">NAT (User Mode)</option>
+                      <option value="bridged">Bridged Adapter</option>
+                      <option value="host-only">Host-Only Network</option>
                     </select>
                   </div>
+                </div>
 
-                  <div style={{ width: '1px', height: '16px', backgroundColor: 'var(--border-primary)' }} />
-
-                  {/* ISO/Kernel Input */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: '200px' }}>
-                    <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Kernel Path:</span>
-                    <input type="text" placeholder="Default / Mock Program" value={editIso} onChange={(e) => setEditIso(e.target.value)} style={{ flex: 1, padding: '4px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '12px' }} />
-                    <button onClick={handleBrowseEditIso} style={{ padding: '4px 12px', borderRadius: '4px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '12px' }}><FolderOpen size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} /> Browse</button>
+                {/* Console Panel */}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: '#000' }}>
+                  <div style={{ display: 'flex', backgroundColor: THEME.bgPanel, borderBottom: `1px solid ${THEME.border}` }}>
+                    <button 
+                      onClick={() => setConsoleTab("vnc")}
+                      style={{ padding: '6px 12px', background: consoleTab === "vnc" ? THEME.bgApp : 'transparent', border: 'none', borderBottom: consoleTab === "vnc" ? `2px solid ${THEME.accent}` : '2px solid transparent', color: consoleTab === "vnc" ? THEME.accent : THEME.textMuted, fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Monitor size={12} /> VM Display (VNC)
+                    </button>
+                    <button 
+                      onClick={() => setConsoleTab("logs")}
+                      style={{ padding: '6px 12px', background: consoleTab === "logs" ? THEME.bgApp : 'transparent', border: 'none', borderBottom: consoleTab === "logs" ? `2px solid ${THEME.accent}` : '2px solid transparent', color: consoleTab === "logs" ? THEME.accent : THEME.textMuted, fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <Terminal size={12} /> Serial Console
+                    </button>
+                    {consoleTab === "logs" && (
+                      <button onClick={() => setLogs("")} style={{ marginLeft: 'auto', background: 'none', border: 'none', color: THEME.textMuted, fontSize: '11px', cursor: 'pointer', padding: '0 12px' }}>Clear</button>
+                    )}
                   </div>
-
+                  
+                  {consoleTab === "vnc" ? (
+                    <div style={{ flex: 1, position: 'relative', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' }}>
+                      {currentVm.status === "running" ? (
+                        <div ref={vncContainerRef} style={{ width: '100%', height: '100%' }} />
+                      ) : (
+                        <div style={{ color: THEME.textMuted, fontSize: '12px' }}>VM is not running</div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ flex: 1, padding: '8px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px', color: '#00ff00', whiteSpace: 'pre-wrap' }}>
+                      {logs}
+                      <div ref={logEndRef} />
+                    </div>
+                  )}
                 </div>
+
               </div>
 
-              {/* Console logs */}
-              <div style={{ flex: 1, backgroundColor: '#09090b', position: 'relative', display: 'flex', flexDirection: 'column', padding: '16px', fontFamily: 'monospace', fontSize: '13px', overflowY: 'auto' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
-                  <Terminal size={16} color="var(--success)" />
-                  <span style={{ color: '#e4e4e7', fontWeight: 600 }}>Guest Serial Console Output</span>
-                  <div style={{ marginLeft: 'auto', width: '8px', height: '8px', borderRadius: '50%', backgroundColor: currentVm.status === 'running' ? 'var(--success)' : 'var(--error)' }} />
-                </div>
-                <pre style={{ margin: 0, color: '#a1a1aa', whiteSpace: 'pre-wrap', flex: 1 }}>
-                  {logs || "[Waiting for console output...]"}
-                </pre>
-              </div>
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-              <div style={{ padding: '16px 24px', borderBottom: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}>
-                <h2 style={{ fontSize: '18px', margin: 0, fontWeight: 500, color: 'var(--text-primary)' }}>Create New Virtual Machine</h2>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '24px', alignItems: 'flex-start' }}>
+              <h2 style={{ fontSize: '16px', marginBottom: '24px', color: THEME.textMain }}>Create Virtual Machine</h2>
               
-              {/* Tabs */}
-              <div style={{ display: 'flex', borderBottom: '1px solid var(--border-primary)', padding: '0 24px', gap: '24px', backgroundColor: 'var(--bg-secondary)', overflowX: 'auto' }}>
-                {[
-                  { id: 'general', label: 'General' },
-                  { id: 'system', label: 'System' },
-                  { id: 'storage', label: 'Storage' },
-                  { id: 'network', label: 'Network' },
-                  { id: 'summary', label: 'Summary' },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
-                    style={{ background: 'none', border: 'none', borderBottom: activeTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent', padding: '12px 0', fontSize: '13px', fontWeight: activeTab === tab.id ? 600 : 400, color: activeTab === tab.id ? 'var(--accent)' : 'var(--text-secondary)', cursor: 'pointer', transition: 'all 0.2s' }}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
+              <div style={{ width: '100%', maxWidth: '600px', backgroundColor: THEME.bgPanel, border: `1px solid ${THEME.border}`, padding: '16px' }}>
+                
+                <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', borderBottom: `1px solid ${THEME.border}`, paddingBottom: '8px' }}>
+                  {(['general', 'hardware', 'storage', 'network'] as const).map(tab => (
+                    <button
+                      key={tab}
+                      onClick={() => setActiveTab(tab)}
+                      style={{ background: 'none', border: 'none', color: activeTab === tab ? THEME.accent : THEME.textMuted, fontWeight: activeTab === tab ? 'bold' : 'normal', fontSize: '12px', cursor: 'pointer', textTransform: 'uppercase' }}
+                    >
+                      {tab}
+                    </button>
+                  ))}
+                </div>
 
-              {/* Tab Content */}
-              <div style={{ flex: 1, padding: '24px', overflowY: 'auto' }}>
-                <div style={{ maxWidth: '600px' }}>
-                  
+                <div style={{ minHeight: '200px' }}>
                   {activeTab === 'general' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Virtual Machine Name</label>
-                          <input type="text" value={vmName} onChange={(e) => setVmName(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }} />
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Operating System Type</label>
-                          <select value={osType} onChange={(e) => setOsType(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer', fontSize: '13px' }}>
-                            <option value="linux">Linux Kernel (MicroVM)</option>
-                          </select>
-                        </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div>
+                        <label style={labelStyle}>Name</label>
+                        <input type="text" value={vmName} onChange={(e) => setVmName(e.target.value)} style={inputStyle} />
                       </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>VM Save Location</label>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <input type="text" placeholder="~/VirtualMachines/" value={vmPath} onChange={e => setVmPath(e.target.value)} style={{ flex: 1, padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }} />
-                          <button style={{ padding: '6px 12px', borderRadius: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}>Browse</button>
-                        </div>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Linux Kernel Path (Optional)</label>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <input type="text" placeholder="/path/to/vmlinux (leave empty for mock code)" value={isoPath} onChange={e => setIsoPath(e.target.value)} style={{ flex: 1, padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }} />
-                          <button onClick={handleBrowseIso} style={{ padding: '6px 12px', borderRadius: '4px', backgroundColor: 'var(--bg-secondary)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}>Browse</button>
+                      <div>
+                        <label style={labelStyle}>VM Directory (Location)</label>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <input type="text" value={vmDir} onChange={(e) => setVmDir(e.target.value)} style={inputStyle} placeholder="Leave empty for default location" />
+                          <button onClick={() => handleBrowseFolder(setVmDir)} style={btnStyle}><FolderOpen size={12} /></button>
                         </div>
                       </div>
                     </div>
                   )}
 
-                  {activeTab === 'system' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>CPU Architecture</label>
-                        <select value={cpuArch} onChange={(e) => setCpuArch(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer', fontSize: '13px' }}>
-                          <option value="x86_64">x86_64 (AMD64)</option>
-                        </select>
+                  {activeTab === 'hardware' && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div>
+                        <label style={labelStyle}>CPU Cores</label>
+                        <input type="number" min="1" max="64" value={cpuCores} onChange={(e) => setCpuCores(Number(e.target.value))} style={inputStyle} />
                       </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>CPU Cores</label>
-                          <input type="number" min="1" max="64" value={cpuCores} onChange={(e) => setCpuCores(Number(e.target.value))} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }} />
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                          <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Memory / RAM (GB)</label>
-                          <input type="number" min="1" max="128" value={ramLimit} onChange={(e) => setRamLimit(Number(e.target.value))} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }} />
-                        </div>
+                      <div>
+                        <label style={labelStyle}>RAM (GB)</label>
+                        <input type="number" min="1" max="128" value={ramLimit} onChange={(e) => setRamLimit(Number(e.target.value))} style={inputStyle} />
                       </div>
                     </div>
                   )}
 
                   {activeTab === 'storage' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Primary Disk Size (GB)</label>
-                        <input type="number" min="5" max="2000" value={diskSize} onChange={(e) => setDiskSize(Number(e.target.value))} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', fontSize: '13px' }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div>
+                        <label style={labelStyle}>Disk Image Path (.qcow2 / .img)</label>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <input type="text" value={diskPath} onChange={e => setDiskPath(e.target.value)} style={inputStyle} placeholder="Leave empty to auto-create inside VM Directory" />
+                          <button onClick={() => handleBrowseFile(setDiskPath)} style={btnStyle}><FolderOpen size={12} /></button>
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Disk Controller Type</label>
-                        <select value={diskType} onChange={(e) => setDiskType(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer', fontSize: '13px' }}>
-                          <option value="virtio">VirtIO Block</option>
-                        </select>
+                      <div>
+                        <label style={labelStyle}>ISO Image (CD-ROM)</label>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <input type="text" value={isoPath} onChange={e => setIsoPath(e.target.value)} style={inputStyle} placeholder="Path to .iso installer" />
+                          <button onClick={() => handleBrowseFile(setIsoPath)} style={btnStyle}><FolderOpen size={12} /></button>
+                        </div>
                       </div>
                     </div>
                   )}
 
                   {activeTab === 'network' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Network Mode</label>
-                        <select value={networkType} onChange={(e) => setNetworkType(e.target.value)} style={{ padding: '6px 10px', borderRadius: '4px', border: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer', fontSize: '13px' }}>
-                          <option value="nat">NAT (Share Host IP)</option>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                      <div>
+                        <label style={labelStyle}>Network Adapter</label>
+                        <select value={networkType} onChange={(e) => setNetworkType(e.target.value)} style={inputStyle}>
+                          <option value="nat">NAT (User Mode)</option>
                           <option value="bridged">Bridged Adapter</option>
                           <option value="host-only">Host-Only Network</option>
                         </select>
                       </div>
                     </div>
                   )}
+                </div>
 
-                  {activeTab === 'summary' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)', marginBottom: '8px' }}>
-                        <ShieldCheck size={18} color="var(--success)" />
-                        <h3 style={{ fontSize: '15px', margin: 0, fontWeight: 600 }}>Review Configuration</h3>
-                      </div>
-                      
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-tertiary)', padding: '20px', borderRadius: '8px', border: '1px solid var(--border-primary)' }}>
-                        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>VM Name:</span>
-                          <span style={{ fontWeight: 500, color: 'var(--text-primary)' }}>{vmName || 'Unnamed'}</span>
-                          
-                          <span style={{ color: 'var(--text-muted)' }}>Kernel Path:</span>
-                          <span style={{ color: 'var(--text-primary)' }}>{isoPath || 'Mock Program'}</span>
-                        </div>
-                        
-                        <div style={{ height: '1px', backgroundColor: 'var(--border-primary)' }} />
-                        
-                        <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '8px', fontSize: '13px' }}>
-                          <span style={{ color: 'var(--text-muted)' }}>Resources:</span>
-                          <span style={{ color: 'var(--text-primary)' }}>{cpuCores} Cores, {ramLimit} GB RAM ({cpuArch})</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
+                <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}`, display: 'flex', justifyContent: 'flex-end' }}>
+                  <button onClick={handleCreateVm} style={btnPrimaryStyle}><Save size={14} /> Finish Creation</button>
                 </div>
               </div>
-
-              {/* Bottom Footer Action */}
-              <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border-primary)', backgroundColor: 'var(--bg-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button onClick={() => { setActiveView("manage"); }} style={{ padding: '6px 16px', borderRadius: '4px', backgroundColor: 'transparent', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
-                
-                <div style={{ display: 'flex', gap: '12px' }}>
-                  {activeTab !== 'general' && (
-                    <button 
-                      onClick={() => {
-                        const tabs = ['general', 'system', 'storage', 'network', 'summary'];
-                        const idx = tabs.indexOf(activeTab);
-                        if (idx > 0) setActiveTab(tabs[idx - 1] as any);
-                      }}
-                      style={{ padding: '6px 16px', borderRadius: '4px', backgroundColor: 'var(--bg-tertiary)', border: '1px solid var(--border-primary)', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}
-                    >
-                      Back
-                    </button>
-                  )}
-                  
-                  {activeTab !== 'summary' ? (
-                    <button 
-                      onClick={() => {
-                        const tabs = ['general', 'system', 'storage', 'network', 'summary'];
-                        const idx = tabs.indexOf(activeTab);
-                        if (idx < tabs.length - 1) setActiveTab(tabs[idx + 1] as any);
-                      }}
-                      style={{ padding: '6px 24px', borderRadius: '4px', backgroundColor: 'var(--accent)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 500 }}
-                    >
-                      Next
-                    </button>
-                  ) : (
-                    <button 
-                      onClick={handleCreateVm}
-                      style={{ padding: '6px 20px', borderRadius: '4px', backgroundColor: 'var(--success)', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
-                    >
-                      <Play size={14} fill="currentColor" /> Create VM
-                    </button>
-                  )}
-                </div>
-              </div>
-
             </div>
           )}
         </div>
