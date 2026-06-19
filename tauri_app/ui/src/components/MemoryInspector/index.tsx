@@ -37,7 +37,7 @@ export function MemoryInspector({ onClose }: MemoryInspectorProps) {
         <div className="inspector-container">
             <WindowResizer />
             {/* Titlebar */}
-            <div className="postman-window-titlebar" data-tauri-drag-region>
+            <div className="pingzero-window-titlebar" data-tauri-drag-region>
                 <div className="titlebar-left" data-tauri-drag-region>
                     <img
                         src={brandIcon}

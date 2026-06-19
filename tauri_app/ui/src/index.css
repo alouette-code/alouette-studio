@@ -3680,9 +3680,9 @@ select option {
 }
 
 /* ==========================================================================
-   Mini Postman / Web request diagnostics styles
+   PingZero / Web request diagnostics styles
    ========================================================================== */
-.postman-container {
+.pingzero-container {
     display: flex;
     height: 100vh;
     width: 100vw;
@@ -3691,7 +3691,7 @@ select option {
     color: var(--text-primary);
 }
 
-.postman-sidebar {
+.pingzero-sidebar {
     width: 260px;
     border-right: 1px solid var(--border-primary);
     background-color: var(--bg-secondary);
@@ -3930,7 +3930,7 @@ select option {
     background-color: var(--bg-tertiary);
 }
 
-.postman-main-workspace {
+.pingzero-main-workspace {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -3939,7 +3939,7 @@ select option {
     background-color: var(--bg-primary);
 }
 
-.postman-header {
+.pingzero-header {
     height: 42px;
     border-bottom: 1px solid var(--border-primary);
     display: flex;
@@ -4024,7 +4024,7 @@ select option {
     gap: 6px;
 }
 
-.postman-workspace-tabs {
+.pingzero-workspace-tabs {
     background-color: var(--bg-secondary);
     border-bottom: 1px solid var(--border-primary);
     display: flex;
@@ -4453,7 +4453,7 @@ select option {
     background-color: #818cf8;
 }
 
-.postman-response-section {
+.pingzero-response-section {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -4604,136 +4604,136 @@ select option {
     overflow-y: auto;
 }
 
-/* Utility helper classes for MiniPostman flex layout */
-.postman-container .flex {
+/* Utility helper classes for PingZero flex layout */
+.pingzero-container .flex {
     display: flex;
 }
 
-.postman-container .flex-col {
+.pingzero-container .flex-col {
     flex-direction: column;
 }
 
-.postman-container .flex-1 {
+.pingzero-container .flex-1 {
     flex: 1;
 }
 
-.postman-container .items-center {
+.pingzero-container .items-center {
     align-items: center;
 }
 
-.postman-container .gap-1 {
+.pingzero-container .gap-1 {
     gap: 4px;
 }
 
-.postman-container .gap-2 {
+.pingzero-container .gap-2 {
     gap: 8px;
 }
 
-.postman-container .gap-3 {
+.pingzero-container .gap-3 {
     gap: 12px;
 }
 
-.postman-container .gap-4 {
+.pingzero-container .gap-4 {
     gap: 16px;
 }
 
-.postman-container .mb-2 {
+.pingzero-container .mb-2 {
     margin-bottom: 8px;
 }
 
-.postman-container .mb-1 {
+.pingzero-container .mb-1 {
     margin-bottom: 4px;
 }
 
-.postman-container .mt-1 {
+.pingzero-container .mt-1 {
     margin-top: 4px;
 }
 
-.postman-container .mt-2 {
+.pingzero-container .mt-2 {
     margin-top: 8px;
 }
 
-.postman-container .mt-3 {
+.pingzero-container .mt-3 {
     margin-top: 12px;
 }
 
-.postman-container .ml-2 {
+.pingzero-container .ml-2 {
     margin-left: 8px;
 }
 
-.postman-container .max-w-md {
+.pingzero-container .max-w-md {
     max-width: 450px;
 }
 
-.postman-container .max-w-lg {
+.pingzero-container .max-w-lg {
     max-width: 600px;
 }
 
-.postman-container .max-w-xl {
+.pingzero-container .max-w-xl {
     max-width: 800px;
 }
 
-.postman-container .font-bold {
+.pingzero-container .font-bold {
     font-weight: 700;
 }
 
-.postman-container .font-semibold {
+.pingzero-container .font-semibold {
     font-weight: 600;
 }
 
-.postman-container .text-xs {
+.pingzero-container .text-xs {
     font-size: 12px;
 }
 
-.postman-container .text-xxs {
+.pingzero-container .text-xxs {
     font-size: 10px;
 }
 
-.postman-container .text-muted {
+.pingzero-container .text-muted {
     color: var(--text-muted);
 }
 
-.postman-container .text-secondary {
+.pingzero-container .text-secondary {
     color: var(--text-secondary);
 }
 
-.postman-container .text-danger {
+.pingzero-container .text-danger {
     color: var(--color-danger);
 }
 
-.postman-container .text-success {
+.pingzero-container .text-success {
     color: var(--color-success);
 }
 
-.postman-container .border {
+.pingzero-container .border {
     border: 1px solid var(--border-primary);
 }
 
-.postman-container .rounded {
+.pingzero-container .rounded {
     border-radius: 4px;
 }
 
-.postman-container .p-3 {
+.pingzero-container .p-3 {
     padding: 12px;
 }
 
-.postman-container .cursor-pointer {
+.pingzero-container .cursor-pointer {
     cursor: pointer;
 }
 
-.postman-container .uppercase {
+.pingzero-container .uppercase {
     text-transform: uppercase;
 }
 
-.postman-container .italic {
+.pingzero-container .italic {
     font-style: italic;
 }
 
-.postman-container .animate-spin {
-    animation: postman-spin 1s linear infinite;
+.pingzero-container .animate-spin {
+    animation: pingzero-spin 1s linear infinite;
 }
 
-@keyframes postman-spin {
+@keyframes pingzero-spin {
     from {
         transform: rotate(0deg);
     }
@@ -4744,7 +4744,7 @@ select option {
 }
 
 /* Custom premium popout titlebar styles */
-.postman-window-titlebar {
+.pingzero-window-titlebar {
     height: 36px;
     background-color: var(--bg-secondary);
     border-bottom: 1px solid var(--border-primary);
@@ -4791,7 +4791,7 @@ select option {
     height: 100%;
 }
 
-.postman-window-titlebar .window-control-btn {
+.pingzero-window-titlebar .window-control-btn {
     background: none;
     border: none;
     color: var(--text-secondary);
@@ -4805,19 +4805,19 @@ select option {
     -webkit-app-region: no-drag;
 }
 
-.postman-window-titlebar .window-control-btn:hover {
+.pingzero-window-titlebar .window-control-btn:hover {
     color: var(--text-primary);
     background-color: rgba(255, 255, 255, 0.05);
 }
 
-.postman-window-titlebar .window-control-btn.close:hover {
+.pingzero-window-titlebar .window-control-btn.close:hover {
     color: #ffffff !important;
     background-color: #ef4444 !important;
     /* Premium Windows Close red */
 }
 
 /* ==========================================================================
-   Mini Postman - New Components (Environments, Scripts, Tools, etc.)
+   PingZero - New Components (Environments, Scripts, Tools, etc.)
    ========================================================================== */
 
 /* ---- Environment Manager ---- */

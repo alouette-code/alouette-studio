@@ -55,6 +55,9 @@ The Sandbox dashboard consists of 5 synchronized control modules:
   - *Payloads:* Query params, custom headers, multipart/form-data, GraphQL, binary, and URL-encoded request bodies.
   - *Auth:* Bearer, Basic, API Key, OAuth 2.0, AWS Signature.
   - *Response Inspector:* Visual formatters, headers/cookies decoder, redirect chain viewer, timing breakdown (DNS lookup, TCP connect, TLS handshake, first byte, total).
+  - *Payload Analyzer:* Interactive Tree-View inspector that recursively parses JSON/Form-Data into structured data types (`String`, `Number`, `Array`, `Object`) with Raw HTTP preview for deep API debugging.
+  - *Anti-Malware Sandbox Guard:* Automatically intercepts and destroys binary executable payloads (MZ, ELF, Mach-O) directly at the Rust network boundary to prevent accidental malware downloads.
+  - *Memory Exhaustion Guard:* Enforces a strict 50MB chunked streaming limit to prevent server-side OOM attacks.
   - *Post-request Scripts:* Automation script runner with testing assertions.
   - *Pre-request Scripts:* Dynamic request modification before execution.
   - *Collections & Environments:* Save requests in collections and manage environment variables per workspace.

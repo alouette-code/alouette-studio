@@ -137,7 +137,8 @@ export type ReqTab =
   | "tests"
   | "scripts"
   | "tools"
-  | "settings";
+  | "settings"
+  | "analyzer";
 export type ResTab =
   | "body"
   | "preview"
@@ -146,7 +147,9 @@ export type ResTab =
   | "cookies"
   | "tests"
   | "timeline"
-  | "schema";
+  | "schema"
+  | "analyzer"
+  | "source_catcher";
 export type SidebarTab = "history" | "saved" | "collections" | "environments";
 export type ToolsTab =
   | "dns"

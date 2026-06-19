@@ -68,7 +68,7 @@ const DOCK_ITEMS: DockItem[] = [
   },
   { id: "user", label: "User", icon: <User size={16} /> },
   { id: "ai", label: "Model AI", icon: <Sparkles size={16} /> },
-  { id: "postman", label: "Ping Zero Min", icon: <Wifi size={16} /> },
+  { id: "pingzero", label: "Ping Zero Min", icon: <Wifi size={16} /> },
   { id: "browser", label: "Zen Browser", icon: <ZenIcon size={16} /> },
   { id: "environment", label: "Environment", icon: <Server size={16} /> },
   { id: "sandbox", label: "Sandbox", icon: <Box size={16} /> },
@@ -202,7 +202,7 @@ export default function AdminPanel() {
 
   // ── Render dock item click handler ──
   const handleDockClick = (id: string) => {
-    if (id === "postman") {
+    if (id === "pingzero") {
       openPingWindow();
       return;
     }
@@ -243,7 +243,7 @@ export default function AdminPanel() {
               <span className="admin-dock-label" style={{ paddingLeft: "4px" }}>
                 {item.label}
               </span>
-              {(item.id === "postman" || item.id === "browser") && (
+              {(item.id === "pingzero" || item.id === "browser") && (
                 <ExternalLink size={10} className="admin-dock-external" />
               )}
             </button>

@@ -11,7 +11,7 @@ interface CurlInput {
   auth_value?: string;
 }
 
-export default function MiniPostmanCodeSnippets({ request }: { request: CurlInput }) {
+export default function PingZeroCodeSnippets({ request }: { request: CurlInput }) {
   const [lang, setLang] = useState('curl');
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);

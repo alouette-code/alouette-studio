@@ -42,7 +42,7 @@ const generateId = () => Math.random().toString(36).substring(2, 10);
 
 const loadCollections = (): CollectionItem[] => {
   try {
-    const raw = localStorage.getItem("postman_collections");
+    const raw = localStorage.getItem("pingzero_collections");
     if (raw) return JSON.parse(raw);
   } catch {
     /* ignore */
@@ -58,11 +58,11 @@ const loadCollections = (): CollectionItem[] => {
 };
 
 const saveCollections = (items: CollectionItem[]) => {
-  localStorage.setItem("postman_collections", JSON.stringify(items));
+  localStorage.setItem("pingzero_collections", JSON.stringify(items));
 };
 
-/* ---- Export Postman Collection v2.1 ---- */
-const exportPostmanCollection = (items: CollectionItem[]) => {
+/* ---- Export PingZero Collection v2.1 ---- */
+const exportPingZeroCollection = (items: CollectionItem[]) => {
   const buildItem = (item: CollectionItem): any => {
     if (item.type === "folder") {
       return {
@@ -119,24 +119,24 @@ const exportPostmanCollection = (items: CollectionItem[]) => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "postman_collection.json";
+  a.download = "pingzero_collection.json";
   a.click();
   URL.revokeObjectURL(url);
 };
 
-/* ---- Import Postman/OpenAPI ---- */
+/* ---- Import PingZero/OpenAPI ---- */
 const importCollection = (jsonText: string): CollectionItem[] => {
   try {
     const data = JSON.parse(jsonText);
-    // Postman Collection v2.1
+    // PingZero Collection v2.1
     if (data.info && data.item) {
-      const parsePostmanItem = (item: any): CollectionItem => {
+      const parsePingZeroItem = (item: any): CollectionItem => {
         if (item.item) {
           return {
             id: generateId(),
             name: item.name || "Folder",
             type: "folder",
-            children: item.item.map(parsePostmanItem),
+            children: item.item.map(parsePingZeroItem),
           };
         }
         const request = item.request || {};
@@ -164,7 +164,7 @@ const importCollection = (jsonText: string): CollectionItem[] => {
           },
         };
       };
-      return data.item.map(parsePostmanItem);
+      return data.item.map(parsePingZeroItem);
     }
     // Swagger/OpenAPI v3
     if (data.openapi || data.swagger) {
@@ -234,9 +234,9 @@ const parseOpenApi = (spec: any): CollectionItem[] => {
 };
 
 /* =====================================================================
-   MiniPostmanCollections Component
+   PingZeroCollections Component
    ===================================================================== */
-export default function MiniPostmanCollections({ onLoadRequest }: Props) {
+export default function PingZeroCollections({ onLoadRequest }: Props) {
   const [collections, setCollections] =
     useState<CollectionItem[]>(loadCollections);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
@@ -337,7 +337,7 @@ export default function MiniPostmanCollections({ onLoadRequest }: Props) {
   };
 
   const handleExport = () => {
-    exportPostmanCollection(collections);
+    exportPingZeroCollection(collections);
   };
 
   const handleImport = () => {
@@ -348,7 +348,7 @@ export default function MiniPostmanCollections({ onLoadRequest }: Props) {
       setShowImportInput(false);
     } else {
       alert(
-        "Could not parse the file. Please ensure it's a valid Postman Collection or OpenAPI spec.",
+        "Could not parse the file. Please ensure it's a valid PingZero Collection or OpenAPI spec.",
       );
     }
   };

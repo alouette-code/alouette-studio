@@ -18,7 +18,7 @@ interface Props {
   refreshTrigger?: number;
 }
 
-export default function MiniPostmanEnvManager({
+export default function PingZeroEnvManager({
   onInsertVariable,
   refreshTrigger,
 }: Props) {
@@ -27,7 +27,7 @@ export default function MiniPostmanEnvManager({
   });
 
   const loadEnvironments = (): Environment[] => {
-    const saved = localStorage.getItem("postman_environments");
+    const saved = localStorage.getItem("pingzero_environments");
     if (saved) {
       try {
         return JSON.parse(saved);
@@ -71,7 +71,7 @@ export default function MiniPostmanEnvManager({
 
   const saveEnvironments = (envs: Environment[]) => {
     setEnvironments(envs);
-    localStorage.setItem("postman_environments", JSON.stringify(envs));
+    localStorage.setItem("pingzero_environments", JSON.stringify(envs));
   };
 
   const addVariable = () => {
