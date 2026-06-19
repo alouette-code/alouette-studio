@@ -427,7 +427,49 @@ pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutp
         });
     }
 
-    let body_bytes = response.bytes().await.map_err(|e| format!("Failed to read response body: {}", e))?;
+    // Enforce 50MB Payload Size Limit to protect the Sandbox
+    let content_length = response.content_length().unwrap_or(0);
+    const MAX_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+    
+    if content_length > MAX_SIZE {
+        return Err(format!("Payload Too Large: The server responded with a payload size ({} bytes) that exceeds the 50MB sandbox limit.", content_length));
+    }
+
+    use futures_util::StreamExt;
+    let mut body_bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    
+    while let Some(chunk_res) = stream.next().await {
+        let chunk = chunk_res.map_err(|e| format!("Failed to read chunk: {}", e))?;
+        if (body_bytes.len() + chunk.len()) as u64 > MAX_SIZE {
+            return Err("Payload Too Large: The streaming response exceeded the 50MB sandbox limit.".to_string());
+        }
+        body_bytes.extend_from_slice(&chunk);
+    }
+
+    // ------------------------------------------------------------------------
+    // ANTI-MALWARE SANDBOX GUARD
+    // Detects executable file signatures (Magic Numbers) and blocks the payload
+    // ------------------------------------------------------------------------
+    if body_bytes.len() >= 4 {
+        let magic = &body_bytes[0..4];
+        
+        // 1. Windows Executable (MZ)
+        if magic[0] == 0x4D && magic[1] == 0x5A {
+            return Err("SECURITY SANDBOX ALERT: The server returned a Windows Executable (Virus/Malware Risk). The Sandbox has destroyed the payload to protect your system.".to_string());
+        }
+        // 2. Linux Executable (ELF)
+        if magic[0] == 0x7F && magic[1] == 0x45 && magic[2] == 0x4C && magic[3] == 0x46 {
+            return Err("SECURITY SANDBOX ALERT: The server returned a Linux Executable (Virus/Malware Risk). The Sandbox has destroyed the payload to protect your system.".to_string());
+        }
+        // 3. macOS Executable (Mach-O)
+        if (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCE) ||
+           (magic[0] == 0xFE && magic[1] == 0xED && magic[2] == 0xFA && magic[3] == 0xCF) ||
+           (magic[0] == 0xCA && magic[1] == 0xFE && magic[2] == 0xBA && magic[3] == 0xBE) {
+            return Err("SECURITY SANDBOX ALERT: The server returned a macOS Executable (Virus/Malware Risk). The Sandbox has destroyed the payload to protect your system.".to_string());
+        }
+    }
+
     let size_bytes = body_bytes.len();
     let body = String::from_utf8_lossy(&body_bytes).to_string();
 

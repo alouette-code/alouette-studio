@@ -31,7 +31,7 @@ interface ToolResult {
   error?: string;
 }
 
-export default function MiniPostmanNetworkTools(
+export default function PingZeroNetworkTools(
   _props: { onClose?: () => void } = {},
 ) {
   const [activeTool, setActiveTool] = useState<ToolsTab>("dns");

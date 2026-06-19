@@ -32,7 +32,7 @@ import ProcessManager from "./components/ProcessManager";
 import AdminPanel from "./components/AdminPanel";
 import FileExplorer from "./components/FileExplorer";
 import SqliteEditor from "./components/SqliteEditor";
-import MiniPostman from "./components/MiniPostman";
+import PingZero from "./components/PingZero";
 import AiAgent from "./components/AiAgent";
 import LocalAiManager from "./components/LocalAiManager";
 import ProjectResources from "./components/ProjectResources";
@@ -218,7 +218,7 @@ export default function App() {
   // Theme State
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
-  // Window label state to detect multi-window views (e.g. Mini Postman ping window)
+  // Window label state to detect multi-window views (e.g. PingZero ping window)
   const [windowLabel, setWindowLabel] = useState<string>("main");
 
   useEffect(() => {
@@ -1193,7 +1193,7 @@ export default function App() {
   };
 
   if (windowLabel === "ping_window") {
-    return <MiniPostman />;
+    return <PingZero />;
   }
 
   if (windowLabel === "admin_window") {

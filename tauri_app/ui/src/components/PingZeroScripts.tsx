@@ -148,7 +148,7 @@ interface Props {
   onPostResponseChange: (code: string) => void;
 }
 
-export default function MiniPostmanScripts({
+export default function PingZeroScripts({
   preRequestCode,
   postResponseCode,
   onPreRequestChange,

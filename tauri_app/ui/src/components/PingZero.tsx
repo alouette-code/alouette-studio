@@ -32,11 +32,13 @@ import {
   Zap,
   Plus,
 } from "lucide-react";
-import MiniPostmanNetworkTools from "./MiniPostmanNetworkTools";
-import MiniPostmanCodeSnippets from "./MiniPostmanCodeSnippets";
-import MiniPostmanEnvManager from "./MiniPostmanEnvManager";
-import MiniPostmanScripts from "./MiniPostmanScripts";
-import MiniPostmanCollections from "./MiniPostmanCollections";
+import PingZeroNetworkTools from "./PingZeroNetworkTools";
+import PingZeroCodeSnippets from "./PingZeroCodeSnippets";
+import PingZeroEnvManager from "./PingZeroEnvManager";
+import PingZeroScripts from "./PingZeroScripts";
+import PingZeroCollections from "./PingZeroCollections";
+import PingZeroAnalyzer from "./PingZeroAnalyzer";
+import PingZeroSourceCatcher from "./PingZeroSourceCatcher";
 import type {
   HeaderItem,
   QueryParam,
@@ -49,13 +51,13 @@ import type {
   ResTab,
   SidebarTab,
   CookieInfo,
-} from "./MiniPostmanTypes";
+} from "./PingZeroTypes";
 
 /* =========================================================================
-   MiniPostman – Full-Featured API Debugger & Diagnostics
+   PingZero – Full-Featured API Debugger & Diagnostics
    ========================================================================= */
 
-export default function MiniPostman() {
+export default function PingZero() {
   const appWindow = getCurrentWindow();
 
   /* ---- Titlebar Controls ---- */
@@ -219,7 +221,7 @@ export default function MiniPostman() {
 
   // Load environments list
   useEffect(() => {
-    const raw = localStorage.getItem("postman_environments");
+    const raw = localStorage.getItem("pingzero_environments");
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
@@ -232,7 +234,7 @@ export default function MiniPostman() {
   }, []);
 
   const refreshEnvironments = useCallback(() => {
-    const raw = localStorage.getItem("postman_environments");
+    const raw = localStorage.getItem("pingzero_environments");
     if (raw) {
       try {
         const parsed = JSON.parse(raw);
@@ -246,7 +248,7 @@ export default function MiniPostman() {
   /* ---- Environment variable substitution ---- */
   const substituteEnvVars = (text: string): string => {
     if (!selectedEnv) return text;
-    const raw = localStorage.getItem("postman_environments");
+    const raw = localStorage.getItem("pingzero_environments");
     if (!raw) return text;
     try {
       const envs = JSON.parse(raw);
@@ -319,7 +321,7 @@ export default function MiniPostman() {
 
   /* ---- Load history & saved from localStorage ---- */
   useEffect(() => {
-    const loadedHistory = localStorage.getItem("postman_history");
+    const loadedHistory = localStorage.getItem("pingzero_history");
     if (loadedHistory) {
       try {
         setHistory(JSON.parse(loadedHistory));
@@ -327,7 +329,7 @@ export default function MiniPostman() {
         /* ignore */
       }
     }
-    const loadedSaved = localStorage.getItem("postman_saved");
+    const loadedSaved = localStorage.getItem("pingzero_saved");
     if (loadedSaved) {
       try {
         setSavedRequests(JSON.parse(loadedSaved));
@@ -339,7 +341,7 @@ export default function MiniPostman() {
 
   const saveHistory = (newHistory: HistoryItem[]) => {
     setHistory(newHistory);
-    localStorage.setItem("postman_history", JSON.stringify(newHistory));
+    localStorage.setItem("pingzero_history", JSON.stringify(newHistory));
   };
 
   const toBase64 = (str: string): string => {
@@ -374,7 +376,7 @@ export default function MiniPostman() {
 
     // Load current env variables
     try {
-      const raw = localStorage.getItem("postman_environments");
+      const raw = localStorage.getItem("pingzero_environments");
       if (raw) {
         const envs = JSON.parse(raw);
         const env = envs.find((e: any) => e.id === selectedEnv);
@@ -391,7 +393,7 @@ export default function MiniPostman() {
     const setEnvVar = (key: string, value: string) => {
       envSnapshot[key] = value;
       try {
-        const raw = localStorage.getItem("postman_environments");
+        const raw = localStorage.getItem("pingzero_environments");
         if (raw) {
           const envs = JSON.parse(raw);
           const idx = envs.findIndex((e: any) => e.id === selectedEnv);
@@ -404,7 +406,7 @@ export default function MiniPostman() {
             } else {
               envs[idx].variables.push({ key, value, enabled: true });
             }
-            localStorage.setItem("postman_environments", JSON.stringify(envs));
+            localStorage.setItem("pingzero_environments", JSON.stringify(envs));
             refreshEnvironments();
           }
         }
@@ -437,7 +439,7 @@ export default function MiniPostman() {
             cookies: context.response.cookies || [],
           }
         : undefined,
-      // Enhanced Postman-style test/expect API
+      // Enhanced PingZero-style test/expect API
       test: (name: string, fn: Function) => {
         try {
           fn();
@@ -918,7 +920,7 @@ export default function MiniPostman() {
 
     const newSaved = [newSave, ...savedRequests];
     setSavedRequests(newSaved);
-    localStorage.setItem("postman_saved", JSON.stringify(newSaved));
+    localStorage.setItem("pingzero_saved", JSON.stringify(newSaved));
     setSaveName("");
     setShowSaveModal(false);
   };
@@ -927,7 +929,7 @@ export default function MiniPostman() {
     e.stopPropagation();
     const newSaved = savedRequests.filter((item) => item.id !== id);
     setSavedRequests(newSaved);
-    localStorage.setItem("postman_saved", JSON.stringify(newSaved));
+    localStorage.setItem("pingzero_saved", JSON.stringify(newSaved));
   };
 
   const clearHistory = () => {
@@ -1212,12 +1214,12 @@ export default function MiniPostman() {
      RENDER
      ===================================================================== */
   return (
-    <div className="postman-container" style={{ flexDirection: "column" }}>
+    <div className="pingzero-container" style={{ flexDirection: "column" }}>
       <WindowResizer />
       {/* ================================================================ */}
       {/* CUSTOM TITLEBAR                                                 */}
       {/* ================================================================ */}
-      <div className="postman-window-titlebar" data-tauri-drag-region>
+      <div className="pingzero-window-titlebar" data-tauri-drag-region>
         <div className="titlebar-left" data-tauri-drag-region>
           <img
             src={brandIcon}
@@ -1257,14 +1259,14 @@ export default function MiniPostman() {
       {/* MAIN LAYOUT                                                     */}
       {/* ================================================================ */}
       <div
-        className="postman-main-layout"
+        className="pingzero-main-layout"
         style={{ display: "flex", flex: 1, overflow: "hidden" }}
       >
         {/* -------------------------------------------------------------- */}
         {/* SIDEBAR                                                       */}
         {/* -------------------------------------------------------------- */}
         <div
-          className="postman-sidebar"
+          className="pingzero-sidebar"
           style={{
             width: `${sidebarWidth}px`,
             position: "relative",
@@ -1407,7 +1409,7 @@ export default function MiniPostman() {
 
             {/* COLLECTIONS TAB */}
             {sidebarTab === "collections" && (
-              <MiniPostmanCollections
+              <PingZeroCollections
                 onLoadRequest={(req) => {
                   // Load a collection request into the main form
                   setMethod(req.method);
@@ -1441,7 +1443,7 @@ export default function MiniPostman() {
 
             {/* ENVIRONMENTS TAB */}
             {sidebarTab === "environments" && (
-              <MiniPostmanEnvManager
+              <PingZeroEnvManager
                 onInsertVariable={insertEnvVar}
                 refreshTrigger={envRefreshTrigger}
               />
@@ -1452,7 +1454,7 @@ export default function MiniPostman() {
         {/* -------------------------------------------------------------- */}
         {/* MAIN WORKSPACE                                                */}
         {/* -------------------------------------------------------------- */}
-        <div className="postman-main-workspace">
+        <div className="pingzero-main-workspace">
           {/* ---- REQUEST BAR ---- */}
           <div className="request-bar">
             <select
@@ -1545,7 +1547,7 @@ export default function MiniPostman() {
           </div>
 
           {/* ---- WORKSPACE TABS ---- */}
-          <div className="postman-workspace-tabs">
+          <div className="pingzero-workspace-tabs">
             <div className="tabs-bar">
               <button
                 className={`tab-item ${reqTab === "params" ? "active" : ""}`}
@@ -1570,6 +1572,12 @@ export default function MiniPostman() {
                 onClick={() => setReqTab("body")}
               >
                 Body {bodyType !== "none" && `(${bodyType})`}
+              </button>
+              <button
+                className={`tab-item ${reqTab === "analyzer" ? "active" : ""}`}
+                onClick={() => setReqTab("analyzer")}
+              >
+                Analyzer
               </button>
               <button
                 className={`tab-item ${reqTab === "tests" ? "active" : ""}`}
@@ -2682,10 +2690,20 @@ export default function MiniPostman() {
                 </div>
               )}
 
+              {/* ANALYZER */}
+              {reqTab === "analyzer" && (
+                <div style={{ height: "100%", padding: "10px" }}>
+                  <PingZeroAnalyzer 
+                    mode="request" 
+                    requestInfo={{ method, url, headers, bodyType, body }} 
+                  />
+                </div>
+              )}
+
               {/* 6. SCRIPTS */}
               {reqTab === "scripts" && (
                 <div className="scripts-tab" style={{ padding: "4px 0" }}>
-                  <MiniPostmanScripts
+                  <PingZeroScripts
                     preRequestCode={preRequestCode}
                     postResponseCode={postResponseCode}
                     onPreRequestChange={setPreRequestCode}
@@ -2728,7 +2746,7 @@ export default function MiniPostman() {
               {/* 7. TOOLS */}
               {reqTab === "tools" && (
                 <div className="tools-tab" style={{ padding: "4px 0" }}>
-                  <MiniPostmanNetworkTools />
+                  <PingZeroNetworkTools />
                 </div>
               )}
 
@@ -2765,7 +2783,7 @@ export default function MiniPostman() {
           </div>
 
           {/* ---- RESPONSE SECTION ---- */}
-          <div className="postman-response-section">
+          <div className="pingzero-response-section">
             {response && (
               <div className="response-status-bar">
                 <div className="status-meta">
@@ -2860,6 +2878,18 @@ export default function MiniPostman() {
                     onClick={() => setResTab("cookies")}
                   >
                     Cookies {response.cookies && `(${response.cookies.length})`}
+                  </button>
+                  <button
+                    className={`res-tab-btn ${resTab === "analyzer" ? "active" : ""}`}
+                    onClick={() => setResTab("analyzer")}
+                  >
+                    Analyzer
+                  </button>
+                  <button
+                    className={`res-tab-btn ${resTab === "source_catcher" ? "active" : ""}`}
+                    onClick={() => setResTab("source_catcher")}
+                  >
+                    Source
                   </button>
                   {response.testResults && (
                     <button
@@ -3417,6 +3447,25 @@ export default function MiniPostman() {
                     </div>
                   )}
 
+                  {/* ANALYZER */}
+                  {resTab === "analyzer" && (
+                    <div style={{ height: "100%", padding: "10px" }}>
+                      <PingZeroAnalyzer 
+                        mode="response" 
+                        responseInfo={response} 
+                      />
+                    </div>
+                  )}
+
+                  {/* SOURCE CATCHER */}
+                  {resTab === "source_catcher" && (
+                    <div style={{ height: "100%" }}>
+                      <PingZeroSourceCatcher 
+                        responseInfo={response} 
+                      />
+                    </div>
+                  )}
+
                   {/* SCHEMA */}
                   {resTab === "schema" && (
                     <div
@@ -3559,7 +3608,7 @@ export default function MiniPostman() {
             </div>
             {showCodeSnippets && (
               <div style={{ padding: "0 8px 8px 8px" }}>
-                <MiniPostmanCodeSnippets request={requestForSnippets} />
+                <PingZeroCodeSnippets request={requestForSnippets} />
               </div>
             )}
           </div>

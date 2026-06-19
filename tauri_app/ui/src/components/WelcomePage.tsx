@@ -480,12 +480,12 @@ export default function WelcomePage({
                       const { invoke } = await import("@tauri-apps/api/core");
                       await invoke("open_ping_window");
                     } catch (e) {
-                      triggerToast("Lỗi mở Postman", "error");
+                      triggerToast("Lỗi mở PingZero", "error");
                     }
                   }}
                 >
                   <Activity size={12} />
-                  <span>Postman API</span>
+                  <span>PingZero API</span>
                 </button>
               </div>
             </div>
