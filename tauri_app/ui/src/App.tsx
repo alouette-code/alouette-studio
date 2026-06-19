@@ -43,6 +43,7 @@ import WelcomePage from "./components/WelcomePage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
+import { MemoryInspector } from "./components/MemoryInspector";
 
 
 // Search Engine
@@ -206,6 +207,10 @@ export default function App() {
     return <VmManager />;
   }
 
+  if (window.location.search.includes("window=memory-inspector")) {
+    return <MemoryInspector />;
+  }
+
   // Theme State
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
@@ -279,6 +284,7 @@ export default function App() {
   // Layout toggle states
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true);
+
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [isAiViewActive, setIsAiViewActive] = useState(false);
   const [initialAiMessage, setInitialAiMessage] = useState("");
@@ -1210,8 +1216,15 @@ export default function App() {
 
       <div className="middle-content-wrapper" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         <GlobalDock 
-          onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")} 
+          onOpenLocalAi={() => setIsAiViewActive(true)}
           onOpenVmManager={() => handleFileAction("open-vm-window")}
+          onOpenMemoryInspector={async () => {
+            try {
+              await invoke("open_memory_inspector_window");
+            } catch (e) {
+              console.error("Failed to open Memory Inspector window", e);
+            }
+          }}
         />
         <div className="workspace-wrapper" style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           {!activeProjectId ? (

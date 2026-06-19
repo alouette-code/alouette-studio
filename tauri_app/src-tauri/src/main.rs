@@ -12,6 +12,7 @@ mod system_manager;
 mod ai_manager;
 
 use core_engine::{ProcessManager, ProcessState, ResourceMonitor};
+use core_engine::memory_inspector::MemoryInspectorManager;
 use dashmap::DashMap;
 use state::{project_root, app_data_dir, AppState};
 use std::sync::Arc;
@@ -96,6 +97,7 @@ fn main() {
         .manage(model_manager)
         .manage(ai_manager::AiEngineManager::new())
         .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
+        .manage(Arc::new(Mutex::new(MemoryInspectorManager::new())))
         .setup(move |app| {
             // Get the main webview window. Standard API in Tauri v2.
             let window = app
@@ -323,6 +325,9 @@ fn main() {
             commands::vm::delete_vm_snapshot,
             commands::vm::list_vm_snapshots,
             commands::vm::inject_guest_file,
+            commands::memory_inspector::actions::start_memory_inspection,
+            commands::memory_inspector::actions::stop_memory_inspection,
+            commands::memory_inspector::actions::open_memory_inspector_window,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
