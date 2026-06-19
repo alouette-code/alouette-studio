@@ -329,6 +329,15 @@ fn main() {
             commands::memory_inspector::actions::start_memory_inspection,
             commands::memory_inspector::actions::stop_memory_inspection,
             commands::memory_inspector::actions::open_memory_inspector_window,
+            commands::docker::docker_ensure_started,
+            commands::docker::docker_list_containers,
+            commands::docker::docker_create_container,
+            commands::docker::docker_start_container,
+            commands::docker::docker_stop_container,
+            commands::docker::docker_remove_container,
+            commands::docker::docker_restart_container,
+            commands::docker::docker_stream_logs,
+            commands::docker::docker_stream_stats,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
