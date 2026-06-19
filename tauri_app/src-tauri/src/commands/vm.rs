@@ -66,9 +66,31 @@ pub async fn stop_virtual_machine(
 }
 
 #[tauri::command]
-pub async fn get_virtual_machine_logs(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<String, String> {
+pub fn get_virtual_machine_logs(id: String, state: tauri::State<'_, AppState>) -> Result<String, String> {
     state.vm_manager.get_vm_logs(&id)
+}
+
+#[tauri::command]
+pub fn create_vm_snapshot(id: String, name: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.vm_manager.create_snapshot(&id, &name)
+}
+
+#[tauri::command]
+pub fn restore_vm_snapshot(id: String, name: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.vm_manager.restore_snapshot(&id, &name)
+}
+
+#[tauri::command]
+pub fn delete_vm_snapshot(id: String, name: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.vm_manager.delete_snapshot(&id, &name)
+}
+
+#[tauri::command]
+pub fn list_vm_snapshots(id: String, state: tauri::State<'_, AppState>) -> Result<Vec<String>, String> {
+    state.vm_manager.list_snapshots(&id)
+}
+
+#[tauri::command]
+pub fn inject_guest_file(id: String, host_path: String, guest_path: String, state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.vm_manager.inject_file(&id, &host_path, &guest_path)
 }

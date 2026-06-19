@@ -5,12 +5,15 @@ use std::collections::HashMap;
 pub struct VmConfig {
     pub id: String,
     pub name: String,
+    pub os_type: Option<String>,
     pub cpu_cores: u32,
     pub ram_size_mb: u64,
     pub vm_dir: String,
     pub iso_path: Option<String>,
     pub disk_path: Option<String>,
+    pub disk_size_gb: Option<u32>,
     pub network_mode: String,
+    pub firmware: Option<String>, // "bios" or "uefi"
 }
 
 impl Default for VmConfig {
@@ -23,7 +26,10 @@ impl Default for VmConfig {
             vm_dir: "".to_string(),
             iso_path: None,
             disk_path: None,
+            disk_size_gb: Some(20), // Default 20GB
             network_mode: "nat".to_string(),
+            os_type: None,
+            firmware: Some("bios".to_string()),
         }
     }
 }
@@ -39,6 +45,16 @@ impl VmConfig {
         lines.push(format!("numvcpus = \"{}\"", self.cpu_cores));
         lines.push(format!("memsize = \"{}\"", self.ram_size_mb));
         lines.push(format!("vm.dir = \"{}\"", self.vm_dir));
+        
+        if let Some(os) = &self.os_type {
+            lines.push(format!("guestOS = \"{}\"", os));
+        }
+        if let Some(fw) = &self.firmware {
+            lines.push(format!("firmware = \"{}\"", fw));
+        }
+        if let Some(ds) = self.disk_size_gb {
+            lines.push(format!("disk.sizeGB = \"{}\"", ds));
+        }
         
         if let Some(iso) = &self.iso_path {
             lines.push(format!("ide1:0.deviceType = \"cdrom-image\""));
@@ -82,6 +98,9 @@ impl VmConfig {
         if let Some(&iso) = map.get("ide1:0.fileName") { config.iso_path = Some(iso.to_string()); }
         if let Some(&disk) = map.get("scsi0:0.fileName") { config.disk_path = Some(disk.to_string()); }
         if let Some(&net) = map.get("ethernet0.connectionType") { config.network_mode = net.to_string(); }
+        if let Some(&os) = map.get("guestOS") { config.os_type = Some(os.to_string()); }
+        if let Some(&fw) = map.get("firmware") { config.firmware = Some(fw.to_string()); }
+        if let Some(&ds) = map.get("disk.sizeGB") { config.disk_size_gb = ds.parse().ok(); }
 
         config
     }

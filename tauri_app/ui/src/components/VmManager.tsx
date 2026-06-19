@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Play, Square, FolderOpen, Minus, Square as SquareIcon, X, Plus, Save, Terminal, Trash2, Monitor } from "lucide-react";
+import { Play, Square, FolderOpen, Minus, Square as SquareIcon, X, Plus, Save, Terminal, Trash2, Monitor, Folder, Upload, HardDrive, Cpu, Network, Edit3, Check, ArrowRight } from "lucide-react";
 // @ts-ignore
 import RFB from '@novnc/novnc';
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -23,6 +23,56 @@ interface VM {
   };
 }
 
+const OS_FAMILIES = {
+  windows: {
+    label: "Windows",
+    versions: [
+      { id: "win11", label: "Windows 11 (x64/ARM64)", desc: "UEFI, 4 Cores, 4GB RAM, 60GB Disk", conf: { cpu: 4, ram: 4, disk: 60, fw: "uefi" } },
+      { id: "win10", label: "Windows 10 (x64)", desc: "BIOS, 2 Cores, 4GB RAM, 50GB Disk", conf: { cpu: 2, ram: 4, disk: 50, fw: "bios" } },
+      { id: "winserver", label: "Windows Server 2022", desc: "UEFI, 4 Cores, 8GB RAM, 80GB Disk", conf: { cpu: 4, ram: 8, disk: 80, fw: "uefi" } },
+      { id: "win7", label: "Windows 7 / 8.1 (x64)", desc: "BIOS, 2 Cores, 2GB RAM, 32GB Disk", conf: { cpu: 2, ram: 2, disk: 32, fw: "bios" } }
+    ]
+  },
+  linux: {
+    label: "Linux",
+    versions: [
+      { id: "ubuntu", label: "Ubuntu Desktop (x86_64)", desc: "BIOS, 2 Cores, 2GB RAM, 25GB Disk", conf: { cpu: 2, ram: 2, disk: 25, fw: "bios" } },
+      { id: "ubuntu_arm", label: "Ubuntu Server (ARM64)", desc: "UEFI, 2 Cores, 2GB RAM, 25GB Disk", conf: { cpu: 2, ram: 2, disk: 25, fw: "uefi" } },
+      { id: "debian", label: "Debian GNU/Linux (x86_64)", desc: "BIOS, 2 Cores, 2GB RAM, 20GB Disk", conf: { cpu: 2, ram: 2, disk: 20, fw: "bios" } },
+      { id: "fedora", label: "Fedora Workstation (x86_64)", desc: "UEFI, 2 Cores, 4GB RAM, 30GB Disk", conf: { cpu: 2, ram: 4, disk: 30, fw: "uefi" } },
+      { id: "rhel", label: "RHEL / CentOS / AlmaLinux", desc: "BIOS, 2 Cores, 2GB RAM, 40GB Disk", conf: { cpu: 2, ram: 2, disk: 40, fw: "bios" } },
+      { id: "arch", label: "Arch Linux (x86_64)", desc: "BIOS, 2 Cores, 2GB RAM, 20GB Disk", conf: { cpu: 2, ram: 2, disk: 20, fw: "bios" } },
+      { id: "kali", label: "Kali Linux (x86_64)", desc: "BIOS, 2 Cores, 4GB RAM, 40GB Disk", conf: { cpu: 2, ram: 4, disk: 40, fw: "bios" } },
+      { id: "alpine", label: "Alpine Linux (x86_64)", desc: "BIOS, 1 Core, 1GB RAM, 5GB Disk", conf: { cpu: 1, ram: 1, disk: 5, fw: "bios" } }
+    ]
+  },
+  macos: {
+    label: "macOS",
+    versions: [
+      { id: "macos_sequoia", label: "macOS 15 Sequoia (x86_64)", desc: "UEFI, 4 Cores, 8GB RAM, 80GB Disk", conf: { cpu: 4, ram: 8, disk: 80, fw: "uefi" } },
+      { id: "macos_sonoma", label: "macOS 14 Sonoma (x86_64)", desc: "UEFI, 4 Cores, 8GB RAM, 80GB Disk", conf: { cpu: 4, ram: 8, disk: 80, fw: "uefi" } },
+      { id: "macos_ventura", label: "macOS 13 Ventura (x86_64)", desc: "UEFI, 4 Cores, 4GB RAM, 60GB Disk", conf: { cpu: 4, ram: 4, disk: 60, fw: "uefi" } },
+      { id: "macos_monterey", label: "macOS 12 Monterey (x86_64)", desc: "UEFI, 4 Cores, 4GB RAM, 60GB Disk", conf: { cpu: 4, ram: 4, disk: 60, fw: "uefi" } }
+    ]
+  },
+  android: {
+    label: "Android",
+    versions: [
+      { id: "android_11", label: "Android-x86 (11.0)", desc: "BIOS, 2 Cores, 2GB RAM, 16GB Disk", conf: { cpu: 2, ram: 2, disk: 16, fw: "bios" } },
+      { id: "android_9", label: "Android-x86 (9.0 Pie)", desc: "BIOS, 2 Cores, 2GB RAM, 16GB Disk", conf: { cpu: 2, ram: 2, disk: 16, fw: "bios" } },
+      { id: "bliss_os", label: "Bliss OS (Android 12/13)", desc: "UEFI, 4 Cores, 4GB RAM, 32GB Disk", conf: { cpu: 4, ram: 4, disk: 32, fw: "uefi" } },
+      { id: "prime_os", label: "PrimeOS (x86_64)", desc: "BIOS, 2 Cores, 4GB RAM, 32GB Disk", conf: { cpu: 2, ram: 4, disk: 32, fw: "bios" } }
+    ]
+  },
+  other: {
+    label: "Other",
+    versions: [
+      { id: "custom", label: "Custom / Unknown OS", desc: "Configure everything manually", conf: { cpu: 1, ram: 1, disk: 20, fw: "bios" } },
+      { id: "freebsd", label: "FreeBSD / OpenBSD (x64)", desc: "BIOS, 2 Cores, 2GB RAM, 20GB Disk", conf: { cpu: 2, ram: 2, disk: 20, fw: "bios" } }
+    ]
+  }
+};
+
 export default function VmManager() {
   const appWindow = getCurrentWindow();
 
@@ -35,6 +85,10 @@ export default function VmManager() {
   const [selectedVmId, setSelectedVmId] = useState<string | null>(null);
   const [existingVms, setExistingVms] = useState<VM[]>([]);
   const [logs, setLogs] = useState<string>("");
+  const [snapshots, setSnapshots] = useState<string[]>([]);
+  const [newSnapshotName, setNewSnapshotName] = useState("");
+  const [injectHostPath, setInjectHostPath] = useState("");
+  const [injectGuestPath, setInjectGuestPath] = useState("");
   const logEndRef = useRef<HTMLDivElement>(null);
   
   // VNC State
@@ -118,14 +172,40 @@ export default function VmManager() {
   }, [activeView, currentVm?.status, consoleTab]);
 
   // --- Creation Form State ---
-  const [activeTab, setActiveTab] = useState<"general" | "hardware" | "storage" | "network">("general");
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+  const [osFamily, setOsFamily] = useState<string>("linux");
+  const [osType, setOsType] = useState<string>("ubuntu");
   const [vmName, setVmName] = useState("New-VM");
   const [vmDir, setVmDir] = useState("");
-  const [cpuCores, setCpuCores] = useState(1);
-  const [ramLimit, setRamLimit] = useState(1);
+  const [cpuCores, setCpuCores] = useState(2);
+  const [ramLimit, setRamLimit] = useState(2);
   const [networkType, setNetworkType] = useState("nat");
   const [isoPath, setIsoPath] = useState("");
   const [diskPath, setDiskPath] = useState("");
+  const [diskSizeGb, setDiskSizeGb] = useState<number>(25);
+  const [firmware, setFirmware] = useState<"bios" | "uefi">("bios");
+
+  const handleFamilyChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const family = e.target.value;
+    setOsFamily(family);
+    // @ts-ignore
+    const firstVersion = OS_FAMILIES[family].versions[0];
+    if (firstVersion) {
+      applyOsTemplate(family, firstVersion.id);
+    }
+  };
+
+  const applyOsTemplate = (family: string, versionId: string) => {
+    setOsType(versionId);
+    // @ts-ignore
+    const ver = OS_FAMILIES[family]?.versions.find(v => v.id === versionId);
+    if (ver) {
+      setCpuCores(ver.conf.cpu);
+      setRamLimit(ver.conf.ram);
+      setDiskSizeGb(ver.conf.disk);
+      setFirmware(ver.conf.fw as any);
+    }
+  };
 
   // --- Manage Form State ---
   const [editCpu, setEditCpu] = useState(1);
@@ -133,6 +213,16 @@ export default function VmManager() {
   const [editNetType, setEditNetType] = useState("nat");
   const [editIso, setEditIso] = useState("");
   const [editDisk, setEditDisk] = useState("");
+
+  const refreshSnapshots = async (vmId: string) => {
+    try {
+      const list = await invoke<string[]>("list_vm_snapshots", { id: vmId });
+      setSnapshots(list || []);
+    } catch (err) {
+      console.error("Failed to load snapshots:", err);
+      setSnapshots([]);
+    }
+  };
 
   // Load configuration into manage tab when a VM is selected
   useEffect(() => {
@@ -144,7 +234,10 @@ export default function VmManager() {
         setEditNetType(selected.config.network_mode);
         setEditIso(selected.config.iso_path || "");
         setEditDisk(selected.config.disk_path || "");
+        refreshSnapshots(selectedVmId);
       }
+    } else {
+      setSnapshots([]);
     }
   }, [selectedVmId, existingVms]);
 
@@ -153,12 +246,15 @@ export default function VmManager() {
       const config = {
         id: "",
         name: vmName,
+        os_type: osType,
         cpu_cores: cpuCores,
         ram_size_mb: ramLimit * 1024,
         vm_dir: vmDir,
         iso_path: isoPath ? isoPath : null,
         disk_path: diskPath ? diskPath : null,
-        network_mode: networkType
+        disk_size_gb: diskSizeGb,
+        network_mode: networkType,
+        firmware: firmware
       };
       await invoke("save_virtual_machine", { config });
       alert("VM Created Successfully!");
@@ -220,6 +316,58 @@ export default function VmManager() {
       await refreshVms();
     } catch (err) {
       alert("Failed to save config: " + err);
+    }
+  };
+
+  const handleCreateSnapshot = async () => {
+    if (!selectedVmId || !newSnapshotName.trim()) return;
+    try {
+      await invoke("create_vm_snapshot", { id: selectedVmId, name: newSnapshotName.trim() });
+      setNewSnapshotName("");
+      await refreshSnapshots(selectedVmId);
+    } catch (err) {
+      alert("Failed to create snapshot: " + err);
+    }
+  };
+
+  const handleRestoreSnapshot = async (name: string) => {
+    if (!selectedVmId) return;
+    if (!confirm(`Are you sure you want to restore snapshot '${name}'? This will discard current state.`)) return;
+    try {
+      await invoke("restore_vm_snapshot", { id: selectedVmId, name });
+      alert(`Snapshot '${name}' restored successfully!`);
+    } catch (err) {
+      alert("Failed to restore snapshot: " + err);
+    }
+  };
+
+  const handleDeleteSnapshot = async (name: string) => {
+    if (!selectedVmId) return;
+    if (!confirm(`Are you sure you want to delete snapshot '${name}'?`)) return;
+    try {
+      await invoke("delete_vm_snapshot", { id: selectedVmId, name });
+      await refreshSnapshots(selectedVmId);
+    } catch (err) {
+      alert("Failed to delete snapshot: " + err);
+    }
+  };
+
+  const handleInjectFile = async () => {
+    if (!selectedVmId || !injectHostPath || !injectGuestPath) {
+      alert("Please specify both Host Path and Guest Destination.");
+      return;
+    }
+    try {
+      await invoke("inject_guest_file", { 
+        id: selectedVmId, 
+        hostPath: injectHostPath, 
+        guestPath: injectGuestPath 
+      });
+      alert("File injected successfully!");
+      setInjectHostPath("");
+      setInjectGuestPath("");
+    } catch (err) {
+      alert("Failed to inject file: " + err);
     }
   };
 
@@ -422,6 +570,40 @@ export default function VmManager() {
                       <option value="host-only">Host-Only Network</option>
                     </select>
                   </div>
+
+                  <h3 style={{ fontSize: '13px', borderBottom: `1px solid ${THEME.border}`, paddingBottom: '4px', marginBottom: '12px', color: THEME.accent, marginTop: '24px' }}>Snapshots</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <input type="text" value={newSnapshotName} onChange={e => setNewSnapshotName(e.target.value)} placeholder="Snapshot Name" style={inputStyle} />
+                      <button onClick={handleCreateSnapshot} style={btnStyle}><Plus size={12}/> Create</button>
+                    </div>
+                    {snapshots.map(s => (
+                       <div key={s} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: THEME.bgHover, padding: '4px 8px', border: `1px solid ${THEME.border}` }}>
+                          <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{s}</span>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                             <button onClick={() => handleRestoreSnapshot(s)} style={{...btnStyle, color: THEME.success}} title="Restore">Restore</button>
+                             <button onClick={() => handleDeleteSnapshot(s)} style={{...btnStyle, color: THEME.error}} title="Delete"><Trash2 size={12}/></button>
+                          </div>
+                       </div>
+                    ))}
+                    {snapshots.length === 0 && <div style={{ fontSize: '11px', color: THEME.textMuted, fontStyle: 'italic' }}>No snapshots exist for this VM.</div>}
+                  </div>
+
+                  <h3 style={{ fontSize: '13px', borderBottom: `1px solid ${THEME.border}`, paddingBottom: '4px', marginBottom: '12px', color: THEME.accent, marginTop: '24px' }}>Guest File Injection (VMware Tools)</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '24px' }}>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <input type="text" value={injectHostPath} onChange={e => setInjectHostPath(e.target.value)} placeholder="Host File Path (Select)" style={{...inputStyle, flex: 1}} />
+                      <button onClick={() => handleBrowseFile(setInjectHostPath)} style={{...btnStyle, padding: '4px'}} title="Browse Host File"><Folder size={12}/></button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '4px' }}>
+                      <input type="text" value={injectGuestPath} onChange={e => setInjectGuestPath(e.target.value)} placeholder="Guest Destination (e.g., /root/file.txt)" style={{...inputStyle, flex: 1}} />
+                    </div>
+                    <button onClick={handleInjectFile} style={{...btnStyle, backgroundColor: THEME.accent, color: THEME.bgMain, fontWeight: 'bold'}}><ArrowRight size={12}/> Inject File</button>
+                    <div style={{ fontSize: '11px', color: THEME.textMuted, fontStyle: 'italic', marginTop: '4px', lineHeight: 1.4 }}>
+                      Requires <code>qemu-guest-agent</code> installed and running inside the VM.<br/>
+                      e.g., Alpine: <code>apk add qemu-guest-agent && rc-service qemu-guest-agent start</code>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Console Panel */}
@@ -464,88 +646,187 @@ export default function VmManager() {
 
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '24px', alignItems: 'flex-start' }}>
-              <h2 style={{ fontSize: '16px', marginBottom: '24px', color: THEME.textMain }}>Create Virtual Machine</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '32px', alignItems: 'center', overflowY: 'auto' }}>
               
-              <div style={{ width: '100%', maxWidth: '600px', backgroundColor: THEME.bgPanel, border: `1px solid ${THEME.border}`, padding: '16px' }}>
-                
-                <div style={{ display: 'flex', gap: '16px', marginBottom: '24px', borderBottom: `1px solid ${THEME.border}`, paddingBottom: '8px' }}>
-                  {(['general', 'hardware', 'storage', 'network'] as const).map(tab => (
-                    <button
-                      key={tab}
-                      onClick={() => setActiveTab(tab)}
-                      style={{ background: 'none', border: 'none', color: activeTab === tab ? THEME.accent : THEME.textMuted, fontWeight: activeTab === tab ? 'bold' : 'normal', fontSize: '12px', cursor: 'pointer', textTransform: 'uppercase' }}
+              <div style={{ width: '100%', maxWidth: '600px' }}>
+                <h2 style={{ fontSize: '20px', marginBottom: '8px', color: THEME.textMain, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Plus size={20} color={THEME.accent} /> Create New Virtual Machine
+                </h2>
+                <p style={{ fontSize: '12px', color: THEME.textMuted, marginBottom: '24px' }}>Follow the wizard to set up your new environment.</p>
+              
+                <div style={{ backgroundColor: THEME.bgPanel, border: `1px solid ${THEME.border}`, borderRadius: '4px', overflow: 'hidden' }}>
+                  
+                  {/* Wizard Header */}
+                  <div style={{ display: 'flex', backgroundColor: THEME.bgHover, borderBottom: `1px solid ${THEME.border}` }}>
+                    {[
+                      { step: 1, label: "OS Template" },
+                      { step: 2, label: "Hardware" },
+                      { step: 3, label: "Storage" },
+                      { step: 4, label: "Summary" }
+                    ].map(s => (
+                      <div key={s.step} style={{ 
+                        flex: 1, padding: '12px 8px', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', 
+                        color: wizardStep >= s.step ? THEME.accent : THEME.textMuted,
+                        borderBottom: wizardStep === s.step ? `2px solid ${THEME.accent}` : '2px solid transparent'
+                      }}>
+                        Step {s.step}: {s.label}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ padding: '24px', minHeight: '300px' }}>
+                    
+                    {/* STEP 1: OS Selection */}
+                    {wizardStep === 1 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div>
+                          <label style={labelStyle}>Virtual Machine Name</label>
+                          <input type="text" value={vmName} onChange={(e) => setVmName(e.target.value)} style={{...inputStyle, fontSize: '14px', padding: '8px'}} />
+                        </div>
+                        
+                        <div>
+                          <label style={labelStyle}>Operating System Type</label>
+                          <p style={{ fontSize: '11px', color: THEME.textMuted, marginBottom: '12px' }}>Selecting an OS auto-configures recommended hardware settings.</p>
+                          
+                          <div style={{ display: 'flex', gap: '12px', marginBottom: '16px' }}>
+                            <div style={{ flex: 1 }}>
+                              <label style={{...labelStyle, fontSize: '10px'}}>OS Family</label>
+                              <select value={osFamily} onChange={handleFamilyChange} style={inputStyle}>
+                                {Object.entries(OS_FAMILIES).map(([key, val]) => (
+                                  <option key={key} value={key}>{val.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                            <div style={{ flex: 1 }}>
+                              <label style={{...labelStyle, fontSize: '10px'}}>Version</label>
+                              <select 
+                                value={osType} 
+                                onChange={(e) => applyOsTemplate(osFamily, e.target.value)} 
+                                style={inputStyle}
+                              >
+                                {/* @ts-ignore */}
+                                {OS_FAMILIES[osFamily].versions.map(v => (
+                                  <option key={v.id} value={v.id}>{v.label}</option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <div style={{ padding: '12px', backgroundColor: THEME.bgHover, border: `1px solid ${THEME.border}`, borderRadius: '4px' }}>
+                            <div style={{ fontSize: '12px', fontWeight: 'bold', color: THEME.accent, marginBottom: '4px' }}>Recommended Preset:</div>
+                            {/* @ts-ignore */}
+                            <div style={{ fontSize: '11px', color: THEME.textMuted }}>{OS_FAMILIES[osFamily].versions.find(v => v.id === osType)?.desc}</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 2: Hardware */}
+                    {wizardStep === 2 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                          <div>
+                            <label style={labelStyle}>CPU Cores</label>
+                            <input type="number" min="1" max="64" value={cpuCores} onChange={(e) => setCpuCores(Number(e.target.value))} style={inputStyle} />
+                          </div>
+                          <div>
+                            <label style={labelStyle}>RAM (GB)</label>
+                            <input type="number" min="1" max="128" value={ramLimit} onChange={(e) => setRamLimit(Number(e.target.value))} style={inputStyle} />
+                          </div>
+                        </div>
+                        
+                        <div>
+                          <label style={labelStyle}>Firmware Interface</label>
+                          <div style={{ display: 'flex', gap: '16px', marginTop: '8px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
+                              <input type="radio" name="firmware" checked={firmware === "bios"} onChange={() => setFirmware("bios")} /> BIOS (Legacy)
+                            </label>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', cursor: 'pointer' }}>
+                              <input type="radio" name="firmware" checked={firmware === "uefi"} onChange={() => setFirmware("uefi")} /> UEFI (OVMF)
+                            </label>
+                          </div>
+                          <p style={{ fontSize: '11px', color: THEME.textMuted, marginTop: '8px' }}>UEFI is required for Windows 11 and modern macOS guests.</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 3: Storage & Network */}
+                    {wizardStep === 3 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        <div>
+                          <label style={labelStyle}>Disk Size (GB)</label>
+                          <input type="number" min="1" max="2000" value={diskSizeGb} onChange={(e) => setDiskSizeGb(Number(e.target.value))} style={inputStyle} />
+                          <p style={{ fontSize: '11px', color: THEME.textMuted, marginTop: '4px' }}>A dynamic .qcow2 disk will be automatically created.</p>
+                        </div>
+                        
+                        <div>
+                          <label style={labelStyle}>Installer Image (ISO)</label>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <input type="text" value={isoPath} onChange={e => setIsoPath(e.target.value)} style={inputStyle} placeholder="Optional. Select an ISO to boot from." />
+                            <button onClick={() => handleBrowseFile(setIsoPath)} style={btnStyle}><FolderOpen size={12} /></button>
+                          </div>
+                        </div>
+
+                        <div>
+                          <label style={labelStyle}>Network Adapter</label>
+                          <select value={networkType} onChange={(e) => setNetworkType(e.target.value)} style={inputStyle}>
+                            <option value="nat">NAT (User Mode) - Default</option>
+                            <option value="bridged">Bridged Adapter</option>
+                            <option value="host-only">Host-Only Network</option>
+                          </select>
+                        </div>
+                        
+                        <div>
+                          <label style={labelStyle}>VM Directory (Location)</label>
+                          <div style={{ display: 'flex', gap: '4px' }}>
+                            <input type="text" value={vmDir} onChange={(e) => setVmDir(e.target.value)} style={inputStyle} placeholder="Leave empty for default location" />
+                            <button onClick={() => handleBrowseFolder(setVmDir)} style={btnStyle}><FolderOpen size={12} /></button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* STEP 4: Summary */}
+                    {wizardStep === 4 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        <div style={{ backgroundColor: THEME.bgApp, padding: '16px', borderRadius: '4px', border: `1px solid ${THEME.border}`, fontFamily: 'monospace', fontSize: '12px' }}>
+                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Name:</strong> {vmName}</div>
+                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>OS Profile:</strong> {/* @ts-ignore */}{OS_FAMILIES[osFamily].versions.find(v => v.id === osType)?.label}</div>
+                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Hardware:</strong> {cpuCores} Cores, {ramLimit}GB RAM</div>
+                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Firmware:</strong> {firmware.toUpperCase()}</div>
+                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Storage:</strong> {diskSizeGb}GB Disk</div>
+                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Installer:</strong> {isoPath || "None"}</div>
+                          <div><strong style={{ color: THEME.accent }}>Network:</strong> {networkType}</div>
+                        </div>
+                        <p style={{ fontSize: '12px', color: THEME.success, display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 'bold' }}>
+                          <Check size={14} /> Ready to Create!
+                        </p>
+                      </div>
+                    )}
+
+                  </div>
+
+                  {/* Wizard Footer / Controls */}
+                  <div style={{ padding: '16px 24px', borderTop: `1px solid ${THEME.border}`, display: 'flex', justifyContent: 'space-between', backgroundColor: THEME.bgApp }}>
+                    <button 
+                      onClick={() => setWizardStep(prev => Math.max(1, prev - 1) as any)} 
+                      disabled={wizardStep === 1}
+                      style={{ ...btnStyle, opacity: wizardStep === 1 ? 0.5 : 1, width: '100px', justifyContent: 'center' }}
                     >
-                      {tab}
+                      Back
                     </button>
-                  ))}
-                </div>
+                    
+                    {wizardStep < 4 ? (
+                      <button onClick={() => setWizardStep(prev => Math.min(4, prev + 1) as any)} style={{ ...btnPrimaryStyle, width: '100px', justifyContent: 'center' }}>
+                        Next <ArrowRight size={14} />
+                      </button>
+                    ) : (
+                      <button onClick={handleCreateVm} style={{ ...btnPrimaryStyle, width: '140px', justifyContent: 'center', backgroundColor: THEME.success, borderColor: THEME.success }}>
+                        <Save size={14} /> Finish & Create
+                      </button>
+                    )}
+                  </div>
 
-                <div style={{ minHeight: '200px' }}>
-                  {activeTab === 'general' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div>
-                        <label style={labelStyle}>Name</label>
-                        <input type="text" value={vmName} onChange={(e) => setVmName(e.target.value)} style={inputStyle} />
-                      </div>
-                      <div>
-                        <label style={labelStyle}>VM Directory (Location)</label>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          <input type="text" value={vmDir} onChange={(e) => setVmDir(e.target.value)} style={inputStyle} placeholder="Leave empty for default location" />
-                          <button onClick={() => handleBrowseFolder(setVmDir)} style={btnStyle}><FolderOpen size={12} /></button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeTab === 'hardware' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div>
-                        <label style={labelStyle}>CPU Cores</label>
-                        <input type="number" min="1" max="64" value={cpuCores} onChange={(e) => setCpuCores(Number(e.target.value))} style={inputStyle} />
-                      </div>
-                      <div>
-                        <label style={labelStyle}>RAM (GB)</label>
-                        <input type="number" min="1" max="128" value={ramLimit} onChange={(e) => setRamLimit(Number(e.target.value))} style={inputStyle} />
-                      </div>
-                    </div>
-                  )}
-
-                  {activeTab === 'storage' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div>
-                        <label style={labelStyle}>Disk Image Path (.qcow2 / .img)</label>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          <input type="text" value={diskPath} onChange={e => setDiskPath(e.target.value)} style={inputStyle} placeholder="Leave empty to auto-create inside VM Directory" />
-                          <button onClick={() => handleBrowseFile(setDiskPath)} style={btnStyle}><FolderOpen size={12} /></button>
-                        </div>
-                      </div>
-                      <div>
-                        <label style={labelStyle}>ISO Image (CD-ROM)</label>
-                        <div style={{ display: 'flex', gap: '4px' }}>
-                          <input type="text" value={isoPath} onChange={e => setIsoPath(e.target.value)} style={inputStyle} placeholder="Path to .iso installer" />
-                          <button onClick={() => handleBrowseFile(setIsoPath)} style={btnStyle}><FolderOpen size={12} /></button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {activeTab === 'network' && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      <div>
-                        <label style={labelStyle}>Network Adapter</label>
-                        <select value={networkType} onChange={(e) => setNetworkType(e.target.value)} style={inputStyle}>
-                          <option value="nat">NAT (User Mode)</option>
-                          <option value="bridged">Bridged Adapter</option>
-                          <option value="host-only">Host-Only Network</option>
-                        </select>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ marginTop: '24px', paddingTop: '16px', borderTop: `1px solid ${THEME.border}`, display: 'flex', justifyContent: 'flex-end' }}>
-                  <button onClick={handleCreateVm} style={btnPrimaryStyle}><Save size={14} /> Finish Creation</button>
                 </div>
               </div>
             </div>

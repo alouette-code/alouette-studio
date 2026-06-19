@@ -109,7 +109,16 @@ impl VmManager {
         // Auto-configure disk path if empty
         if config.disk_path.is_none() || config.disk_path.as_ref().unwrap().is_empty() {
             let disk_name = format!("{}.qcow2", safe_name);
-            config.disk_path = Some(vm_dir_path.join(disk_name).to_string_lossy().into_owned());
+            let target_disk_path = vm_dir_path.join(&disk_name);
+            config.disk_path = Some(target_disk_path.to_string_lossy().into_owned());
+            
+            // Create the disk using qemu-img if it doesn't exist
+            if !target_disk_path.exists() {
+                let size = config.disk_size_gb.unwrap_or(20);
+                let _ = std::process::Command::new("qemu-img")
+                    .args(&["create", "-f", "qcow2", &target_disk_path.to_string_lossy(), &format!("{}G", size)])
+                    .output();
+            }
         }
 
         let config_path = vm_dir_path.join(format!("{}.vmx", safe_name));
@@ -223,5 +232,148 @@ impl VmManager {
             }
         }
         Ok("[VM is stopped]".to_string())
+    }
+
+    // --- Snapshot Management ---
+
+    fn get_vm_config(&self, id: &str) -> Result<VmConfig, String> {
+        let config_path = self.get_config_path(id)
+            .ok_or_else(|| format!("VM with ID {} not found", id))?;
+        let content = fs::read_to_string(config_path)
+            .map_err(|e| format!("Failed to read VM config: {}", e))?;
+        Ok(VmConfig::from_vmx(&content))
+    }
+
+    pub fn create_snapshot(&self, id: &str, snapshot_name: &str) -> Result<(), String> {
+        let config = self.get_vm_config(id)?;
+        let mut active = self.active_vms.lock();
+        let is_running = active.get_mut(id).map(|vm| vm.qemu_instance.lock().is_running()).unwrap_or(false);
+
+        if is_running {
+            // Live snapshot via QMP
+            let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", id));
+            let mut client = crate::vm_engine::qmp_client::QmpClient::connect(qmp_socket_path)?;
+            client.save_snapshot(snapshot_name)?;
+        } else {
+            // Offline snapshot via qemu-img
+            let disk_path = config.disk_path.as_ref().ok_or("VM has no disk path configured")?;
+            let output = std::process::Command::new("qemu-img")
+                .args(&["snapshot", "-c", snapshot_name, disk_path])
+                .output()
+                .map_err(|e| format!("Failed to invoke qemu-img: {}", e))?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn restore_snapshot(&self, id: &str, snapshot_name: &str) -> Result<(), String> {
+        let config = self.get_vm_config(id)?;
+        let mut active = self.active_vms.lock();
+        let is_running = active.get_mut(id).map(|vm| vm.qemu_instance.lock().is_running()).unwrap_or(false);
+
+        if is_running {
+            // Live restore via QMP
+            let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", id));
+            let mut client = crate::vm_engine::qmp_client::QmpClient::connect(qmp_socket_path)?;
+            client.load_snapshot(snapshot_name)?;
+        } else {
+            // Offline restore via qemu-img
+            let disk_path = config.disk_path.as_ref().ok_or("VM has no disk path configured")?;
+            let output = std::process::Command::new("qemu-img")
+                .args(&["snapshot", "-a", snapshot_name, disk_path])
+                .output()
+                .map_err(|e| format!("Failed to invoke qemu-img: {}", e))?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn delete_snapshot(&self, id: &str, snapshot_name: &str) -> Result<(), String> {
+        let config = self.get_vm_config(id)?;
+        let mut active = self.active_vms.lock();
+        let is_running = active.get_mut(id).map(|vm| vm.qemu_instance.lock().is_running()).unwrap_or(false);
+
+        if is_running {
+            // Live delete via QMP
+            let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", id));
+            let mut client = crate::vm_engine::qmp_client::QmpClient::connect(qmp_socket_path)?;
+            client.delete_snapshot(snapshot_name)?;
+        } else {
+            // Offline delete via qemu-img
+            let disk_path = config.disk_path.as_ref().ok_or("VM has no disk path configured")?;
+            let output = std::process::Command::new("qemu-img")
+                .args(&["snapshot", "-d", snapshot_name, disk_path])
+                .output()
+                .map_err(|e| format!("Failed to invoke qemu-img: {}", e))?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+            }
+        }
+        Ok(())
+    }
+
+    pub fn list_snapshots(&self, id: &str) -> Result<Vec<String>, String> {
+        let config = self.get_vm_config(id)?;
+        let disk_path = config.disk_path.as_ref().ok_or("VM has no disk path configured")?;
+        
+        // Use -U (force share) so we can read info even if QEMU is running and holding a lock.
+        let output = std::process::Command::new("qemu-img")
+            .args(&["info", "-U", "--output", "json", disk_path])
+            .output()
+            .map_err(|e| format!("Failed to invoke qemu-img: {}", e))?;
+            
+        if !output.status.success() {
+            return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+        }
+
+        let info: serde_json::Value = serde_json::from_slice(&output.stdout)
+            .map_err(|e| format!("Failed to parse qemu-img output: {}", e))?;
+
+        let mut snapshots = Vec::new();
+        if let Some(snaps) = info.get("snapshots").and_then(|s| s.as_array()) {
+            for snap in snaps {
+                if let Some(name) = snap.get("name").and_then(|n| n.as_str()) {
+                    snapshots.push(name.to_string());
+                }
+            }
+        }
+        
+        Ok(snapshots)
+    }
+
+    // --- Guest File Injection (QGA) ---
+
+    pub fn inject_file(&self, id: &str, host_path: &str, guest_path: &str) -> Result<(), String> {
+        let config = self.get_vm_config(id)?;
+        let mut active = self.active_vms.lock();
+        let is_running = active.get_mut(id).map(|vm| vm.qemu_instance.lock().is_running()).unwrap_or(false);
+
+        if !is_running {
+            return Err("VM must be running to inject files via QEMU Guest Agent.".to_string());
+        }
+
+        let qga_socket_path = Path::new(&config.vm_dir).join(format!("{}_qga.sock", id));
+        let mut client = crate::vm_engine::qga_client::QgaClient::connect(qga_socket_path)?;
+
+        // Read file from host
+        let data = fs::read(host_path).map_err(|e| format!("Failed to read host file: {}", e))?;
+
+        // Open file in guest
+        let handle = client.guest_file_open(guest_path, "w+")?;
+
+        // Write in chunks to avoid overwhelming the JSON payload
+        let chunk_size = 48 * 1024; // 48KB chunks (safe for base64 encoding over JSON)
+        for chunk in data.chunks(chunk_size) {
+            client.guest_file_write(handle, chunk)?;
+        }
+
+        // Close file
+        client.guest_file_close(handle)?;
+
+        Ok(())
     }
 }
