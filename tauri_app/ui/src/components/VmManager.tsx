@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Play, Square, FolderOpen, Minus, Square as SquareIcon, X, Plus, Save, Terminal, Trash2, Monitor, Folder, Upload, HardDrive, Cpu, Network, Edit3, Check, ArrowRight } from "lucide-react";
+import { Play, Square, FolderOpen, Minus, Square as SquareIcon, X, Plus, Save, Terminal, Trash2, Monitor, Folder, ArrowRight, Check } from "lucide-react";
 // @ts-ignore
 import RFB from '@novnc/novnc';
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -181,7 +181,7 @@ export default function VmManager() {
   const [ramLimit, setRamLimit] = useState(2);
   const [networkType, setNetworkType] = useState("nat");
   const [isoPath, setIsoPath] = useState("");
-  const [diskPath, setDiskPath] = useState("");
+  const [diskPath] = useState("");
   const [diskSizeGb, setDiskSizeGb] = useState<number>(25);
   const [firmware, setFirmware] = useState<"bios" | "uefi">("bios");
 
@@ -598,7 +598,7 @@ export default function VmManager() {
                     <div style={{ display: 'flex', gap: '4px' }}>
                       <input type="text" value={injectGuestPath} onChange={e => setInjectGuestPath(e.target.value)} placeholder="Guest Destination (e.g., /root/file.txt)" style={{...inputStyle, flex: 1}} />
                     </div>
-                    <button onClick={handleInjectFile} style={{...btnStyle, backgroundColor: THEME.accent, color: THEME.bgMain, fontWeight: 'bold'}}><ArrowRight size={12}/> Inject File</button>
+                    <button onClick={handleInjectFile} style={{...btnStyle, backgroundColor: THEME.accent, color: THEME.bgApp, fontWeight: 'bold'}}><ArrowRight size={12}/> Inject File</button>
                     <div style={{ fontSize: '11px', color: THEME.textMuted, fontStyle: 'italic', marginTop: '4px', lineHeight: 1.4 }}>
                       Requires <code>qemu-guest-agent</code> installed and running inside the VM.<br/>
                       e.g., Alpine: <code>apk add qemu-guest-agent && rc-service qemu-guest-agent start</code>
@@ -791,7 +791,7 @@ export default function VmManager() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         <div style={{ backgroundColor: THEME.bgApp, padding: '16px', borderRadius: '4px', border: `1px solid ${THEME.border}`, fontFamily: 'monospace', fontSize: '12px' }}>
                           <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Name:</strong> {vmName}</div>
-                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>OS Profile:</strong> {/* @ts-ignore */}{OS_FAMILIES[osFamily].versions.find(v => v.id === osType)?.label}</div>
+                          <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>OS Profile:</strong> {/* @ts-ignore */}{(OS_FAMILIES as any)[osFamily].versions.find((v: any) => v.id === osType)?.label}</div>
                           <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Hardware:</strong> {cpuCores} Cores, {ramLimit}GB RAM</div>
                           <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Firmware:</strong> {firmware.toUpperCase()}</div>
                           <div style={{ marginBottom: '8px' }}><strong style={{ color: THEME.accent }}>Storage:</strong> {diskSizeGb}GB Disk</div>

@@ -16,4 +16,5 @@ pub mod sqlite;
 pub mod terminal;
 pub mod local_chat;
 pub mod vm;
+pub mod memory_inspector;
 

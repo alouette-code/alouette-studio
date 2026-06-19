@@ -9,6 +9,7 @@ pub mod proto_manager;
 pub mod settings;
 pub mod workspace_manager;
 pub mod vm_engine;
+pub mod memory_inspector;
 
 
 // Re-export key structs for convenience
