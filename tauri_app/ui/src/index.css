@@ -4678,6 +4678,7 @@ select option {
     -webkit-user-select: none;
     flex-shrink: 0;
     z-index: 100;
+    -webkit-app-region: drag;
 }
 
 .titlebar-left {
@@ -4723,6 +4724,7 @@ select option {
     align-items: center;
     justify-content: center;
     transition: all var(--transition-fast) ease;
+    -webkit-app-region: no-drag;
 }
 
 .postman-window-titlebar .window-control-btn:hover {

@@ -6,6 +6,7 @@ import { InsightsPanel } from './components/InsightsPanel';
 import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import brandIcon from '../logo_alouette.png';
+import WindowResizer from '../WindowResizer';
 import './styles.css';
 
 interface MemoryInspectorProps {
@@ -34,6 +35,7 @@ export function MemoryInspector({ onClose }: MemoryInspectorProps) {
 
     return (
         <div className="inspector-container">
+            <WindowResizer />
             {/* Titlebar */}
             <div className="postman-window-titlebar" data-tauri-drag-region>
                 <div className="titlebar-left" data-tauri-drag-region>
