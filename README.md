@@ -130,7 +130,14 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 
 ### 17. System Manager & Global Configs
 - **Tray & Keep-Alive:** Minimize to tray, double-click to restore, and intercept close events if "keep alive" is enabled.
-- **VM Manager:** Manage local development VMs, network interfaces, and guest OS instances directly from the workspace UI ([VmManager.tsx](file:///home/nhatanh/projet/alouette_studio/tauri_app/ui/src/components/VmManager.tsx)).
+### 17. Native Hypervisor (Virtual Machine Manager)
+- **KVM Hardware Acceleration:** Directly integrates with QEMU/KVM for near-native virtualization performance, bypassing emulation overhead.
+- **Advanced OS Templates:** A dynamic wizard supporting Windows (11/10/Server), Linux (Ubuntu/Debian/Arch/Alpine), macOS (Intel/Hackintosh), and Android-x86 with auto-configured CPU, RAM, and Disk presets.
+- **UEFI (OVMF) & BIOS Support:** Dynamically injects `OVMF_CODE` for modern OS support (Windows 11, macOS) alongside legacy BIOS fallback.
+- **Dual-Engine Snapshots:** Supports zero-downtime Live Snapshots via QMP (QEMU Monitor Protocol) and Offline Snapshots via `qemu-img` with an instant UI rollback tree.
+- **Integrated Web VNC:** Streams real-time 60FPS graphical VM display into the IDE via WebSocket and `noVNC`, directly capturing keyboard and mouse input.
+- **QGA File Injection:** Pushes binary files directly into the Guest OS via the QEMU Guest Agent socket without requiring complex network sharing.
+- **Dynamic Disk Allocation:** Automatically creates and provisions `.qcow2` virtual disks based on UI-defined capacities.
 
 ### 18. AI Agent Loop & Assistant Interface
 - **Autonomous AI Agent Loop:** Operates a closed-loop code modification engine powered by `rig-core 0.38` supporting multi-provider models (Claude, DeepSeek, ChatGPT, Gemini, etc.) and SQLite session persistence.

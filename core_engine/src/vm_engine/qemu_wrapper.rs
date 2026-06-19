@@ -49,6 +49,12 @@ impl QemuInstance {
             "-device".to_string(), "virtio-net-pci,netdev=net0".to_string(),
         ];
 
+        if config.firmware.as_deref() == Some("uefi") {
+            args.push("-bios".to_string());
+            // Common path for OVMF on Alpine Linux
+            args.push("/usr/share/OVMF/OVMF_CODE_4M.fd".to_string());
+        }
+
         // Boot from ISO if provided (for OS installers)
         if let Some(iso) = &config.iso_path {
             if Path::new(iso).exists() {
@@ -63,6 +69,15 @@ impl QemuInstance {
         let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", config.id));
         args.push("-qmp".to_string());
         args.push(format!("unix:{},server,nowait", qmp_socket_path.to_string_lossy()));
+
+        // QEMU Guest Agent (QGA) over virtio-serial
+        let qga_socket_path = Path::new(&config.vm_dir).join(format!("{}_qga.sock", config.id));
+        args.push("-chardev".to_string());
+        args.push(format!("socket,path={},server,nowait,id=qga0", qga_socket_path.to_string_lossy()));
+        args.push("-device".to_string());
+        args.push("virtio-serial".to_string());
+        args.push("-device".to_string());
+        args.push("virtserialport,chardev=qga0,name=org.qemu.guest_agent.0".to_string());
 
         // 4. Start the QEMU process
         let child = Command::new(qemu_bin)

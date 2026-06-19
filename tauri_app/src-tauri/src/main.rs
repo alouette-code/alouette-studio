@@ -318,6 +318,11 @@ fn main() {
             commands::vm::start_virtual_machine,
             commands::vm::stop_virtual_machine,
             commands::vm::get_virtual_machine_logs,
+            commands::vm::create_vm_snapshot,
+            commands::vm::restore_vm_snapshot,
+            commands::vm::delete_vm_snapshot,
+            commands::vm::list_vm_snapshots,
+            commands::vm::inject_guest_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
