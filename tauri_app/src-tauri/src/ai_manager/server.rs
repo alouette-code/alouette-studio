@@ -80,6 +80,7 @@ async fn chat_completions_get() -> Json<Value> {
 #[derive(serde::Deserialize)]
 struct ChatRequest {
     model: Option<String>,
+    #[allow(dead_code)]
     messages: Option<Vec<Value>>,
 }
 
@@ -93,7 +94,7 @@ async fn chat_completions(
     let requested_model = payload.model.unwrap_or_else(|| "default".to_string());
     
     let mut target_engine = None;
-    for (id, config) in configs.iter() {
+    for (_id, config) in configs.iter() {
         if config.model_name == requested_model || requested_model == "default" {
             target_engine = Some(config.clone());
             break;

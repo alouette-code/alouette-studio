@@ -65,11 +65,13 @@ impl ModelManager {
     }
 
     /// Get the cancel flag for stopping generation
+    #[allow(dead_code)]
     pub fn cancel_flag(&self) -> Arc<AtomicBool> {
         self.cancel_flag.clone()
     }
 
     /// Cancel current generation
+    #[allow(dead_code)]
     pub fn cancel_generation(&self) {
         self.cancel_flag
             .store(true, std::sync::atomic::Ordering::SeqCst);

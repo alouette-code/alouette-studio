@@ -31,6 +31,7 @@ pub struct MiniCpmConfig {
 
 impl MiniCpmConfig {
     /// Build config từ parsed config.json của MiniCPM5-1B
+    #[allow(dead_code)]
     pub fn minicpm5_1b() -> Self {
         Self {
             hidden_size: 1536,

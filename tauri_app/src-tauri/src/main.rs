@@ -13,7 +13,7 @@ mod ai_manager;
 
 use core_engine::{ProcessManager, ProcessState, ResourceMonitor};
 use dashmap::DashMap;
-use state::{project_root, AppState};
+use state::{project_root, app_data_dir, AppState};
 use std::sync::Arc;
 use tauri::Manager;
 use tokio::sync::{Mutex, RwLock};
@@ -72,6 +72,7 @@ fn main() {
 
     let agent_registry = Arc::new(DashMap::new());
     let active_agent_project = Arc::new(RwLock::new(None));
+    let vm_manager = Arc::new(core_engine::vm_engine::VmManager::new(app_data_dir().join("vms")));
 
     let model_manager = model_manager::create_shared();
     let model_manager_for_cleanup = model_manager.clone();
@@ -90,6 +91,7 @@ fn main() {
             agent_harness,
             agent_registry,
             active_agent_project,
+            vm_manager,
         })
         .manage(model_manager)
         .manage(ai_manager::AiEngineManager::new())
@@ -310,6 +312,12 @@ fn main() {
             ai_manager::save_ai_settings,
             ai_manager::load_ai_settings,
             ai_manager::delete_ai_setting,
+            commands::vm::save_virtual_machine,
+            commands::vm::delete_virtual_machine,
+            commands::vm::list_virtual_machines,
+            commands::vm::start_virtual_machine,
+            commands::vm::stop_virtual_machine,
+            commands::vm::get_virtual_machine_logs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

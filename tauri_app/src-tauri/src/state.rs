@@ -41,6 +41,7 @@ pub struct AppState {
     // ─── NEW: Multi-session registry ───
     pub agent_registry: Arc<DashMap<String, SessionEntry>>,
     pub active_agent_project: Arc<RwLock<Option<String>>>,
+    pub vm_manager: Arc<core_engine::vm_engine::VmManager>,
 }
 
 /// Resolve the project root (parent of src-tauri) so that

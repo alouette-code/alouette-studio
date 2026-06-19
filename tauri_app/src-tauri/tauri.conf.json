@@ -34,7 +34,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "../zen_bundle/*": "zen_browser/"
+      "../zen_bundle/*": "zen_browser/",
+      "bin/*": "bin/"
     }
   }
 }
