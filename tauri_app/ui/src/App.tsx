@@ -1216,7 +1216,7 @@ export default function App() {
 
       <div className="middle-content-wrapper" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         <GlobalDock 
-          onOpenLocalAi={() => setIsAiViewActive(true)}
+          onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")}
           onOpenVmManager={() => handleFileAction("open-vm-window")}
           onOpenMemoryInspector={async () => {
             try {
