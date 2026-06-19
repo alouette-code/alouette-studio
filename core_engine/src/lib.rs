@@ -10,6 +10,7 @@ pub mod settings;
 pub mod workspace_manager;
 pub mod vm_engine;
 pub mod memory_inspector;
+pub mod docker_engine;
 
 
 // Re-export key structs for convenience
