@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use crate::memory_inspector::models::{InspectorState, TelemetryData};
+use std::collections::HashMap;
+use std::time::{SystemTime, UNIX_EPOCH};
+use crate::memory_inspector::models::{InspectorState, TelemetryData, InspectionConfig, TaskRecord, Diagnosis};
 use crate::memory_inspector::container::{ContainerDriver, docker::DockerDriver};
 use crate::memory_inspector::profiling::{Profiler, analyzer::SmartAnalyzer};
 use crate::memory_inspector::stress::{StressController, ramp_down::ExponentialRampDown};
@@ -11,6 +13,8 @@ pub struct MemoryInspectorManager {
     profiler: Arc<Mutex<dyn Profiler + Send + Sync>>,
     stress_controller: Option<Box<dyn StressController + Send + Sync>>,
     container_name: String,
+    pub tasks: HashMap<String, TaskRecord>,
+    pub current_task_id: Option<String>,
 }
 
 impl MemoryInspectorManager {
@@ -21,17 +25,39 @@ impl MemoryInspectorManager {
             profiler: Arc::new(Mutex::new(SmartAnalyzer::new())),
             stress_controller: None,
             container_name: "proto-memory-inspector".to_string(),
+            tasks: HashMap::new(),
+            current_task_id: None,
         }
     }
 
-    pub async fn start_isolation(&mut self, image: &str, initial_ram: f64) -> Result<(), String> {
+    pub async fn start_inspection(&mut self, config: InspectionConfig) -> Result<String, String> {
+        self.state = InspectorState::PreFlightChecks;
+        
+        // Check tools
+        self.container_driver.check_daemon_health()?;
+
         self.state = InspectorState::Isolating;
         // Clean up any previous container
         let _ = self.container_driver.destroy_sandbox(&self.container_name);
         
-        self.container_driver.create_sandbox(image, &self.container_name, initial_ram)?;
+        self.container_driver.create_sandbox(&config, &self.container_name)?;
         self.state = InspectorState::BaselineProfiling;
-        Ok(())
+
+        let task_id = format!("task-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
+        
+        let record = TaskRecord {
+            task_id: task_id.clone(),
+            config,
+            start_time: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
+            end_time: None,
+            status: "Running".to_string(),
+            final_diagnosis: None,
+        };
+
+        self.tasks.insert(task_id.clone(), record);
+        self.current_task_id = Some(task_id.clone());
+
+        Ok(task_id)
     }
 
     pub async fn tick(&mut self) -> Result<TelemetryData, String> {
@@ -59,8 +85,23 @@ impl MemoryInspectorManager {
                 }
             }
             InspectorState::SmartInspection => {
+                self.state = InspectorState::GeneratingReport;
+            }
+            InspectorState::GeneratingReport => {
                 // Analyze results
-                let _diagnosis = profiler.analyze();
+                let diagnosis = profiler.analyze();
+                
+                if let Some(task_id) = &self.current_task_id {
+                    if let Some(record) = self.tasks.get_mut(task_id) {
+                        record.status = "Finished".to_string();
+                        record.end_time = Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs());
+                        // Just map diagnosis directly if possible, else default to something.
+                        // Assuming profiler.analyze() returns `Diagnosis`
+                        // Wait, profiler returns `crate::memory_inspector::models::Diagnosis`
+                        record.final_diagnosis = Some(diagnosis);
+                    }
+                }
+
                 self.state = InspectorState::Finished;
             }
             _ => {}

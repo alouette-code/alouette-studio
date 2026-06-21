@@ -1,12 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
-import { TelemetryData, InspectorState } from '../types';
+import { TelemetryData, InspectorState, InspectionConfig, TaskRecord } from '../types';
 
 export function useMemoryInspector() {
     const [history, setHistory] = useState<TelemetryData[]>([]);
     const [state, setState] = useState<InspectorState>({ status: 'Idle' });
     const [isActive, setIsActive] = useState(false);
+    const [tasks, setTasks] = useState<TaskRecord[]>([]);
+    const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
 
     useEffect(() => {
         let unlisten: (() => void) | undefined;
@@ -38,16 +40,23 @@ export function useMemoryInspector() {
         };
     }, [isActive, history]);
 
-    const startInspection = async (projectId: string, image: string, initialRam: number) => {
+    const fetchTaskHistory = useCallback(async () => {
+        try {
+            const history = await invoke<TaskRecord[]>('get_task_history');
+            setTasks(history);
+        } catch (e) {
+            console.error("Failed to fetch task history:", e);
+        }
+    }, []);
+
+    const startInspection = async (config: InspectionConfig) => {
         try {
             setHistory([]);
-            setState({ status: 'Isolating' });
+            setState({ status: 'PreFlightChecks' });
             setIsActive(true);
-            await invoke('start_memory_inspection', {
-                projectId,
-                image,
-                initialRam
-            });
+            const taskId = await invoke<string>('start_memory_inspection', { config });
+            setCurrentTaskId(taskId);
+            fetchTaskHistory();
         } catch (e: any) {
             setState({ status: 'Error', error: e.toString() });
             setIsActive(false);
@@ -68,7 +77,10 @@ export function useMemoryInspector() {
         history,
         state,
         isActive,
+        tasks,
+        currentTaskId,
         startInspection,
-        stopInspection
+        stopInspection,
+        fetchTaskHistory
     };
 }
