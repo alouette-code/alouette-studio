@@ -3,6 +3,8 @@ import { ControlPanel } from './components/ControlPanel';
 import { PressureChamberChart } from './components/PressureChamberChart';
 import { HeatmapTimeline } from './components/HeatmapTimeline';
 import { InsightsPanel } from './components/InsightsPanel';
+import { TaskHistory } from './components/TaskHistory';
+import { ExecutionLog } from './components/ExecutionLog';
 import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import brandIcon from '../logo_alouette.png';
@@ -14,7 +16,7 @@ interface MemoryInspectorProps {
 }
 
 export function MemoryInspector({ onClose }: MemoryInspectorProps) {
-    const { history, state, isActive, startInspection, stopInspection } = useMemoryInspector();
+    const { history, state, isActive, tasks, startInspection, stopInspection, fetchTaskHistory } = useMemoryInspector();
     const appWindow = getCurrentWindow();
     
     const latestData = history.length > 0 ? history[history.length - 1] : null;
@@ -84,9 +86,14 @@ export function MemoryInspector({ onClose }: MemoryInspectorProps) {
                         onStart={startInspection} 
                         onStop={stopInspection} 
                     />
+                    <ExecutionLog state={state} />
                     <InsightsPanel 
                         state={state} 
                         latestData={latestData} 
+                    />
+                    <TaskHistory 
+                        tasks={tasks}
+                        onRefresh={fetchTaskHistory}
                     />
                 </div>
                 

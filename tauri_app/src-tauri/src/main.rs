@@ -108,15 +108,7 @@ fn main() {
             crate::system_manager::init_system(&window);
 
             // Initialize System Tray (Tauri v2 API)
-            let toggle = tauri::menu::MenuItem::with_id(
-                app,
-                "toggle",
-                "Show/Hide Window",
-                true,
-                None::<&str>,
-            )?;
-            let quit = tauri::menu::MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = tauri::menu::Menu::with_items(app, &[&toggle, &quit])?;
+            // Native menu removed to fix white box issue on Linux
 
             let icon = match app.default_window_icon() {
                 Some(icon) => icon.clone(),
@@ -126,25 +118,11 @@ fn main() {
 
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .icon(icon)
-                .menu(&menu)
-                .on_menu_event(|app, event| {
-                    if event.id == "toggle" {
-                        if let Some(window) = app.get_webview_window("main") {
-                            let is_visible = window.is_visible().unwrap_or(false);
-                            if is_visible {
-                                let _ = window.hide();
-                            } else {
-                                let _ = window.show();
-                                let _ = window.unminimize();
-                                let _ = window.set_focus();
-                            }
-                        }
-                    } else if event.id == "quit" {
-                        app.exit(0);
-                    }
-                })
+                // Remove native menu on Linux to prevent white box rendering issues
+                // .menu(&menu) 
                 .on_tray_icon_event(|tray, event| {
-                    if let tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
+                    // Handle single click to toggle window visibility
+                    if let tauri::tray::TrayIconEvent::Click { .. } | tauri::tray::TrayIconEvent::DoubleClick { .. } = event {
                         let app = tray.app_handle();
                         if let Some(window) = app.get_webview_window("main") {
                             let is_visible = window.is_visible().unwrap_or(false);
@@ -329,6 +307,7 @@ fn main() {
             commands::memory_inspector::actions::start_memory_inspection,
             commands::memory_inspector::actions::stop_memory_inspection,
             commands::memory_inspector::actions::open_memory_inspector_window,
+            commands::memory_inspector::actions::get_task_history,
             commands::docker::docker_ensure_started,
             commands::docker::docker_list_containers,
             commands::docker::docker_create_container,

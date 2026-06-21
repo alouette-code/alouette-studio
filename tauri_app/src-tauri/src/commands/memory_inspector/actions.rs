@@ -4,16 +4,16 @@ use std::sync::Arc;
 use tauri::{AppHandle, State, Manager};
 use super::events::emit_telemetry;
 
+use core_engine::memory_inspector::models::{InspectionConfig, TaskRecord};
+
 #[tauri::command]
 pub async fn start_memory_inspection(
     app: AppHandle,
     state: State<'_, Arc<Mutex<MemoryInspectorManager>>>,
-    _project_id: String,
-    image: String,
-    initial_ram: f64
-) -> Result<(), String> {
+    config: InspectionConfig
+) -> Result<String, String> {
     let mut manager = state.lock().await;
-    manager.start_isolation(&image, initial_ram).await?;
+    let task_id = manager.start_inspection(config).await?;
 
     let manager_clone = state.inner().clone();
     let app_clone = app.clone();
@@ -42,7 +42,15 @@ pub async fn start_memory_inspection(
         }
     });
 
-    Ok(())
+    Ok(task_id)
+}
+
+#[tauri::command]
+pub async fn get_task_history(state: State<'_, Arc<Mutex<MemoryInspectorManager>>>) -> Result<Vec<TaskRecord>, String> {
+    let manager = state.lock().await;
+    let mut history: Vec<TaskRecord> = manager.tasks.values().cloned().collect();
+    history.sort_by_key(|t| std::cmp::Reverse(t.start_time));
+    Ok(history)
 }
 
 #[tauri::command]

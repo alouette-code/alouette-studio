@@ -1,19 +1,53 @@
 use std::process::Command;
-use crate::memory_inspector::models::TelemetryData;
+use crate::memory_inspector::models::{InspectionConfig, TelemetryData};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct DockerDriver;
 
 impl super::ContainerDriver for DockerDriver {
-    fn create_sandbox(&self, image: &str, name: &str, initial_memory_mb: f64) -> Result<(), String> {
-        let mem_str = format!("{}m", initial_memory_mb);
+    fn check_daemon_health(&self) -> Result<(), String> {
         let status = Command::new("docker")
-            .args(["run", "-d", "--name", name, "-m", &mem_str, image])
-            .status()
+            .arg("info")
+            .output()
             .map_err(|e| e.to_string())?;
 
-        if !status.success() {
-            return Err("Failed to create docker sandbox".to_string());
+        if !status.status.success() {
+            return Err("Docker daemon is not running or accessible.".to_string());
+        }
+        Ok(())
+    }
+
+    fn create_sandbox(&self, config: &InspectionConfig, name: &str) -> Result<(), String> {
+        let mem_str = format!("{}m", config.initial_ram_mb);
+        
+        let mut args = vec!["run", "-d", "--name", name, "-m", &mem_str];
+        
+        for env in &config.env_vars {
+            if !env.trim().is_empty() {
+                args.push("-e");
+                args.push(env.as_str());
+            }
+        }
+        
+        args.push(&config.image);
+        
+        let mut cmd_parts = vec![];
+        if let Some(cmd_str) = &config.cmd {
+            if !cmd_str.trim().is_empty() {
+                // simple split by space for demonstration, ideally shell parsing
+                cmd_parts = cmd_str.split_whitespace().collect();
+                args.extend(cmd_parts.iter());
+            }
+        }
+
+        let output = Command::new("docker")
+            .args(&args)
+            .output()
+            .map_err(|e| e.to_string())?;
+
+        if !output.status.success() {
+            let err_msg = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("Failed to create docker sandbox: {}", err_msg));
         }
         Ok(())
     }
@@ -53,12 +87,29 @@ impl super::ContainerDriver for DockerDriver {
             limit_mb = parse_docker_mem(parts[1]);
         }
 
+        // Get thread count
+        let top_output = Command::new("docker")
+            .args(["top", name])
+            .output()
+            .map_err(|e| e.to_string())?;
+            
+        let mut thread_count = 0;
+        if top_output.status.success() {
+            let top_str = String::from_utf8_lossy(&top_output.stdout);
+            let lines: Vec<&str> = top_str.lines().collect();
+            if lines.len() > 1 {
+                // subtract header line
+                thread_count = (lines.len() - 1) as u32;
+            }
+        }
+
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
 
         Ok(TelemetryData {
             timestamp: now,
             memory_usage_mb: usage_mb,
             memory_limit_mb: limit_mb,
+            thread_count,
             gc_events_detected: 0,
             crash_imminent: false,
         })
