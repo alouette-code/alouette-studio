@@ -6,6 +6,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import WindowResizer from "./WindowResizer";
 import brandIcon from "./logo_alouette.png";
+import { WindowControls } from "./WindowControls";
 
 interface VM {
   id: string;
@@ -76,9 +77,7 @@ const OS_FAMILIES = {
 export default function VmManager() {
   const appWindow = getCurrentWindow();
 
-  const handleMinimize = async () => { try { await appWindow.minimize(); } catch {} };
-  const handleMaximize = async () => { try { await appWindow.toggleMaximize(); } catch {} };
-  const handleClose = async () => { try { await appWindow.close(); } catch {} };
+
 
   // App State
   const [activeView, setActiveView] = useState<"create" | "manage">("create");
@@ -452,11 +451,7 @@ export default function VmManager() {
           <img src={brandIcon} alt="Logo" style={{ width: "14px", height: "14px", marginRight: "8px" }} />
           <span style={{ fontSize: "12px", fontWeight: "bold" }}>Alouette VMM</span>
         </div>
-        <div style={{ display: "flex" }}>
-          <button onClick={handleMinimize} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><Minus size={14} /></button>
-          <button onClick={handleMaximize} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><SquareIcon size={12} /></button>
-          <button onClick={handleClose} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><X size={14} /></button>
-        </div>
+        <WindowControls />
       </div>
       
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

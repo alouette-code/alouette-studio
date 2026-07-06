@@ -540,6 +540,20 @@ export default function WelcomePage({
                   <Activity size={12} />
                   <span>PingZero API</span>
                 </button>
+                <button
+                  className="tool-btn-welcome flat-tool-btn"
+                  onClick={async () => {
+                    try {
+                      const { invoke } = await import("@tauri-apps/api/core");
+                      await invoke("open_vm_window");
+                    } catch (e) {
+                      triggerToast("Lỗi mở Alouette VMM", "error");
+                    }
+                  }}
+                >
+                  <Server size={12} />
+                  <span>Alouette VMM</span>
+                </button>
               </div>
             </div>
           </div>
