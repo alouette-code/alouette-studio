@@ -1,19 +1,15 @@
 import brandIcon from "./logo_alouette.png";
-import { getCurrentWindow } from "@tauri-apps/api/window";
-import { invoke } from "@tauri-apps/api/core";
 import {
   FileText,
   Settings,
   Search,
   Sun,
   Moon,
-  Minus,
-  Square,
-  X,
   Play,
   Database,
   Sparkles,
   ExternalLink,
+  Square,
 } from "lucide-react";
 
 import { WindowControls } from "./WindowControls";
@@ -88,37 +84,6 @@ export default function Header({
   agentHistoryList,
   onLoadAgentSession,
 }: HeaderProps) {
-  const appWindow = getCurrentWindow();
-
-  const handleMinimize = async () => {
-    try {
-      await appWindow.minimize();
-    } catch (e) {
-      console.error("Minimize error:", e);
-    }
-  };
-
-  const handleMaximize = async () => {
-    try {
-      await appWindow.toggleMaximize();
-    } catch (e) {
-      console.error("Maximize error:", e);
-    }
-  };
-
-  const handleClose = async () => {
-    try {
-      await invoke("hide_or_close_window");
-    } catch (e) {
-      console.error("Close error:", e);
-      try {
-        await appWindow.close();
-      } catch (err) {
-        console.error("Fallback close error:", err);
-      }
-    }
-  };
-
   return (
     <header className="global-header" data-tauri-drag-region>
       <div className="header-left">

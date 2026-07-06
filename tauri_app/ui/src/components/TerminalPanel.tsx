@@ -639,11 +639,11 @@ export default function TerminalPanel({
         cursorBlink: true,
         cursorStyle: "bar",
         cursorWidth: 2,
-        fontSize: 13,
-        lineHeight: 1.35,
+        fontSize: 14,
+        lineHeight: 1.4,
+        // letterSpacing: 0 hoạt động chuẩn xác 100% sau khi sửa CSS đo đạc của xterm-char-measure-element
         letterSpacing: 0,
-        fontFamily:
-          "\"Ubuntu Mono\", \"DejaVu Sans Mono\", \"Noto Sans Mono\", monospace",
+        fontFamily: "'Ubuntu Mono', 'DejaVu Sans Mono', 'Liberation Mono', monospace",
         theme: activeTheme,
         convertEol: true,
         rows: 24,
@@ -662,6 +662,11 @@ export default function TerminalPanel({
       instancesRef.current[sessionId] = inst;
 
       term.loadAddon(fit);
+      
+      // Use standard DOM renderer (no Canvas, no WebGL).
+      // The DOM renderer relies on standard browser HTML/CSS text rendering,
+      // which is 100% immune to WebGL/Canvas font metric calculation bugs (the cause of overlapping text).
+      console.log("[term] Using standard DOM renderer");
       try {
         term.open(termRoot);
       } catch (e) {
@@ -669,6 +674,20 @@ export default function TerminalPanel({
         delete instancesRef.current[sessionId];
         return;
       }
+
+      // Đảm bảo xterm tính toán lại lưới (grid) cực kỳ chuẩn xác SAU KHI toàn bộ font đã được load 100%
+      document.fonts.ready.then(() => {
+        // Ép xterm xóa cache charWidth và tính toán lại từ đầu bằng cách
+        // cycle fontFamily sang monospace rồi trả về font gốc.
+        // Sau đó refresh toàn bộ canvas để tránh stale glyph metrics.
+        const savedFont = term.options.fontFamily;
+        term.options.fontFamily = "monospace";
+        requestAnimationFrame(() => {
+          term.options.fontFamily = savedFont;
+          fit.fit();
+          try { term.refresh(0, term.rows - 1); } catch {}
+        });
+      });
 
       // ── IME composition handling ───────────────────────────────────────
       // Goal: forward composed characters to the PTY immediately so they
@@ -808,9 +827,6 @@ export default function TerminalPanel({
 
       const doFit = () => {
         try {
-          const font = term.options.fontFamily || "monospace";
-          term.options.fontFamily = "monospace";
-          term.options.fontFamily = font;
           fit.fit();
           term.refresh(0, term.rows - 1);
         } catch {}
@@ -820,6 +836,8 @@ export default function TerminalPanel({
       requestAnimationFrame(doFit);
       setTimeout(doFit, 80);
       setTimeout(doFit, 300);
+      // Delayed fit để bắt các font load muộn (JetBrains Mono v.v.)
+      setTimeout(doFit, 600);
 
       // Replay buffered output + force refresh to render initial content
       const buf = terminalBufferRef.current[sessionId];

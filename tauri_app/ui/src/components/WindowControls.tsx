@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
 import { Minus, Copy, Square, X } from 'lucide-react';
 import './WindowControls.css';

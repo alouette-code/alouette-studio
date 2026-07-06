@@ -1,10 +1,39 @@
-@import url("https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&family=Ubuntu+Mono:ital,wght@0,400;0,700;1,400;1,700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,300;1,400;1,500;1,700&display=swap");
+
+@font-face {
+  font-family: 'Ubuntu Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/UbuntuMono-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Ubuntu Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/UbuntuMono-Bold.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Ubuntu Mono';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./assets/fonts/UbuntuMono-Italic.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Ubuntu Mono';
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./assets/fonts/UbuntuMono-BoldItalic.ttf') format('truetype');
+}
 
 /* Global Reset & CSS Variables */
 :root {
     /* Common Brand Tokens */
     --font-sans: "Ubuntu", sans-serif;
-    --font-mono: "Ubuntu Mono", "DejaVu Sans Mono", "Noto Sans Mono", monospace;
+    --font-mono: "Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono", monospace;
     --radius-none: 0px;
 
     --transition-fast: 0.1s ease;
@@ -7018,16 +7047,27 @@ select option {
 .sandbox-xterm-wrapper .xterm-rows {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    text-rendering: optimizeLegibility;
+    text-rendering: auto !important;
 }
 
-/* Force correct monospace font-family on xterm instances to fix character overlapping/squishing */
+/* Force correct monospace font-family on xterm and monaco instances */
 .xterm,
-.xterm *,
-.xterm-char-measure-element,
 .monaco-editor,
-.monaco-editor * {
+.xterm * {
     font-family: var(--font-mono) !important;
+    letter-spacing: 0 !important;
+}
+
+/* Disable ligatures inside terminal rows and monaco lines */
+.xterm-rows,
+.monaco-editor .view-lines {
+    font-variant-ligatures: none !important;
+    font-feature-settings: "liga" 0, "calt" 0 !important;
+}
+
+/* Ensure proper line-height for display, but keep xterm-char-measure-element clean */
+.sandbox-xterm-wrapper .xterm {
+    line-height: 1.4;
 }
 
 /* Force dynamic theme background on xterm internal containers to override hardcoded xterm.css defaults */

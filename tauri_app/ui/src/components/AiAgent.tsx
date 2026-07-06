@@ -1822,11 +1822,11 @@ export default function AiAgent({
         );
       } else if (response.reply_type === "tool_request") {
         const toolMsg: ChatItem = {
-          id: response.pending_id || Date.now().toString(),
+          id: (response as any).pending_id || Date.now().toString(),
           type: "tool_request",
           sender: "agent",
-          toolName: response.tool_name,
-          args: response.args,
+          toolName: (response as any).tool_name,
+          args: (response as any).args,
           toolStatus: "waiting",
           timestamp: new Date().toLocaleTimeString([], {
             hour: "2-digit",

@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
 import { WindowControls } from "./WindowControls";
 import brandIcon from "./logo_alouette.png";
@@ -18,8 +17,6 @@ import {
   Activity,
   CheckCircle2,
   XCircle,
-  Minus,
-  Square,
   X,
   Code,
   FileCode,
@@ -59,31 +56,6 @@ import type {
    ========================================================================= */
 
 export default function PingZero() {
-  const appWindow = getCurrentWindow();
-
-  /* ---- Titlebar Controls ---- */
-  const handleMinimize = async () => {
-    try {
-      await appWindow.minimize();
-    } catch {
-      /* noop */
-    }
-  };
-  const handleMaximize = async () => {
-    try {
-      await appWindow.toggleMaximize();
-    } catch {
-      /* noop */
-    }
-  };
-  const handleClose = async () => {
-    try {
-      await appWindow.close();
-    } catch {
-      /* noop */
-    }
-  };
-
   /* ---- Request States ---- */
   const [method, setMethod] = useState<string>("GET");
   const [url, setUrl] = useState<string>("https://httpbin.org/get");
