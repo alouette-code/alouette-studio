@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
+import { WindowControls } from "./WindowControls";
 import brandIcon from "./logo_alouette.png";
 import {
   Send,
@@ -1231,27 +1232,7 @@ export default function PingZero() {
           <span className="titlebar-subtitle">API Debugger & Diagnostics</span>
         </div>
         <div className="titlebar-right">
-          <button
-            className="window-control-btn minimize"
-            onClick={handleMinimize}
-            title="Minimize"
-          >
-            <Minus size={13} />
-          </button>
-          <button
-            className="window-control-btn maximize"
-            onClick={handleMaximize}
-            title="Maximize"
-          >
-            <Square size={10} />
-          </button>
-          <button
-            className="window-control-btn close"
-            onClick={handleClose}
-            title="Close"
-          >
-            <X size={13} />
-          </button>
+          <WindowControls />
         </div>
       </div>
 
