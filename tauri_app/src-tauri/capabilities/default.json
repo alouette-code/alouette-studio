@@ -2,7 +2,8 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Default capabilities for the app",
-  "windows": ["main", "ping_window", "browser_window", "admin_window", "vm-manager", "memory_inspector_window", "docker-manager"],
+  "windows": ["main", "ping_window", "browser_window", "admin_window", "vm-manager", "memory_inspector_window", "docker-manager", "mini_browser"],
+  "webviews": ["browser-content", "*"],
   "permissions": [
     "core:default",
     "core:window:allow-create",
@@ -13,6 +14,11 @@
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-close",
     "core:window:allow-start-dragging",
-    "core:window:allow-start-resize-dragging"
+    "core:window:allow-start-resize-dragging",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-webview-close",
+    "core:webview:allow-set-webview-position",
+    "core:webview:allow-set-webview-size",
+    "core:webview:allow-reparent"
   ]
 }

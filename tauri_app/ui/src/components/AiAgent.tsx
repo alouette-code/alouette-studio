@@ -1015,11 +1015,7 @@ export default function AiAgent({
 
   const [availableModels, setAvailableModels] = useState<
     { id: string; name: string }[]
-  >([
-    { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
-    { id: "claude-opus-4.7", name: "Claude Opus 4.7" },
-    { id: "deepseek-v4-pro", name: "DeepSeek-V4 Pro" },
-  ]);
+  >([]);
 
   const [capabilities, setCapabilities] = useState(() => {
     const saved = localStorage.getItem("alouette_capabilities");
@@ -1194,14 +1190,11 @@ export default function AiAgent({
 
   useEffect(() => {
     const loadActiveModels = async () => {
-      let activeIds: string[] = [
-        "deepseek-v4-pro",
-        "claude-opus-4.7",
-        "gemini-3.5-flash",
-      ];
+      let activeIds: string[] = [];
       let activeModelBackend = "";
+      let config: any = null;
       try {
-        const config = await invoke<any>("get_custom_ai_config");
+        config = await invoke<any>("get_custom_ai_config");
         if (config) {
           activeModelBackend = config.active_model;
         }
@@ -1218,46 +1211,48 @@ export default function AiAgent({
         activeIds = [activeModelBackend];
       }
 
+      // If activeIds is still empty, fallback to all models so dropdown isn't empty
+      if (activeIds.length === 0 && config && config.providers) {
+        Object.values(config.providers).forEach((prov: any) => {
+          if (prov && prov.models) {
+            activeIds.push(...Object.keys(prov.models));
+          }
+        });
+      }
+
       const savedCustom = localStorage.getItem("alouette_custom_models");
       const customs: any[] = savedCustom ? JSON.parse(savedCustom) : [];
 
       const list: { id: string; name: string }[] = [];
 
-      const providerModelsMapping: {
-        [providerId: string]: { id: string; name: string }[];
-      } = {
-        deepseek: [
-          { id: "deepseek-v4-pro", name: "DeepSeek-V4 Pro" },
-          { id: "deepseek-v4", name: "DeepSeek-V4" },
-          { id: "deepseek-v4-flash", name: "DeepSeek-V4 Flash" },
-          { id: "deepseek-r1", name: "DeepSeek-R1" },
-        ],
-        "gpt-chatgpt": [
-          { id: "gpt-5.5", name: "GPT-5.5" },
-          { id: "o1-pro", name: "o1-Pro (Reasoning)" },
-          { id: "o3-mini", name: "o3-Mini (Coding)" },
-          { id: "gpt-4o", name: "GPT-4o (Vision)" },
-        ],
-        gemini: [
-          { id: "gemini-3.5-flash", name: "Gemini 3.5 Flash" },
-          { id: "gemini-3.1-pro", name: "Gemini 3.1 Pro" },
-          { id: "gemini-1.5-flash", name: "Gemini 1.5 Flash" },
-          { id: "gemini-1.5-pro", name: "Gemini 1.5 Pro" },
-        ],
-        claude: [
-          { id: "claude-opus-4.7", name: "Claude Opus 4.7" },
-          { id: "claude-sonnet-5", name: "Claude Sonnet 5" },
-        ],
-        qwen: [{ id: "qwen-3.7-max", name: "Qwen 3.7 Max" }],
-      };
-
-      Object.keys(providerModelsMapping).forEach((provId) => {
-        providerModelsMapping[provId].forEach((m) => {
-          if (activeIds.includes(m.id)) {
-            list.push(m);
+      // Dynamically load models from backend config
+      if (config && config.providers) {
+        Object.values(config.providers).forEach((provCfg: any) => {
+          if (provCfg && provCfg.models) {
+            Object.keys(provCfg.models).forEach((modelId) => {
+              if (activeIds.includes(modelId)) {
+                // Generate a name similar to AdminPanel
+                let modelName = modelId
+                  .split("-")
+                  .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+                  .join(" ");
+                if (modelId.startsWith("gpt-")) {
+                  modelName = "GPT-" + modelId.substring(4).toUpperCase();
+                } else if (modelId.startsWith("gemini-")) {
+                  modelName = "Gemini " + modelId.substring(7).split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                } else if (modelId.startsWith("claude-")) {
+                  modelName = "Claude " + modelId.substring(7).split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                } else if (modelId.startsWith("deepseek-")) {
+                  modelName = "DeepSeek-" + modelId.substring(9).toUpperCase();
+                } else if (modelId.startsWith("qwen-")) {
+                  modelName = "Qwen " + modelId.substring(5).toUpperCase();
+                }
+                list.push({ id: modelId, name: modelName });
+              }
+            });
           }
         });
-      });
+      }
 
       customs.forEach((c) => {
         if (activeIds.includes(c.id)) {
@@ -1266,6 +1261,7 @@ export default function AiAgent({
       });
 
       if (list.length > 0) {
+        list.sort((a, b) => a.id.localeCompare(b.id));
         setAvailableModels(list);
         setSelectedModel((prev) => {
           if (list.some((m) => m.id === prev)) return prev;
@@ -1282,14 +1278,12 @@ export default function AiAgent({
 
     loadActiveModels();
 
-    window.addEventListener("storage", loadActiveModels);
-    const interval = setInterval(loadActiveModels, 2000);
+      window.addEventListener("storage", loadActiveModels);
 
-    return () => {
-      window.removeEventListener("storage", loadActiveModels);
-      clearInterval(interval);
-    };
-  }, []);
+      return () => {
+        window.removeEventListener("storage", loadActiveModels);
+      };
+    }, []);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1890,7 +1884,14 @@ export default function AiAgent({
     } catch (err: any) {
       removeStreamPlaceholder();
       setIsTyping(false);
-      alert(`Lỗi khi phê duyệt tool: ${err?.message || err}`);
+      const errorMsg: ChatItem = {
+        id: Date.now().toString(),
+        type: "text",
+        sender: "agent",
+        text: `Lỗi khi phê duyệt tool: ${err?.message || err}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setChatHistory((prev) => [...prev, errorMsg]);
     } finally {
       isActiveSender.current = false;
     }
@@ -1976,7 +1977,14 @@ export default function AiAgent({
     } catch (err: any) {
       removeStreamPlaceholder();
       setIsTyping(false);
-      alert(`Lỗi khi từ chối tool: ${err?.message || err}`);
+      const errorMsg: ChatItem = {
+        id: Date.now().toString(),
+        type: "text",
+        sender: "agent",
+        text: `Lỗi khi từ chối tool: ${err?.message || err}`,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setChatHistory((prev) => [...prev, errorMsg]);
     } finally {
       isActiveSender.current = false;
     }
@@ -2846,16 +2854,40 @@ export default function AiAgent({
                       Yêu cầu chạy {tools.length} công cụ
                     </span>
                   </div>
-                  <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
-                    {item.timestamp}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                    <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
+                      {item.timestamp}
+                    </span>
+                    <button
+                      onClick={() => handleApproveTool(item.id)}
+                      style={{
+                        padding: "2px 8px",
+                        background: "var(--border-strong, #374151)",
+                        border: "none",
+                        color: "#fff",
+                        borderRadius: "4px",
+                        fontSize: "9px",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px"
+                      }}
+                    >
+                      <Check size={9} /> Duyệt tất cả
+                    </button>
+                  </div>
                 </div>
 
                 <div
+                  className="agent-scroll"
                   style={{
                     display: "flex",
                     flexDirection: "column",
                     gap: "4px",
+                    maxHeight: "300px",
+                    overflowY: "auto",
+                    paddingRight: "2px"
                   }}
                 >
                   {tools.map((tool, idx) => (
@@ -2943,7 +2975,15 @@ export default function AiAgent({
                   </div>
                 ) : (
                   <div>
-                    <SafeMarkdown content={item.text || ""} />
+                    {item.sender === "agent" && item.text === "" && item.id.startsWith("stream_") ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: "4px", padding: "6px 2px", height: "20px" }}>
+                        <span className="agent-typing-dot" style={{ width: "5px", height: "5px", borderRadius: "50%", background: "var(--text-muted)", display: "inline-block" }} />
+                        <span className="agent-typing-dot" style={{ width: "5px", height: "5px", borderRadius: "50%", background: "var(--text-muted)", display: "inline-block" }} />
+                        <span className="agent-typing-dot" style={{ width: "5px", height: "5px", borderRadius: "50%", background: "var(--text-muted)", display: "inline-block" }} />
+                      </div>
+                    ) : (
+                      <SafeMarkdown content={item.text || ""} />
+                    )}
                   </div>
                 )}
 

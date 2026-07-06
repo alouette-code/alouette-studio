@@ -81,7 +81,7 @@ impl SelfHealAnalyzer {
                 RecoveryStrategy {
                     category: category.clone(),
                     suggestion,
-                    retry_allowed: false,
+                    retry_allowed: true,
                     alternative_approach: Some("Use get_project_files to list available files and directories.".to_string()),
                 }
             }
@@ -159,7 +159,7 @@ impl SelfHealAnalyzer {
     pub fn should_retry(_tool_name: &str, error_msg: &str) -> bool {
         let category = Self::categorize(error_msg);
         match category {
-            FailureCategory::ParseError => true,
+            FailureCategory::ParseError | FailureCategory::FileNotFound => true,
             FailureCategory::Unknown(ref msg) => {
                 let lower = msg.to_lowercase();
                 lower.contains("syntaxerror") || lower.contains("type mismatch") || lower.contains("typeerror") || lower.contains("compilation error") || lower.contains("syntax error")

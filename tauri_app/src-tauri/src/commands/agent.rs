@@ -20,6 +20,27 @@ pub struct ToolInfo {
     pub pending_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopResultIteration {
+    pub iteration: u32,
+    pub thought: Option<String>,
+    pub tool_name: Option<String>,
+    pub tool_args: Option<String>,
+    pub tool_result: Option<String>,
+    pub tool_success: bool,
+    pub timestamp: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LoopResult {
+    pub iterations: Vec<LoopResultIteration>,
+    pub final_text: Option<String>,
+    pub total_iterations: u32,
+    pub tool_calls_made: u32,
+    pub stopped_early: bool,
+    pub stop_reason: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AgentResponse {
     pub session_id: String,
@@ -33,6 +54,7 @@ pub struct AgentResponse {
     pub total_iterations: Option<u32>,
     pub tool_result: Option<String>,
     pub approved_tool_index: Option<usize>,
+    pub loop_result: Option<LoopResult>,
 }
 
 // ─── Cancel / Interrupt ────────────────────────────────────────────────
@@ -353,6 +375,7 @@ pub async fn agent_send_message(
                 total_iterations: None,
                 tool_result: None,
                 approved_tool_index: None,
+                        loop_result: None,
             });
         }
         let llm_closure = {
@@ -490,6 +513,7 @@ pub async fn agent_send_message(
                             total_iterations: Some(max_iterations),
                             tool_result: None,
                             approved_tool_index: None,
+                        loop_result: None,
                         });
                     } else {
                         rig_bridge::agent_log(
@@ -511,6 +535,7 @@ pub async fn agent_send_message(
                             total_iterations: Some(max_iterations),
                             tool_result: None,
                             approved_tool_index: None,
+                        loop_result: None,
                         });
                     }
                 }
@@ -539,6 +564,7 @@ pub async fn agent_send_message(
                         total_iterations: Some(max_iterations),
                         tool_result: None,
                         approved_tool_index: None,
+                        loop_result: None,
                     });
                 }
                 TickResult::Error { message, iteration } => {
@@ -571,6 +597,7 @@ pub async fn agent_send_message(
                     total_iterations: None,
                     tool_result: None,
                     approved_tool_index: None,
+                        loop_result: None,
                 });
             }
             TickExecutionResult::Timeout => {
@@ -632,29 +659,30 @@ pub async fn agent_approve_tool(
 
     // ─── USER REJECTED ────────────────────────────────────────────
     if !approved {
-        // Kiểm tra nếu đang trong batch và có tool_index cụ thể
-        if let Some(idx) = tool_index {
-            // Clone pending_tools ra trước để tránh borrow của session.state
-            let pending_tools = match &session.state {
-                AgentState::AwaitingApproval(tools) => Some(tools.clone()),
-                _ => None,
-            };
+        let pending_tools = match &session.state {
+            AgentState::AwaitingApproval(tools) => Some(tools.clone()),
+            _ => None,
+        };
 
-            if let Some(pending_tools) = pending_tools {
+        if let Some(pending_tools) = pending_tools {
+            if let Some(idx) = tool_index {
                 if idx < pending_tools.len() {
                     let rejected_tool = &pending_tools[idx];
-                    // Ghi rejection observation vào history
+                    let call_id = rejected_tool.call_id.clone().unwrap_or_else(|| format!("tool_{}", Local::now().timestamp_millis()));
+                    
+                    // Push a proper ToolResult message for the rejected tool
                     session.history.push(ChatMessage {
-                        id: format!("obs_{}", Local::now().timestamp_millis()),
-                        role: "system".to_string(),
-                        content: MessageContent::Text(
-                            format!("<observation>User rejected tool '{}' (args: {}). Ask if they want to try a different approach.</observation>",
-                                rejected_tool.name, rejected_tool.arguments)
-                        ),
+                        id: call_id.clone(),
+                        role: "tool".to_string(),
+                        content: MessageContent::ToolResult {
+                            tool_call_id: call_id,
+                            tool_name: rejected_tool.name.clone(),
+                            result: "User rejected executing this tool. Please try a different approach or ask for clarification.".to_string(),
+                            success: false,
+                        },
                         timestamp: Local::now().format("%H:%M").to_string(),
                     });
 
-                    // Xóa tool đã reject khỏi danh sách
                     let mut remaining = pending_tools.clone();
                     remaining.remove(idx);
 
@@ -694,21 +722,28 @@ pub async fn agent_approve_tool(
                             total_iterations: None,
                             tool_result: None,
                             approved_tool_index: Some(idx),
+                            loop_result: None,
                         });
                     }
                 }
+            } else {
+                // Reject all pending tools (fallback)
+                for rejected_tool in &pending_tools {
+                    let call_id = rejected_tool.call_id.clone().unwrap_or_else(|| format!("tool_{}", Local::now().timestamp_millis()));
+                    session.history.push(ChatMessage {
+                        id: call_id.clone(),
+                        role: "tool".to_string(),
+                        content: MessageContent::ToolResult {
+                            tool_call_id: call_id,
+                            tool_name: rejected_tool.name.clone(),
+                            result: "User rejected executing this tool. Please try a different approach or ask for clarification.".to_string(),
+                            success: false,
+                        },
+                        timestamp: Local::now().format("%H:%M").to_string(),
+                    });
+                }
             }
         }
-
-        // Fallback: từ chối toàn bộ (hoặc tool cuối cùng)
-        session.history.push(ChatMessage {
-            id: format!("obs_{}", Local::now().timestamp_millis()),
-            role: "system".to_string(),
-            content: MessageContent::Text(
-                "<observation>User rejected executing this tool. Ask if they want to try a different approach.</observation>".to_string()
-            ),
-            timestamp: Local::now().format("%H:%M").to_string(),
-        });
 
         // Chuyển về Thinking để AI phản hồi
         session.state = AgentState::Thinking;
@@ -789,6 +824,7 @@ pub async fn agent_approve_tool(
                         total_iterations: None,
                         tool_result: None,
                         approved_tool_index: None,
+                        loop_result: None,
                     });
                 }
                 TickResult::WaitForApproval { tools, iteration } => {
@@ -816,6 +852,7 @@ pub async fn agent_approve_tool(
                         total_iterations: Some(25),
                         tool_result: None,
                         approved_tool_index: None,
+                        loop_result: None,
                     });
                 }
                 TickResult::Error { message, .. } => {
@@ -854,6 +891,7 @@ pub async fn agent_approve_tool(
                         total_iterations: None,
                         tool_result: None,
                         approved_tool_index: None,
+                        loop_result: None,
                     });
                 }
             },
@@ -873,6 +911,7 @@ pub async fn agent_approve_tool(
                     total_iterations: None,
                     tool_result: None,
                     approved_tool_index: None,
+                        loop_result: None,
                 });
             }
             TickExecutionResult::Timeout => {
@@ -907,6 +946,8 @@ pub async fn agent_approve_tool(
                     "agent-activity",
                     serde_json::json!({
                         "status": "executing",
+                        "tool_name": approved_tool.name.clone(),
+                        "args": format!("{:?}", approved_tool.arguments),
                     }),
                 );
 
@@ -975,6 +1016,7 @@ pub async fn agent_approve_tool(
                         total_iterations: None,
                         tool_result: Some(result_text),
                         approved_tool_index: Some(idx),
+                        loop_result: None,
                     });
                 } else {
                     // Hết tools pending → chuyển về Thinking để tiếp tục loop
@@ -992,10 +1034,15 @@ pub async fn agent_approve_tool(
     }
 
     // Emit executing activity (nếu chưa emit)
+    let first_tool = match &session.state {
+        AgentState::ExecutingTool => "batch execution".to_string(),
+        _ => "executing".to_string(),
+    };
     let _ = window.emit(
         "agent-activity",
         serde_json::json!({
             "status": "executing",
+            "tool_name": first_tool,
         }),
     );
 
@@ -1044,6 +1091,7 @@ pub async fn agent_approve_tool(
                 total_iterations: None,
                 tool_result: None,
                 approved_tool_index: None,
+                        loop_result: None,
             });
         }
         let llm_closure = {
@@ -1161,6 +1209,7 @@ pub async fn agent_approve_tool(
                             total_iterations: Some(max_iterations),
                             tool_result: None,
                             approved_tool_index: None,
+                        loop_result: None,
                         });
                     } else {
                         let tool = tools.first().cloned();
@@ -1185,6 +1234,7 @@ pub async fn agent_approve_tool(
                             total_iterations: Some(max_iterations),
                             tool_result: None,
                             approved_tool_index: None,
+                        loop_result: None,
                         });
                     }
                 }
@@ -1219,6 +1269,7 @@ pub async fn agent_approve_tool(
                         total_iterations: Some(max_iterations),
                         tool_result: None,
                         approved_tool_index: None,
+                        loop_result: None,
                     });
                 }
                 TickResult::Error { message, iteration } => {
@@ -1257,6 +1308,7 @@ pub async fn agent_approve_tool(
                     total_iterations: None,
                     tool_result: None,
                     approved_tool_index: None,
+                        loop_result: None,
                 });
             }
             TickExecutionResult::Timeout => {
@@ -1363,10 +1415,22 @@ fn decrypt_key(encrypted: &str) -> String {
 
 #[tauri::command]
 pub fn save_custom_ai_config(mut config: CustomAiConfig) -> Result<(), String> {
+    let existing_config = load_custom_ai_config();
+
     // Encrypt all API keys before saving
-    for provider_config in config.providers.values_mut() {
-        let encrypted = encrypt_key(provider_config.api_key.expose_secret());
-        provider_config.api_key = secrecy::SecretString::new(encrypted);
+    for (provider_id, provider_config) in config.providers.iter_mut() {
+        let secret_str = provider_config.api_key.expose_secret();
+        if secret_str == "••••••••••••••••" || secret_str == "[REDACTED]" || secret_str.is_empty() {
+            if let Some(existing_provider) = existing_config.providers.get(provider_id) {
+                let encrypted = encrypt_key(existing_provider.api_key.expose_secret());
+                provider_config.api_key = secrecy::SecretString::new(encrypted);
+            } else {
+                provider_config.api_key = secrecy::SecretString::new(encrypt_key(""));
+            }
+        } else {
+            let encrypted = encrypt_key(secret_str);
+            provider_config.api_key = secrecy::SecretString::new(encrypted);
+        }
     }
 
     let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
@@ -2228,5 +2292,48 @@ async fn evict_if_needed(registry: &dashmap::DashMap<String, SessionEntry>) {
         }
         // Flush history to disk
         entry.history_store.flush_to_disk().await;
+    }
+}
+
+#[allow(dead_code)]
+fn build_loop_result(session: &AgentSession, final_text: String) -> LoopResult {
+    let mut iterations = Vec::new();
+    let mut current_thought: Option<String> = None;
+    let mut tool_calls_made = 0;
+
+    for msg in &session.history {
+        match &msg.content {
+            MessageContent::ToolCalls(tcs) => {
+                for tc in tcs {
+                    tool_calls_made += 1;
+                    iterations.push(LoopResultIteration {
+                        iteration: session.iteration_count,
+                        thought: current_thought.take(),
+                        tool_name: Some(tc.name.clone()),
+                        tool_args: Some(tc.arguments.to_string()),
+                        tool_result: None,
+                        tool_success: false,
+                        timestamp: msg.timestamp.clone(),
+                    });
+                }
+            }
+            MessageContent::ToolResult { tool_name, result, success, .. } => {
+                // Find the matching iteration and update it
+                if let Some(iter) = iterations.iter_mut().rev().find(|i| i.tool_name.as_ref() == Some(tool_name)) {
+                    iter.tool_result = Some(result.clone());
+                    iter.tool_success = *success;
+                }
+            }
+            _ => {} // Other messages like user/text/system aren't direct tool loops
+        }
+    }
+
+    LoopResult {
+        iterations,
+        final_text: Some(final_text),
+        total_iterations: session.iteration_count,
+        tool_calls_made,
+        stopped_early: false,
+        stop_reason: None,
     }
 }

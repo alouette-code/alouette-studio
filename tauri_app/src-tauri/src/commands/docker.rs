@@ -5,7 +5,7 @@ use core_engine::docker_engine::container::{
 };
 use core_engine::docker_engine::logs::stream_container_logs;
 use core_engine::docker_engine::stats::stream_container_stats;
-use tauri::{AppHandle, Manager, Emitter};
+use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use std::sync::Arc;
 use tokio::sync::Mutex;

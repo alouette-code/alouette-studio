@@ -11,7 +11,7 @@ pub struct QmpClient {
 impl QmpClient {
     /// Connects to a QMP Unix socket and performs the initial handshake.
     pub fn connect<P: AsRef<Path>>(socket_path: P) -> Result<Self, String> {
-        let mut stream = UnixStream::connect(socket_path)
+        let stream = UnixStream::connect(socket_path)
             .map_err(|e| format!("Failed to connect to QMP socket: {}", e))?;
         
         stream.set_read_timeout(Some(Duration::from_secs(5))).map_err(|e| e.to_string())?;

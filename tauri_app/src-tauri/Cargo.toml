@@ -23,8 +23,9 @@ regex-lite = "0.1"
 url = "2"
 quick-xml = "0.40"
 jsonschema = "0.46"
-tract-onnx = "0.23.0"
 rig-core = { version = "0.38", features = ["derive"] }
+langchain-rust = "4.4.0"
+async-trait = "0.1"
 futures-util = "0.3.32"
 r2d2 = "0.8"
 r2d2_sqlite = "0.34.0"
@@ -35,14 +36,6 @@ git2 = "0.19"
 pathdiff = "0.2"
 rfd = "0.17.2"
 
-# Candle (HuggingFace Rust ML) + tokenizers
-candle-core = "0.10.2"
-candle-nn = "0.10.2"
-candle-transformers = "0.10.2"
-tokenizers = "0.21"
-fastrand = "2.3"
-ort = "2.0.0-rc.8"
-pyo3 = { version = "0.21.2", features = ["auto-initialize", "abi3-py310"] }
 lazy_static = "1.4"
 axum = "0.7"
 [build-dependencies]

@@ -7,6 +7,7 @@ pub mod files;
 pub mod git;
 pub mod git_diff;
 pub mod language;
+
 pub mod network;
 pub mod process;
 pub mod rig_bridge;
@@ -14,7 +15,7 @@ pub mod sandbox;
 pub mod settings;
 pub mod sqlite;
 pub mod terminal;
-pub mod local_chat;
 pub mod vm;
 pub mod memory_inspector;
 pub mod docker;
+pub mod langchain_rig_bridge;
