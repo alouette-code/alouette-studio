@@ -7,12 +7,14 @@ pub async fn stream_container_logs(
     docker: Docker,
     id: String,
     tx: mpsc::Sender<String>,
+    since: i64,
 ) -> Result<(), String> {
     let options = Some(LogsOptions::<String> {
         follow: true,
         stdout: true,
         stderr: true,
-        tail: "100".to_string(),
+        tail: if since > 0 { "all".to_string() } else { "100".to_string() },
+        since,
         ..Default::default()
     });
 

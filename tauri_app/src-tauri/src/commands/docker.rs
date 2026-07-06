@@ -76,7 +76,7 @@ struct LogPayload {
 }
 
 #[tauri::command]
-pub async fn docker_stream_logs(app_handle: AppHandle, id: String) -> Result<(), String> {
+pub async fn docker_stream_logs(app_handle: AppHandle, id: String, since: Option<i64>) -> Result<(), String> {
     let client = get_client().await?;
     let (tx, mut rx) = mpsc::channel(100);
     
@@ -94,7 +94,7 @@ pub async fn docker_stream_logs(app_handle: AppHandle, id: String) -> Result<(),
     });
 
     tokio::spawn(async move {
-        let _ = stream_container_logs(client.docker, id, tx).await;
+        let _ = stream_container_logs(client.docker, id, tx, since.unwrap_or(0)).await;
     });
 
     Ok(())

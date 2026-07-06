@@ -98,8 +98,9 @@ const useContainerStats = (containerId: string | null) => {
   return stats;
 };
 
-const LogsTab = ({ containerId }: { containerId: string }) => {
+const LogsTab = ({ containerId, since, onClear }: { containerId: string, since: number, onClear: () => void }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
+  const termInstance = useRef<Terminal | null>(null);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -110,21 +111,22 @@ const LogsTab = ({ containerId }: { containerId: string }) => {
       disableStdin: true,
       convertEol: true,
     });
+    termInstance.current = term;
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
     try { fitAddon.fit(); } catch (e) { console.warn(e); }
 
     let unlisten: any;
-    invoke("docker_stream_logs", { id: containerId }).catch(console.error);
+    invoke("docker_stream_logs", { id: containerId, since }).catch(console.error);
     listen("docker_log", (event: any) => {
       if (event.payload.id === containerId) {
         let msg = event.payload.message;
-        msg = msg.replace(/(INFO|info)/g, '\x1b[32m$1\x1b[0m');
-        msg = msg.replace(/(WARN|warn|WARNING|warning)/g, '\x1b[33m$1\x1b[0m');
-        msg = msg.replace(/(ERROR|error|ERR|err)/g, '\x1b[31m$1\x1b[0m');
-        msg = msg.replace(/(DEBUG|debug)/g, '\x1b[34m$1\x1b[0m');
-        msg = msg.replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '\x1b[36m$&\x1b[0m');
+        msg = msg.replace(/ (INFO|info) /g, '\x1b[32m$1\x1b[0m');
+        msg = msg.replace(/ (WARN|warn|WARNING|warning) /g, '\x1b[33m$1\x1b[0m');
+        msg = msg.replace(/ (ERROR|error|ERR|err) /g, '\x1b[31m$1\x1b[0m');
+        msg = msg.replace(/ (DEBUG|debug) /g, '\x1b[34m$1\x1b[0m');
+        msg = msg.replace(/ \d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?Z? /g, '\x1b[36m$&\x1b[0m');
         term.write(msg);
       }
     }).then(un => unlisten = un).catch(console.error);
@@ -136,15 +138,32 @@ const LogsTab = ({ containerId }: { containerId: string }) => {
       window.removeEventListener('resize', handleResize);
       if (unlisten) unlisten();
       term.dispose();
+      termInstance.current = null;
     };
-  }, [containerId]);
+  }, [containerId, since]);
 
-  return <div ref={terminalRef} style={{ width: '100%', height: '100%', padding: '8px' }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <button 
+        onClick={() => {
+          termInstance.current?.clear();
+          onClear();
+        }} 
+        style={{ ...btnStyle, position: 'absolute', top: 8, right: 24, zIndex: 10, opacity: 0.7 }}
+        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+      >
+        <Trash2 size={12}/> Clear
+      </button>
+      <div ref={terminalRef} style={{ width: '100%', height: '100%', padding: '8px' }} />
+    </div>
+  );
 };
 
 const TerminalTab = ({ containerId }: { containerId: string }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const execIdRef = useRef<string | null>(null);
+  const termInstance = useRef<Terminal | null>(null);
 
   useEffect(() => {
     if (!terminalRef.current) return;
@@ -155,6 +174,7 @@ const TerminalTab = ({ containerId }: { containerId: string }) => {
       fontFamily: 'Consolas, "Courier New", monospace',
       cursorBlink: true,
     });
+    termInstance.current = term;
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.open(terminalRef.current);
@@ -188,10 +208,23 @@ const TerminalTab = ({ containerId }: { containerId: string }) => {
       window.removeEventListener('resize', handleResize);
       if (unlisten) unlisten();
       term.dispose();
+      termInstance.current = null;
     };
   }, [containerId]);
 
-  return <div ref={terminalRef} style={{ width: '100%', height: '100%', padding: '8px' }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <button 
+        onClick={() => termInstance.current?.clear()} 
+        style={{ ...btnStyle, position: 'absolute', top: 8, right: 24, zIndex: 10, opacity: 0.7 }}
+        onMouseEnter={(e) => e.currentTarget.style.opacity = '1'}
+        onMouseLeave={(e) => e.currentTarget.style.opacity = '0.7'}
+      >
+        <Trash2 size={12}/> Clear
+      </button>
+      <div ref={terminalRef} style={{ width: '100%', height: '100%', padding: '8px' }} />
+    </div>
+  );
 };
 
 const getC = (c: any) => {
@@ -218,6 +251,7 @@ export default function DockerManager() {
   const [cRam, setCRam] = useState(512);
 
   const [manageTab, setManageTab] = useState<"logs" | "terminal" | "settings">("logs");
+  const [clearedLogsAt, setClearedLogsAt] = useState<Record<string, number>>({});
   const currentStats = useContainerStats(activeView === "manage" ? selectedId : null);
 
   const checkDaemon = async () => {
@@ -348,11 +382,12 @@ export default function DockerManager() {
               ) : containers.map((c: any) => {
                 const isRunning = getC(c).state === "running";
                 const name = getC(c).names?.[0]?.replace("/", "") || (getC(c).id ? getC(c).id.substring(0,8) : "Unknown");
-                const isSelected = activeView === "manage" && selectedId === c.id;
+                const isSelected = activeView === "manage" && selectedId === getC(c).id;
                 
                 return (
                   <div 
                     key={c.id || Math.random().toString()}
+                    onClick={() => { setActiveView("manage"); setSelectedId(getC(c).id); }}
                     style={{ 
                       display: 'flex', 
                       alignItems: 'center',
@@ -365,10 +400,7 @@ export default function DockerManager() {
                       borderLeft: isSelected ? `3px solid ${THEME.accent}` : '3px solid transparent'
                     }}
                   >
-                    <div 
-                      style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', flex: 1 }}
-                      onClick={() => { setActiveView("manage"); setSelectedId(getC(c).id); }}
-                    >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', flex: 1 }}>
                       <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isRunning ? THEME.success : THEME.textMuted }} />
                       <span style={{ fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
                     </div>
@@ -439,7 +471,14 @@ export default function DockerManager() {
 
                 {/* Tab Content */}
                 <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-                  {manageTab === "logs" && <LogsTab containerId={getC(currentContainer).id} key={`logs-${getC(currentContainer).id}`} />}
+                  {manageTab === "logs" && (
+                    <LogsTab 
+                      containerId={getC(currentContainer).id} 
+                      since={clearedLogsAt[getC(currentContainer).id] || 0}
+                      onClear={() => setClearedLogsAt(prev => ({ ...prev, [getC(currentContainer).id]: Math.floor(Date.now() / 1000) }))}
+                      key={`logs-${getC(currentContainer).id}`} 
+                    />
+                  )}
                   {manageTab === "terminal" && <TerminalTab containerId={getC(currentContainer).id} key={`term-${getC(currentContainer).id}`} />}
                   {manageTab === "settings" && (
                     <div style={{ padding: '24px', height: '100%', overflowY: 'auto' }}>
