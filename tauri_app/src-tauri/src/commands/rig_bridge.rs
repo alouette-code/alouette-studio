@@ -149,10 +149,10 @@ async fn call_openai_compatible(
         .connect_timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {}", e))?;
-    let base_url = if api_url.is_empty() {
+    let base_url = if api_url.trim().is_empty() {
         "https://api.openai.com/v1".to_string()
     } else {
-        api_url.trim_end_matches('/').to_string()
+        api_url.trim().trim_end_matches('/').to_string()
     };
 
     let mut body = json!({
@@ -186,7 +186,7 @@ async fn call_openai_compatible(
 
     let response = client
         .post(format!("{}/chat/completions", base_url))
-        .header("Authorization", format!("Bearer {}", api_key))
+        .header("Authorization", format!("Bearer {}", api_key.trim()))
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
@@ -332,28 +332,26 @@ async fn call_openai_compatible(
                                 delta.get("tool_calls").and_then(|tc| tc.as_array())
                             {
                                 for tc in tc_array {
-                                    if let Some(idx) = tc.get("index").and_then(|i| i.as_u64()) {
-                                        let idx = idx as usize;
-                                        while streamed_tool_calls.len() <= idx {
-                                            streamed_tool_calls.push(StreamToolCall::default());
-                                        }
-                                        let stc = &mut streamed_tool_calls[idx];
-                                        if let Some(id) = tc.get("id").and_then(|i| i.as_str()) {
-                                            stc.id = id.to_string();
-                                        }
-                                        if let Some(func) =
-                                            tc.get("function").and_then(|f| f.as_object())
+                                    let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                                    while streamed_tool_calls.len() <= idx {
+                                        streamed_tool_calls.push(StreamToolCall::default());
+                                    }
+                                    let stc = &mut streamed_tool_calls[idx];
+                                    if let Some(id) = tc.get("id").and_then(|i| i.as_str()) {
+                                        stc.id = id.to_string();
+                                    }
+                                    if let Some(func) =
+                                        tc.get("function").and_then(|f| f.as_object())
+                                    {
+                                        if let Some(name) =
+                                            func.get("name").and_then(|n| n.as_str())
                                         {
-                                            if let Some(name) =
-                                                func.get("name").and_then(|n| n.as_str())
-                                            {
-                                                stc.name.push_str(name);
-                                            }
-                                            if let Some(args) =
-                                                func.get("arguments").and_then(|a| a.as_str())
-                                            {
-                                                stc.arguments.push_str(args);
-                                            }
+                                            stc.name.push_str(name);
+                                        }
+                                        if let Some(args) =
+                                            func.get("arguments").and_then(|a| a.as_str())
+                                        {
+                                            stc.arguments.push_str(args);
                                         }
                                     }
                                 }
@@ -574,6 +572,11 @@ pub async fn call_rig(
             model_name
         ),
     );
+    
+    // Emit empty chunk to create stream placeholder early in UI
+    if let Some(w) = window {
+        let _ = w.emit("agent-text-chunk", "");
+    }
     agent_log(
         window,
         &format!(
@@ -616,7 +619,7 @@ pub async fn call_rig(
         "claude" => {
             // Anthropic via Rig Agent — fallback to text parsing
             let conversation = build_conversation_text(&final_system_prompt, history);
-            let client = providers::anthropic::Client::new(api_key)
+            let client = providers::anthropic::Client::new(api_key.trim())
                 .map_err(|e| format!("Anthropic client: {}", e))?;
             let m = client.completion_model(model_name);
             let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
@@ -644,34 +647,23 @@ pub async fn call_rig(
             })
         }
         "gemini" => {
-            // Gemini via Rig Agent — fallback to text parsing
-            let conversation = build_conversation_text(&final_system_prompt, history);
-            let client = providers::gemini::Client::new(api_key)
-                .map_err(|e| format!("Gemini client: {}", e))?;
-            let m = client.completion_model(model_name);
-            let agent = AgentBuilder::new(m).preamble(&final_system_prompt).build();
-            agent_log(window, &format!("[ALOUETTE LLM] Đang gửi yêu cầu tới Google/Gemini qua Rig Agent (model = '{}')...", model_name));
-            let response_text = agent.prompt(&conversation).await.map_err(|e| {
-                agent_log(
-                    window,
-                    &format!("[ALOUETTE LLM ERROR] Rig Gemini failed: {}", e),
-                );
-                format!("Rig Gemini: {}", e)
-            })?;
-            agent_log(
+            // Sử dụng OpenAI compatibility layer của Google để hỗ trợ Native Tool Calls trọn vẹn
+            let mut gemini_url = api_url.trim().trim_end_matches('/').to_string();
+            if gemini_url.contains("generativelanguage.googleapis.com") && !gemini_url.ends_with("openai") {
+                gemini_url = format!("{}/openai", gemini_url);
+            }
+            call_openai_compatible(
+                api_key.trim(),
+                model_name,
+                &gemini_url,
+                temperature,
+                top_p,
+                &messages,
+                &tools_array,
+                thinking_mode,
                 window,
-                "[ALOUETTE LLM] Đã nhận phản hồi thành công từ Google/Gemini.",
-            );
-
-            let tool_calls = parse_tool_calls_from_text(&response_text);
-            let text =
-                core_engine::agent_harness::parser::parse_model_response(&response_text).plain_text;
-
-            Ok(LlmResponse {
-                text,
-                tool_calls,
-                raw_text: response_text,
-            })
+            )
+            .await
         }
         _ => {
             // Fallback: any other provider via Rig Agent with text prompt

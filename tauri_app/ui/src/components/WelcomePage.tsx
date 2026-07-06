@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { Project, ProcessState } from "../types";
 import { listen } from "@tauri-apps/api/event";
-import { invoke } from "@tauri-apps/api/core";
+
 import ReactMarkdown from "react-markdown";
 
 interface WelcomePageProps {
@@ -143,13 +143,15 @@ export default function WelcomePage({
     handleFileAction("open-file-path", path);
   };
 
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   const handleSendChat = async () => {
     const text = chatInput.trim();
     if (!text || isTyping) return;
 
     setIsChatting(true);
     const userMsg: Message = { role: "user", content: text };
-    const historyForBackend = [...messages];
+    const historyForBackend = [...messages, userMsg];
 
     setMessages((prev) => [...prev, userMsg]);
     setChatInput("");
@@ -157,37 +159,88 @@ export default function WelcomePage({
 
     activeStreamContentRef.current = "";
     setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    setStatus("running");
+    setStatusMessage("Đang gọi API Ollama...");
 
     try {
-      await invoke("local_chat_send", {
-        message: userMsg.content,
-        history: historyForBackend,
+      abortControllerRef.current = new AbortController();
+      const response = await fetch("http://localhost:11434/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "llama3", // Mô hình mặc định (có thể thay đổi)
+          messages: historyForBackend,
+          stream: true,
+        }),
+        signal: abortControllerRef.current.signal,
       });
-    } catch (err: any) {
-      console.error(err);
-      setStatusMessage("Lỗi kết nối server");
-      setMessages((prev) => {
-        const next = [...prev];
-        if (next.length > 0 && next[next.length - 1].role === "assistant") {
-          next[next.length - 1] = {
-            role: "assistant",
-            content: `❌ Lỗi: ${err?.message || err || "Không thể kết nối đến local model server."}`,
-          };
+
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder("utf-8");
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n").filter((line) => line.trim() !== "");
+
+          for (const line of lines) {
+            try {
+              const data = JSON.parse(line);
+              if (data.message && data.message.content) {
+                activeStreamContentRef.current += data.message.content;
+                setMessages((prev) => {
+                  const next = [...prev];
+                  next[next.length - 1] = {
+                    role: "assistant",
+                    content: activeStreamContentRef.current,
+                  };
+                  return next;
+                });
+              }
+            } catch (e) {
+              // Ignore parse errors on partial chunks
+            }
+          }
         }
-        return next;
-      });
+      }
       setIsTyping(false);
+      setStatus("idle");
+    } catch (err: any) {
+      if (err.name === "AbortError") {
+        console.log("Chat stopped");
+      } else {
+        console.error(err);
+        setStatusMessage("Lỗi kết nối Ollama");
+        setMessages((prev) => {
+          const next = [...prev];
+          if (next.length > 0 && next[next.length - 1].role === "assistant") {
+            next[next.length - 1] = {
+              role: "assistant",
+              content: `❌ Lỗi: Không thể kết nối đến Ollama API. Hãy chắc chắn Ollama đang chạy tại http://localhost:11434 và bạn đã tải mô hình 'llama3' (hoặc sửa model trong source).`,
+            };
+          }
+          return next;
+        });
+      }
+      setIsTyping(false);
+      setStatus("idle");
     }
   };
 
   const handleStopChat = async () => {
-    try {
-      await invoke("local_chat_stop");
-      setIsTyping(false);
-      triggerToast("Đã dừng phản hồi", "info");
-    } catch (e) {
-      console.error("Failed to stop chat:", e);
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
     }
+    setIsTyping(false);
+    triggerToast("Đã dừng phản hồi", "info");
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {

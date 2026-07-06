@@ -1,7 +1,7 @@
-use crate::state::{app_data_dir, AppState};
+use crate::state::AppState;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
@@ -32,22 +32,8 @@ pub fn spawn_alouette_open_monitor(app_handle: AppHandle) {
         // Wait a few seconds for systems to initialize
         sleep(Duration::from_secs(5)).await;
 
-        // Try loading the ONNX model once to verify it works
-        let model_path = app_data_dir()
-            .join("model_alouette_open")
-            .join("alouette_open-A1 v1.0.onnx");
-
-        println!("[Alouette Open] Loading ONNX model from: {:?}", model_path);
-        let tract_model = match load_onnx_model(&model_path) {
-            Ok(m) => {
-                println!("[Alouette Open] Successfully loaded ONNX model!");
-                Some(m)
-            }
-            Err(e) => {
-                eprintln!("[Alouette Open] Warning: Failed to load ONNX model: {}. Using lightweight heuristic fallback.", e);
-                None
-            }
-        };
+        // ONNX model loading removed (using pure heuristics)
+        println!("[Alouette Open] Using lightweight heuristic error detection.");
 
         loop {
             sleep(Duration::from_millis(500)).await;
@@ -94,22 +80,7 @@ pub fn spawn_alouette_open_monitor(app_handle: AppHandle) {
                         for log in new_logs {
                             let text_lower = log.text.to_lowercase();
 
-                            // 1. Run ONNX Inference if available
-                            let is_onnx_error = if let Some(ref model) = tract_model {
-                                match run_inference(model.clone(), &log.text) {
-                                    Ok(is_err) => is_err,
-                                    Err(on_err) => {
-                                        // ONNX failed at runtime → log and fall through to heuristic
-                                        eprintln!("[Alouette Open] ONNX inference failed: {}. Falling back to heuristic.", on_err);
-                                        // Disable ONNX for future runs to avoid repeated failures
-                                        false
-                                    }
-                                }
-                            } else {
-                                false
-                            };
-
-                            // 2. Heuristic validation (always runs as fallback)
+                            // Heuristic validation
                             let is_heuristic_error = text_lower.contains("error")
                                 || text_lower.contains("exception")
                                 || text_lower.contains("failed")
@@ -117,7 +88,7 @@ pub fn spawn_alouette_open_monitor(app_handle: AppHandle) {
                                 || text_lower.contains("critical")
                                 || log.stream == "stderr";
 
-                            if is_onnx_error || is_heuristic_error {
+                            if is_heuristic_error {
                                 println!(
                                     "[Alouette Open] Found error in project [{}]: {}",
                                     project_id, log.text
@@ -140,87 +111,4 @@ pub fn spawn_alouette_open_monitor(app_handle: AppHandle) {
             }
         }
     });
-}
-
-// Struct to represent runnable tract model
-type TractModel = tract_onnx::prelude::TypedRunnableModel;
-
-/// Tries to load the alouette_open-A1 ONNX model.
-/// Uses multiple strategies because tract-onnx has limitations with some ops:
-/// 1. into_optimized → into_runnable (fastest, may fail with ChangeAxes)
-/// 2. into_typed → into_runnable (fallback, may fail with Gather)
-fn load_onnx_model(path: &std::path::Path) -> Result<Arc<TractModel>, String> {
-    use tract_onnx::prelude::*;
-
-    // Attempt 1: into_optimized -> into_runnable (fastest execution)
-    let model = tract_onnx::onnx()
-        .model_for_path(path)
-        .map_err(|e| e.to_string())?;
-
-    match model.into_optimized() {
-        Ok(optimized) => match optimized.into_runnable() {
-            Ok(runnable) => {
-                println!("[Alouette Open] Model loaded with optimization");
-                return Ok(runnable);
-            }
-            Err(e) => eprintln!(
-                "[Alouette Open] into_runnable after optimization failed: {}",
-                e
-            ),
-        },
-        Err(e) => eprintln!(
-            "[Alouette Open] into_optimized failed: {}. Trying into_typed...",
-            e
-        ),
-    }
-
-    // Attempt 2: into_typed -> into_runnable (no optimization but typed)
-    let model = tract_onnx::onnx()
-        .model_for_path(path)
-        .map_err(|e| e.to_string())?;
-    let typed = model
-        .into_typed()
-        .map_err(|e| format!("into_typed failed: {}", e))?;
-    typed
-        .into_runnable()
-        .map_err(|e| format!("into_runnable failed: {}", e))
-}
-
-/// Runs inference on the alouette_open-A1 ONNX model.
-/// Model expects input tokens of shape [1, 1024] and returns binary classification logits.
-///
-/// NOTE: tract-onnx 0.21.3 cannot evaluate this model's Gather (embedding) operator.
-/// The ONNX model was exported from PyTorch 2.12.0 with ops that tract doesn't support.
-/// This function will return Err at runtime if the model is loaded.
-/// The calling code handles this gracefully by falling back to heuristic detection.
-fn run_inference(model: Arc<TractModel>, text: &str) -> Result<bool, String> {
-    use tract_onnx::prelude::*;
-
-    // A very simple ASCII tokenizer for alouette_open-A1 v1.0.onnx
-    // Model expects input sequence length of 1024
-    const SEQ_LEN: usize = 1024;
-    let mut tokens = vec![0i64; SEQ_LEN];
-    for (i, byte) in text.as_bytes().iter().take(SEQ_LEN).enumerate() {
-        tokens[i] = *byte as i64;
-    }
-
-    // Prepare tract tensor of shape [1, 1024]
-    let tensor = Tensor::from_shape(&[1, SEQ_LEN], &tokens).map_err(|e| e.to_string())?;
-
-    // Run inference
-    let result = model.run(tvec!(tensor.into())).map_err(|e| e.to_string())?;
-
-    // Analyze output logits (assume first output is binary classifier: index 1 is error probability)
-    if let Some(output_tensor) = result.get(0) {
-        if let Ok(logits) = output_tensor.to_plain_array_view::<f32>() {
-            let slice = logits.as_slice().unwrap_or(&[]);
-            if slice.len() >= 2 {
-                let no_err_logit = slice[0];
-                let err_logit = slice[1];
-                return Ok(err_logit > no_err_logit);
-            }
-        }
-    }
-
-    Ok(false)
 }

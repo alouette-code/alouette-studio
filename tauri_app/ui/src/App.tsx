@@ -45,6 +45,7 @@ import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
 import { MemoryInspector } from "./components/MemoryInspector";
 import DockerManager from "./components/DockerManager";
+import MiniBrowser from "./components/MiniBrowser";
 
 // Search Engine
 import { searchAgentHistoryFull, detectSearchIntent } from "./lib/search";
@@ -213,6 +214,10 @@ export default function App() {
 
   if (window.location.search.includes("window=docker-manager")) {
     return <DockerManager />;
+  }
+
+  if (window.location.search.includes("window=mini-browser")) {
+    return <MiniBrowser />;
   }
 
   // Theme State

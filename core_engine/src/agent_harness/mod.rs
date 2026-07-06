@@ -98,7 +98,7 @@ impl Default for AgentLoopConfig {
             auto_approve_reads: true,
             auto_approve_writes: false,
             auto_approve_all: false,
-            command_timeout_secs: 120,
+            command_timeout_secs: 15,
             session_id: String::new(),
         }
     }
@@ -280,7 +280,7 @@ impl AgentHarness {
             skill_engine,
             hook_manager: None,
             mode: HarnessMode::Standard,
-            command_timeout_secs: 120,
+            command_timeout_secs: 15,
             cancel_flag: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             subagents: HashMap::new(),
             running_commands: HashMap::new(),

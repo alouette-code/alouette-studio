@@ -4,12 +4,8 @@
 mod alouette_open;
 mod commands;
 mod events;
-mod inference;
-mod minicpm;
-mod model_manager;
 mod state;
 mod system_manager;
-mod ai_manager;
 
 use core_engine::{ProcessManager, ProcessState, ResourceMonitor};
 use core_engine::memory_inspector::MemoryInspectorManager;
@@ -75,9 +71,6 @@ fn main() {
     let active_agent_project = Arc::new(RwLock::new(None));
     let vm_manager = Arc::new(core_engine::vm_engine::VmManager::new(app_data_dir().join("vms")));
 
-    let model_manager = model_manager::create_shared();
-    let model_manager_for_cleanup = model_manager.clone();
-
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
 
@@ -94,8 +87,6 @@ fn main() {
             active_agent_project,
             vm_manager,
         })
-        .manage(model_manager)
-        .manage(ai_manager::AiEngineManager::new())
         .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
         .manage(Arc::new(Mutex::new(MemoryInspectorManager::new())))
         .setup(move |app| {
@@ -208,6 +199,7 @@ fn main() {
             commands::network::open_ping_window,
             commands::network::open_admin_window,
             commands::browser::open_browser_window,
+            commands::browser::navigate_webview,
             commands::network::send_http_request,
             commands::network::dns_lookup,
             commands::network::ping_host,
@@ -285,14 +277,6 @@ fn main() {
             commands::code_rag::code_rag_extract_functions,
             commands::code_rag::code_rag_scan_directory,
             commands::code_rag::code_rag_debug,
-            commands::local_chat::local_chat_send,
-            commands::local_chat::local_chat_stop,
-            ai_manager::start_ai_engine,
-            ai_manager::stop_ai_engine,
-            ai_manager::get_ai_engine_status,
-            ai_manager::save_ai_settings,
-            ai_manager::load_ai_settings,
-            ai_manager::delete_ai_setting,
             commands::vm::save_virtual_machine,
             commands::vm::delete_virtual_machine,
             commands::vm::list_virtual_machines,
@@ -328,7 +312,6 @@ fn main() {
                 let pm_clone = state.process_manager.clone();
                 let rm_clone = state.resource_monitor.clone();
                 let app_handle_clone = app_handle.clone();
-                let mm_for_cleanup = model_manager_for_cleanup.clone();
 
                 tauri::async_runtime::spawn(async move {
                     let mut pids: Vec<(String, u32)> = Vec::new();
@@ -355,12 +338,6 @@ fn main() {
 
                     for pid in term_pids {
                         core_engine::terminate_process_tree(pid).await;
-                    }
-
-                    // Cleanup: stop the inference engine
-                    {
-                        let mut mm = mm_for_cleanup.inner.lock().await;
-                        mm.stop();
                     }
 
                     app_handle_clone.exit(0);

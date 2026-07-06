@@ -11,20 +11,7 @@ pub struct ToolDef {
 
 pub fn all_tools() -> Vec<ToolDef> {
     vec![
-        ToolDef {
-            name: "read_file",
-            description: "Read the full contents of a file within the workspace. For large files, use read_file_range to read specific sections.",
-            parameters: json!({
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Relative or absolute path to the file. If relative, resolved against workspace root."
-                    }
-                },
-                "required": ["path"]
-            }),
-        },
+
         ToolDef {
             name: "write_file",
             description: "Create a new file or overwrite an existing file with new content. Parent directories are created automatically.",
@@ -395,7 +382,7 @@ pub fn tools_prompt_text() -> String {
     text.push_str("2. **Parallel when independent.** Multiple tools with no dependencies can be called together.\n");
     text.push_str("3. **One at a time when dependent.** If tool B needs tool A's result, wait for A.\n");
     text.push_str("4. **Handle denial gracefully.** If a tool is denied, adjust your approach.\n");
-    text.push_str("5. **Prefer dedicated tools.** Use read_file over cat, write_file over echo >.\n");
+    text.push_str("5. **Prefer dedicated tools.** Use read_file_range over cat, write_file over echo >.\n");
     text.push_str("6. **Report faithfully.** If tests fail, say so. If something doesn't work, say that.\n");
 
     text

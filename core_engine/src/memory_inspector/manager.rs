@@ -2,7 +2,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-use crate::memory_inspector::models::{InspectorState, TelemetryData, InspectionConfig, TaskRecord, Diagnosis};
+use crate::memory_inspector::models::{InspectorState, TelemetryData, InspectionConfig, TaskRecord};
 use crate::memory_inspector::container::{ContainerDriver, docker::DockerDriver};
 use crate::memory_inspector::profiling::{Profiler, analyzer::SmartAnalyzer};
 use crate::memory_inspector::stress::{StressController, ramp_down::ExponentialRampDown};

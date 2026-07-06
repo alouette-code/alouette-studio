@@ -22,7 +22,7 @@ pub async fn list_containers(
     docker: &Docker,
     all: bool,
 ) -> Result<Vec<ContainerSummary>, String> {
-    let mut filters: HashMap<String, Vec<String>> = HashMap::new();
+    let filters: HashMap<String, Vec<String>> = HashMap::new();
     let options = Some(ListContainersOptions {
         all,
         filters,
