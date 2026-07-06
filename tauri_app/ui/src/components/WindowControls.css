@@ -1,0 +1,31 @@
+.window-controls-container {
+  display: flex !important;
+  align-items: center !important;
+  gap: 10px !important;
+}
+
+.window-control-btn {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 26px !important;
+  height: 26px !important;
+  min-width: 26px !important;
+  min-height: 26px !important;
+  border-radius: 50% !important;
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  border: none !important;
+  outline: none !important;
+  cursor: pointer !important;
+  transition: background-color 0.2s ease !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+.window-control-btn:hover {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+.window-control-btn.close-btn:hover {
+  background-color: rgba(239, 68, 68, 0.8); /* Red hover for close */
+}

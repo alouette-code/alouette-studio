@@ -163,8 +163,8 @@ select option {
 }
 
 .window-resize-handle:hover {
-    background-color: var(--color-accent);
-    opacity: 0.5;
+    /* Xóa background-color để thanh resize hoàn toàn vô hình (chuẩn native app) */
+    background-color: transparent;
 }
 
 /* Edges */
