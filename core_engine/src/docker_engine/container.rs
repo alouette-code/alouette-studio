@@ -2,8 +2,10 @@ use bollard::container::{
     Config, CreateContainerOptions, ListContainersOptions, RemoveContainerOptions,
     StartContainerOptions, StopContainerOptions,
 };
+use bollard::image::CreateImageOptions;
 use bollard::models::{ContainerSummary, HostConfig, PortBinding};
 use bollard::Docker;
+use futures_util::TryStreamExt;
 use std::collections::HashMap;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
@@ -39,6 +41,14 @@ pub async fn create_container(
     docker: &Docker,
     config: DockerContainerConfig,
 ) -> Result<String, String> {
+    let image_options = Some(CreateImageOptions {
+        from_image: config.image.clone(),
+        ..Default::default()
+    });
+    
+    let mut stream = docker.create_image(image_options, None, None);
+    while let Ok(Some(_)) = stream.try_next().await {}
+
     let options = Some(CreateContainerOptions {
         name: config.name.clone(),
         platform: None,

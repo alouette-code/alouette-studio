@@ -946,6 +946,7 @@ dependencies = [
  "futures-util",
  "kvm-bindings",
  "kvm-ioctls",
+ "lazy_static",
  "libc",
  "lru",
  "parking_lot",
