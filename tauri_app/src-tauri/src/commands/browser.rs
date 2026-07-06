@@ -1,25 +1,20 @@
 use tauri::Manager;
 
 #[tauri::command]
-pub async fn open_browser_window(app_handle: tauri::AppHandle) -> Result<(), String> {
-    // Kiem tra xem window da mo chua
-    if let Some(window) = app_handle.get_webview_window("mini_browser") {
-        let _ = window.show();
-        let _ = window.set_focus();
-        return Ok(());
-    }
-
-    let _window = tauri::WebviewWindowBuilder::new(
-        &app_handle,
-        "mini_browser",
-        tauri::WebviewUrl::App("index.html?window=mini-browser".into())
-    )
-    .title("Alouette Browser")
-    .inner_size(1024.0, 768.0)
-    .resizable(true)
-    .decorations(true)
-    .build()
-    .map_err(|e| e.to_string())?;
+pub async fn open_browser_window(_app_handle: tauri::AppHandle) -> Result<(), String> {
+    let zen_path = "/home/nhatanh/projet/alouette_studio/zen browser/zen-browser.AppImage";
+    let profile_path = "/home/nhatanh/projet/alouette_studio/zen browser/fresh_profile";
+    
+    // Xóa profile cũ để mọi dữ liệu, cache, cookie bị dọn sạch
+    let _ = std::fs::remove_dir_all(profile_path);
+    // Tạo lại thư mục profile trống
+    let _ = std::fs::create_dir_all(profile_path);
+    
+    std::process::Command::new(zen_path)
+        .arg("--profile")
+        .arg(profile_path)
+        .spawn()
+        .map_err(|e| format!("Failed to launch Zen Browser: {}", e))?;
 
     Ok(())
 }

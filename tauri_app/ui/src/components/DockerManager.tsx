@@ -5,6 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import WindowResizer from "./WindowResizer";
 import brandIcon from "./logo_alouette.png";
+import { WindowControls } from "./WindowControls";
 
 const DockerIcon = ({ size = 14, className = "", style = {} }: { size?: number, className?: string, style?: React.CSSProperties }) => (
   <svg 
@@ -71,9 +72,6 @@ const btnStyle: React.CSSProperties = {
 
 export default function DockerManager() {
   const appWindow = getCurrentWindow();
-  const handleMinimize = async () => { try { await appWindow.minimize(); } catch {} };
-  const handleMaximize = async () => { try { await appWindow.toggleMaximize(); } catch {} };
-  const handleClose = async () => { try { await appWindow.close(); } catch {} };
 
   const [activeView, setActiveView] = useState<"create" | "manage">("create");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -206,11 +204,7 @@ export default function DockerManager() {
           <DockerIcon size={14} />
           <span style={{ fontSize: "12px", fontWeight: "bold" }}>Docker Manager</span>
         </div>
-        <div style={{ display: "flex" }}>
-          <button onClick={handleMinimize} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><Minus size={14} /></button>
-          <button onClick={handleMaximize} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><SquareIcon size={12} /></button>
-          <button onClick={handleClose} style={{ background: "none", border: "none", color: THEME.textMain, padding: "4px 8px", cursor: "pointer" }}><X size={14} /></button>
-        </div>
+        <WindowControls />
       </div>
       
       {!daemonRunning ? (
