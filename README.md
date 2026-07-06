@@ -133,7 +133,8 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 
 ### 17. System Manager & Global Configs
 - **Tray & Keep-Alive:** Minimize to tray, double-click to restore, and intercept close events if "keep alive" is enabled.
-### 17. Native Hypervisor (Virtual Machine Manager)
+
+### 18. Native Hypervisor (Virtual Machine Manager)
 - **KVM Hardware Acceleration:** Directly integrates with QEMU/KVM for near-native virtualization performance, bypassing emulation overhead.
 - **Advanced OS Templates:** A dynamic wizard supporting Windows (11/10/Server), Linux (Ubuntu/Debian/Arch/Alpine), macOS (Intel/Hackintosh), and Android-x86 with auto-configured CPU, RAM, and Disk presets.
 - **UEFI (OVMF) & BIOS Support:** Dynamically injects `OVMF_CODE` for modern OS support (Windows 11, macOS) alongside legacy BIOS fallback.
@@ -142,7 +143,7 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 - **QGA File Injection:** Pushes binary files directly into the Guest OS via the QEMU Guest Agent socket without requiring complex network sharing.
 - **Dynamic Disk Allocation:** Automatically creates and provisions `.qcow2` virtual disks based on UI-defined capacities.
 
-### 18. AI Agent Loop & Assistant Interface
+### 19. AI Agent Loop & Assistant Interface
 - **Autonomous AI Agent Loop:** Operates a closed-loop code modification engine powered by `rig-core 0.38` supporting multi-provider models (Claude, DeepSeek, ChatGPT, Gemini, etc.) and SQLite session persistence.
 - **7 Operation Modes:** Interactive, Write, Autonomous, Plan Mode, Coordinator, Worker, and Minimal setups. Provides sub-agent coordination for nested parallel tasks.
 - **Fuzzy-Matched File Mentions (@):** Type `@` in the chat input to search, score with fuzzy matching, and attach workspace files/folders directly as query context dependencies.
@@ -150,6 +151,13 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 - **High/Low Thinking Budgets:** Toggle standard execution (low) or reasoning mode (high) to allocate reasoning tokens to reasoning models like DeepSeek-R1 or OpenAI o1/o3-mini.
 - **Batch Authorization Guard:** Intercepts critical actions (file edits, system command executions, port binds, etc.) and presents them as expandable pending cards. Supports approval or rejection in batches or individually.
 - **Sanitized Markdown Layouts:** Safely renders agent responses with HTML formatting, tables, list arrays, and code blocks using a sanitized pipeline (`react-markdown`, `rehype-sanitize`, and `DOMPurify`) to prevent malicious script payloads.
+
+### 20. Docker Container Manager
+- **Native Daemon Integration:** Connects directly to the local Docker socket via the Rust `bollard` crate for high-speed, direct API communication.
+- **Container Lifecycle:** Full CRUD management—deploy new containers with custom images, commands, and RAM limits, and start, stop, restart, or forcefully remove them.
+- **Real-Time Logs & Stats:** Streams container logs in real-time to an xterm.js terminal with ANSI color highlighting and specific `since` timeline clearing.
+- **Interactive Terminal:** Attaches an interactive PTY shell (`docker_exec_terminal`) directly into running containers for fast debugging.
+- **Auto-Pull:** Automatically pulls missing container images from the Docker Hub registry before deployment.
 
 ---
 
@@ -181,9 +189,9 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 
 | Layer | Technology | Responsibility |
 |-------|-----------|----------------|
-| **UI** | React 19 + TypeScript + Vite + xterm.js + Monaco + react-markdown | Desktop interface with process dashboards, terminals, file editor, SQLite browser, PingZero Mini API client, local AI chatbot, VM manager, Welcome landing page, AI assistant chat panel |
-| **Bridge** | Tauri v2 IPC | Type-safe command handlers (18 command modules), event routers (5 routers + agent + file watcher), state management (R2D2 pool, DashMap registry, Shared model manager) |
-| **Engine** | Rust (Tokio async) | Process lifecycle, sandbox enforcement, proto toolchain, resource monitoring, SQLite persistence (r2d2 WAL), AI agent loop (rig-core), ONNX inference (tract-onnx) for error scanner, Code RAG indexing & similarity search, Candle local LLM inference, native git2 diffs, file notify watcher, Local Axum HTTP API gateway, PyO3 FFI interpreter |
+| **UI** | React 19 + TypeScript + Vite + xterm.js + Monaco + react-markdown | Desktop interface with process dashboards, terminals, file editor, SQLite browser, PingZero Mini API client, local AI chatbot, VM manager, Welcome landing page, AI assistant chat panel, Docker container manager |
+| **Bridge** | Tauri v2 IPC | Type-safe command handlers (19 command modules), event routers (5 routers + agent + file watcher), state management (R2D2 pool, DashMap registry, Shared model manager) |
+| **Engine** | Rust (Tokio async) | Process lifecycle, sandbox enforcement, proto toolchain, resource monitoring, SQLite persistence (r2d2 WAL), AI agent loop (rig-core), ONNX inference (tract-onnx) for error scanner, Code RAG indexing & similarity search, Candle local LLM inference, native git2 diffs, file notify watcher, Local Axum HTTP API gateway, PyO3 FFI interpreter, Docker daemon client (bollard) |
 
 ---
 
@@ -297,6 +305,7 @@ alouette_studio/
             ├── components/
             │   ├── CodeRagPanel.tsx        # Code RAG manager panel
             │   ├── CodeRagSearchWidget.tsx # Code search input UI
+            │   ├── DockerManager.tsx       # Docker container orchestration UI
             │   ├── LocalAiManager.tsx      # Engine list & models download
             │   ├── LocalChat.tsx           # Local chatbot UI
             │   ├── VmManager.tsx           # Virtual machines supervisor
@@ -393,6 +402,7 @@ Alouette Studio exposes 80+ Tauri IPC commands registered across 18 modules:
 | **code_rag** | `code_rag_health`, `code_rag_query`, `code_rag_query_by_name`, `code_rag_scan_directory` | Vector DB semantic code querying and indexing |
 | **local_chat** | `local_chat_send`, `local_chat_stop` | Candle local LLM inference streaming |
 | **ai_manager** | `start_ai_engine`, `stop_ai_engine`, `get_ai_engine_status`, `save_ai_settings` | External LLM engines supervisor |
+| **docker** | `docker_create_container`, `docker_list_containers`, `docker_stream_logs`, `docker_exec_terminal` | Docker daemon socket integration API |
 
 ---
 
@@ -404,6 +414,7 @@ Alouette Studio exposes 80+ Tauri IPC commands registered across 18 modules:
 - **rusqlite** (0.39): Bundled SQLite interface.
 - **portable-pty** (0.9): Cross-platform PTY manager.
 - **tract-onnx** (0.23): ONNX model inference engine.
+- **bollard** (0.16): Asynchronous Docker daemon API client.
 
 ### Tauri App (Rust/Cargo)
 - **tauri** (2.11): App shell, tray icons, system menu.
