@@ -55,3 +55,7 @@ tauri_app/llama-b9616
 
 # ── Generated Icons ──
 tauri_app/src-tauri/icons/*
+
+
+# browser
+zen browser/
