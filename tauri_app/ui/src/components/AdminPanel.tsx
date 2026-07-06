@@ -35,9 +35,6 @@ import {
   Box,
   Palette,
   Code,
-  X,
-  Minus,
-  Square,
   Save,
   RotateCcw,
   Sun,
@@ -155,34 +152,6 @@ export default function AdminPanel() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  // ── Window controls ──
-  const handleMinimize = async () => {
-    const w = appWindowRef.current;
-    if (!w) return;
-    try {
-      await w.minimize();
-    } catch (e) {
-      console.error("minimize error", e);
-    }
-  };
-  const handleMaximize = async () => {
-    const w = appWindowRef.current;
-    if (!w) return;
-    try {
-      await w.toggleMaximize();
-    } catch (e) {
-      console.error("maximize error", e);
-    }
-  };
-  const handleClose = async () => {
-    const w = appWindowRef.current;
-    if (!w) return;
-    try {
-      await w.close();
-    } catch (e) {
-      console.error("close error", e);
-    }
-  };
 
   // ── Open external sub-windows ──
   const openPingWindow = async () => {
