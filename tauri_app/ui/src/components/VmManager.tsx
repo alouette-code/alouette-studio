@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Play, Square, FolderOpen, Minus, Square as SquareIcon, X, Plus, Save, Terminal, Trash2, Monitor, Folder, ArrowRight, Check } from "lucide-react";
+import { Play, Square, FolderOpen, Plus, Save, Terminal, Trash2, Monitor, Folder, ArrowRight, Check } from "lucide-react";
 // @ts-ignore
 import RFB from '@novnc/novnc';
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { invoke } from "@tauri-apps/api/core";
 import WindowResizer from "./WindowResizer";
 import brandIcon from "./logo_alouette.png";
@@ -75,7 +74,7 @@ const OS_FAMILIES = {
 };
 
 export default function VmManager() {
-  const appWindow = getCurrentWindow();
+
 
 
 

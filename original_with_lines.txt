@@ -1,0 +1,374 @@
+Created At: 2026-07-06T13:23:26Z
+Completed At: 2026-07-06T13:23:26Z
+File Path: `file:///home/nhatanh/projet/alouette_studio/tauri_app/ui/src/components/DockerManager.tsx`
+Total Lines: 366
+Total Bytes: 18719
+Showing lines 1 to 366
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: import React, { useState, useEffect, useRef } from "react";
+2: import { Play, Square, Minus, Square as SquareIcon, X, Plus, Trash2, Server, RefreshCw } from "lucide-react";
+3: import { getCurrentWindow } from "@tauri-apps/api/window";
+4: import { invoke } from "@tauri-apps/api/core";
+5: import { listen } from "@tauri-apps/api/event";
+6: import WindowResizer from "./WindowResizer";
+7: import brandIcon from "./logo_alouette.png";
+8: import { WindowControls } from "./WindowControls";
+9: 
+10: const DockerIcon = ({ size = 14, className = "", style = {} }: { size?: number, className?: string, style?: React.CSSProperties }) => (
+11:   <svg 
+12:     xmlns="http://www.w3.org/2000/svg" 
+13:     width={size} 
+14:     height={size} 
+15:     viewBox="0 0 24 24" 
+16:     fill="currentColor"
+17:     className={className}
+18:     style={{ marginRight: '8px', ...style }}
+19:   >
+20:     <path d="M13.983 11.078h2.119a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.119a.185.185 0 00-.185.185v1.888c0 .102.083.185.185.185m-2.954-5.43h2.118a.186.186 0 00.186-.186V3.574a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m0 2.716h2.118a.187.187 0 00.186-.186V6.29a.186.186 0 00-.186-.185h-2.118a.185.185 0 00-.185.185v1.887c0 .102.082.185.185.186m-2.93 0h2.12a.186.186 0 00.184-.186V6.29a.185.185 0 00-.185-.185H8.1a.185.185 0 00-.185.185v1.887c0 .102.083.185.185.186m-2.964 0h2.119a.186.186 0 00.185-.186V6.29a.185.185 0 00-.185-.185H5.136a.186.186 0 00-.186.185v1.887c0 .102.084.185.186.186m5.893 2.715h2.118a.186.186 0 00.186-.185V9.006a.186.186 0 00-.186-.186h-2.118a.185.185 0 00-.185.185v1.888c0 .102.082.185.185.185m-2.93 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.083.185.185.185m-2.964 0h2.119a.185.185 0 00.185-.185V9.006a.185.185 0 00-.184-.186h-2.12a.186.186 0 00-.186.186v1.887c0 .102.084.185.186.185m-2.92 0h2.12a.185.185 0 00.184-.185V9.006a.185.185 0 00-.184-.186h-2.12a.185.185 0 00-.184.185v1.888c0 .102.082.185.185.185M23.763 9.89c-.065-.051-.672-.51-1.954-.51-.338.001-.676.03-1.01.087-.248-1.7-1.653-2.53-1.716-2.566l-.344-.199-.226.327c-.284.438-.49.922-.612 1.43-.23.97-.09 1.882.403 2.661-.595.332-1.55.413-1.744.42H.751a.751.751 0 00-.75.748 11.376 11.376 0 00.692 4.062c.545 1.428 1.355 2.48 2.41 3.124 1.18.723 3.1 1.137 5.275 1.137.983.003 1.963-.086 2.93-.266a12.248 12.248 0 003.823-1.389c.98-.567 1.86-1.288 2.61-2.136 1.252-1.418 1.998-2.997 2.553-4.4h.221c1.372 0 2.215-.549 2.68-1.009.309-.293.55-.65.707-1.046l.098-.288Z"/>
+21:   </svg>
+22: );
+23: 
+24: const THEME = {
+25:   bgApp: "#1e1e1e",
+26:   bgPanel: "#252526",
+27:   bgInput: "#3c3c3c",
+28:   bgHover: "#2a2d2e",
+29:   border: "#3c3c3c",
+30:   borderFocus: "#007acc",
+31:   textMain: "#cccccc",
+32:   textMuted: "#858585",
+33:   accent: "#007acc",
+34:   accentHover: "#005a9e",
+35:   success: "#89d185",
+36:   error: "#f48771",
+37:   warning: "#cca700"
+38: };
+39: 
+40: const inputStyle: React.CSSProperties = {
+41:   padding: "4px 8px",
+42:   backgroundColor: THEME.bgInput,
+43:   border: `1px solid ${THEME.border}`,
+44:   color: THEME.textMain,
+45:   outline: "none",
+46:   fontSize: "12px",
+47:   fontFamily: "monospace",
+48:   width: "100%",
+49:   boxSizing: "border-box"
+50: };
+51: 
+52: const labelStyle: React.CSSProperties = {
+53:   display: "block",
+54:   fontSize: "11px",
+55:   fontWeight: "bold",
+56:   color: THEME.textMuted,
+57:   marginBottom: "4px",
+58:   textTransform: "uppercase",
+59: };
+60: 
+61: const btnStyle: React.CSSProperties = {
+62:   padding: "4px 12px",
+63:   backgroundColor: THEME.bgInput,
+64:   border: `1px solid ${THEME.border}`,
+65:   color: THEME.textMain,
+66:   cursor: "pointer",
+67:   fontSize: "12px",
+68:   display: "flex",
+69:   alignItems: "center",
+70:   gap: "6px"
+71: };
+72: 
+73: export default function DockerManager() {
+74:   const appWindow = getCurrentWindow();
+75: 
+76:   const [activeView, setActiveView] = useState<"create" | "manage">("create");
+77:   const [selectedId, setSelectedId] = useState<string | null>(null);
+78:   const [containers, setContainers] = useState<any[]>([]);
+79:   const [daemonRunning, setDaemonRunning] = useState(false);
+80:   const [checkingDaemon, setCheckingDaemon] = useState(true);
+81:   const [daemonError, setDaemonError] = useState("");
+82: 
+83:   // Form states
+84:   const [cName, setCName] = useState("");
+85:   const [cImage, setCImage] = useState("ubuntu:latest");
+86:   const [cCmd, setCCmd] = useState("");
+87:   const [cRam, setCRam] = useState(512);
+88: 
+89:   const [logs, setLogs] = useState("");
+90:   const logEndRef = useRef<HTMLDivElement>(null);
+91:   const [stats, setStats] = useState({ cpu: 0, ram: 0, ramLimit: 0 });
+92:   const [manageTab, setManageTab] = useState<"logs" | "stats" | "settings">("logs");
+93: 
+94:   const checkDaemon = async () => {
+95:     setCheckingDaemon(true);
+96:     try {
+97:       await invoke("docker_ensure_started");
+98:       setDaemonRunning(true);
+99:       setDaemonError("");
+100:       await loadContainers();
+101:     } catch (e: any) {
+102:       console.error(e);
+103:       setDaemonRunning(false);
+104:       setDaemonError(String(e));
+105:     } finally {
+106:       setCheckingDaemon(false);
+107:     }
+108:   };
+109: 
+110:   const loadContainers = async () => {
+111:     try {
+112:       const list: any[] = await invoke("docker_list_containers", { all: true });
+113:       setContainers(list);
+114:     } catch (e) {
+115:       console.error(e);
+116:     }
+117:   };
+118: 
+119:   useEffect(() => {
+120:     checkDaemon();
+121:   }, []);
+122: 
+123:   useEffect(() => {
+124:     let unlistenLogs: any;
+125:     let unlistenStats: any;
+126:     if (activeView === "manage" && selectedId) {
+127:       setLogs("");
+128:       invoke("docker_stream_logs", { id: selectedId });
+129:       invoke("docker_stream_stats", { id: selectedId });
+130: 
+131:       listen("docker_log", (event: any) => {
+132:         if (event.payload.id === selectedId) {
+133:           setLogs(prev => prev + event.payload.message);
+134:           if (logEndRef.current) logEndRef.current.scrollIntoView({ behavior: "smooth" });
+135:         }
+136:       }).then(un => unlistenLogs = un);
+137: 
+138:       listen("docker_stats", (event: any) => {
+139:         if (event.payload.id === selectedId) {
+140:           setStats({
+141:             cpu: event.payload.stats.cpu_percent,
+142:             ram: event.payload.stats.memory_usage_bytes,
+143:             ramLimit: event.payload.stats.memory_limit_bytes
+144:           });
+145:         }
+146:       }).then(un => unlistenStats = un);
+147:     }
+148: 
+149:     return () => {
+150:       if (unlistenLogs) unlistenLogs();
+151:       if (unlistenStats) unlistenStats();
+152:     }
+153:   }, [activeView, selectedId]);
+154: 
+155:   const handleCreate = async () => {
+156:     try {
+157:       const config = {
+158:         name: cName,
+159:         image: cImage,
+160:         cmd: cCmd ? cCmd.split(" ") : null,
+161:         env: null,
+162:         port_bindings: null, // Simplification for now
+163:         binds: null,
+164:         memory_bytes: cRam * 1024 * 1024,
+165:         nano_cpus: null
+166:       };
+167:       await invoke("docker_create_container", { config });
+168:       alert("Container created!");
+169:       setCName("");
+170:       setCCmd("");
+171:       await loadContainers();
+172:     } catch (err: any) {
+173:       alert("Failed to create container: " + err);
+174:     }
+175:   };
+176: 
+177:   const handleAction = async (action: string, id: string) => {
+178:     try {
+179:       if (action === "start") await invoke("docker_start_container", { id });
+180:       if (action === "stop") await invoke("docker_stop_container", { id });
+181:       if (action === "restart") await invoke("docker_restart_container", { id });
+182:       if (action === "remove") {
+183:         if (!confirm("Are you sure you want to remove this container?")) return;
+184:         await invoke("docker_remove_container", { id, force: true });
+185:         setSelectedId(null);
+186:         setActiveView("create");
+187:       }
+188:       await loadContainers();
+189:     } catch (e: any) {
+190:       alert(`Action ${action} failed: ` + e);
+191:     }
+192:   };
+193: 
+194:   const currentContainer = containers.find(c => c.id === selectedId);
+195: 
+196:   return (
+197:     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: THEME.bgApp, color: THEME.textMain, fontFamily: "sans-serif", overflow: "hidden" }}>
+198:       <WindowResizer />
+199:       
+200:       {/* Titlebar */}
+201:       <div data-tauri-drag-region style={{ height: "30px", display: "flex", alignItems: "center", justifyContent: "space-between", backgroundColor: THEME.bgApp, borderBottom: `1px solid ${THEME.border}`, padding: "0 8px", userSelect: "none" }}>
+202:         <div style={{ display: "flex", alignItems: "center", pointerEvents: "none" }}>
+203:           <img src={brandIcon} alt="Logo" style={{ width: "14px", height: "14px", marginRight: "8px" }} />
+204:           <DockerIcon size={14} />
+205:           <span style={{ fontSize: "12px", fontWeight: "bold" }}>Docker Manager</span>
+206:         </div>
+207:         <WindowControls />
+208:       </div>
+209:       
+210:       {!daemonRunning ? (
+211:         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+212:           <DockerIcon size={48} className="spin" style={{ color: THEME.textMuted, marginBottom: '16px' }} />
+213:           <h3>{checkingDaemon ? "Starting Docker Daemon..." : "Docker Engine is not running"}</h3>
+214:           {daemonError && <div style={{ color: THEME.error, marginTop: '8px', fontSize: '12px', textAlign: 'center', maxWidth: '400px' }}>{daemonError}</div>}
+215:           {!checkingDaemon && <button onClick={checkDaemon} style={{ ...btnStyle, marginTop: '16px', backgroundColor: THEME.accent, color: '#fff', border: 'none' }}><Play size={12}/> Try Again</button>}
+216:         </div>
+217:       ) : (
+218:         <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+219:           {/* Left Sidebar */}
+220:           <div style={{ width: '240px', backgroundColor: THEME.bgPanel, borderRight: `1px solid ${THEME.border}`, display: 'flex', flexDirection: 'column' }}>
+221:             <div style={{ padding: '8px' }}>
+222:               <button 
+223:                 onClick={() => { setActiveView("create"); setSelectedId(null); }}
+224:                 style={{ ...btnStyle, width: '100%', justifyContent: 'center', backgroundColor: THEME.bgApp }}
+225:               >
+226:                 <Plus size={14} /> Deploy Container
+227:               </button>
+228:             </div>
+229:             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 8px', fontSize: '10px', fontWeight: 'bold', color: THEME.textMuted, borderBottom: `1px solid ${THEME.border}` }}>
+230:               CONTAINERS
+231:               <RefreshCw size={10} style={{ cursor: 'pointer' }} onClick={loadContainers} />
+232:             </div>
+233:             <div style={{ flex: 1, overflowY: 'auto' }}>
+234:               {containers.map((c: any) => {
+235:                 const isRunning = c.state === "running";
+236:                 const name = c.names?.[0]?.replace("/", "") || (c.id ? c.id.substring(0,8) : "Unknown");
+237:                 return (
+238:                   <div 
+239:                     key={c.id}
+240:                     onClick={() => { setActiveView("manage"); setSelectedId(c.id); }}
+241:                     style={{ 
+242:                       padding: '6px 8px', 
+243:                       cursor: 'pointer', 
+244:                       display: 'flex', 
+245:                       alignItems: 'center', 
+246:                       justifyContent: 'space-between',
+247:                       backgroundColor: (activeView === "manage" && selectedId === c.id) ? THEME.bgHover : 'transparent',
+248:                       borderLeft: (activeView === "manage" && selectedId === c.id) ? `3px solid ${THEME.accent}` : '3px solid transparent'
+249:                     }}
+250:                   >
+251:                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden' }}>
+252:                       <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: isRunning ? THEME.success : THEME.textMuted }} />
+253:                       <span style={{ fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+254:                     </div>
+255:                   </div>
+256:                 );
+257:               })}
+258:             </div>
+259:           </div>
+260: 
+261:           {/* Main Content Area */}
+262:           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', backgroundColor: THEME.bgApp, overflow: 'hidden' }}>
+263:             {activeView === "manage" && currentContainer ? (
+264:               <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+265:                 {/* Manage Toolbar */}
+266:                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', backgroundColor: THEME.bgPanel, borderBottom: `1px solid ${THEME.border}` }}>
+267:                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+268:                     <span style={{ fontSize: '14px', fontWeight: 'bold', marginRight: '16px' }}>{currentContainer.names?.[0]?.replace("/", "")}</span>
+269:                     {currentContainer.state === 'running' ? (
+270:                       <>
+271:                         <button onClick={() => handleAction("stop", currentContainer.id)} style={{ ...btnStyle, color: THEME.warning, borderColor: THEME.warning }}><Square size={12} fill="currentColor" /> Stop</button>
+272:                         <button onClick={() => handleAction("restart", currentContainer.id)} style={btnStyle}><RefreshCw size={12} /> Restart</button>
+273:                       </>
+274:                     ) : (
+275:                       <button onClick={() => handleAction("start", currentContainer.id)} style={{ ...btnStyle, color: THEME.success, borderColor: THEME.success }}><Play size={12} fill="currentColor" /> Start</button>
+276:                     )}
+277:                   </div>
+278:                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+279:                     <button onClick={() => handleAction("remove", currentContainer.id)} style={{ ...btnStyle, color: THEME.error }}><Trash2 size={12} /> Remove</button>
+280:                   </div>
+281:                 </div>
+282: 
+283:                 {/* Tabs */}
+284:                 <div style={{ display: 'flex', backgroundColor: THEME.bgPanel, borderBottom: `1px solid ${THEME.border}` }}>
+285:                   {["logs", "stats", "settings"].map(tab => (
+286:                     <button 
+287:                       key={tab}
+288:                       onClick={() => setManageTab(tab as any)}
+289:                       style={{ padding: '6px 12px', background: manageTab === tab ? THEME.bgApp : 'transparent', border: 'none', borderBottom: manageTab === tab ? `2px solid ${THEME.accent}` : '2px solid transparent', color: manageTab === tab ? THEME.accent : THEME.textMuted, fontSize: '11px', fontWeight: 'bold', cursor: 'pointer', textTransform: 'uppercase' }}
+290:                     >
+291:                       {tab}
+292:                     </button>
+293:                   ))}
+294:                 </div>
+295: 
+296:                 {/* Tab Content */}
+297:                 {manageTab === "logs" && (
+298:                   <div style={{ flex: 1, padding: '8px', overflowY: 'auto', backgroundColor: '#000', fontFamily: 'monospace', fontSize: '12px', color: '#ccc', whiteSpace: 'pre-wrap' }}>
+299:                     {logs || "No logs available."}
+300:                     <div ref={logEndRef} />
+301:                   </div>
+302:                 )}
+303:                 {manageTab === "stats" && (
+304:                   <div style={{ padding: '24px', flex: 1 }}>
+305:                     <h3 style={{ color: THEME.accent }}>Live Metrics</h3>
+306:                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
+307:                       <div style={{ padding: '16px', backgroundColor: THEME.bgPanel, borderRadius: '4px', border: `1px solid ${THEME.border}` }}>
+308:                         <div style={labelStyle}>CPU Usage</div>
+309:                         <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{stats.cpu.toFixed(2)}%</div>
+310:                       </div>
+311:                       <div style={{ padding: '16px', backgroundColor: THEME.bgPanel, borderRadius: '4px', border: `1px solid ${THEME.border}` }}>
+312:                         <div style={labelStyle}>Memory Usage</div>
+313:                         <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{(stats.ram / 1024 / 1024).toFixed(2)} MB / {(stats.ramLimit / 1024 / 1024).toFixed(2)} MB</div>
+314:                       </div>
+315:                     </div>
+316:                   </div>
+317:                 )}
+318:                 {manageTab === "settings" && (
+319:                   <div style={{ padding: '24px', flex: 1, overflowY: 'auto' }}>
+320:                      <h3 style={{ color: THEME.textMain, marginBottom: '16px' }}>Container Inspect Data</h3>
+321:                      <pre style={{ backgroundColor: THEME.bgPanel, padding: '12px', borderRadius: '4px', border: `1px solid ${THEME.border}`, fontSize: '11px', overflowX: 'auto' }}>
+322:                        {JSON.stringify(currentContainer, null, 2)}
+323:                      </pre>
+324:                   </div>
+325:                 )}
+326:               </div>
+327:             ) : (
+328:               <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '32px', alignItems: 'center', overflowY: 'auto' }}>
+329:                 <div style={{ width: '100%', maxWidth: '500px' }}>
+330:                   <h2 style={{ fontSize: '20px', marginBottom: '8px', color: THEME.textMain, display: 'flex', alignItems: 'center', gap: '8px' }}>
+331:                     <Server size={20} color={THEME.accent} /> Deploy New Container
+332:                   </h2>
+333:                   <p style={{ fontSize: '12px', color: THEME.textMuted, marginBottom: '24px' }}>Fill out the details below to deploy a new Docker container.</p>
+334:                 
+335:                   <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: THEME.bgPanel, padding: '24px', borderRadius: '4px', border: `1px solid ${THEME.border}` }}>
+336:                     <div>
+337:                       <label style={labelStyle}>Container Name (Optional)</label>
+338:                       <input type="text" value={cName} onChange={e => setCName(e.target.value)} style={inputStyle} placeholder="my-nginx-app" />
+339:                     </div>
+340:                     <div>
+341:                       <label style={labelStyle}>Docker Image</label>
+342:                       <input type="text" value={cImage} onChange={e => setCImage(e.target.value)} style={inputStyle} placeholder="nginx:latest, ubuntu, redis..." />
+343:                     </div>
+344:                     <div>
+345:                       <label style={labelStyle}>Command (Optional)</label>
+346:                       <input type="text" value={cCmd} onChange={e => setCCmd(e.target.value)} style={inputStyle} placeholder="npm start" />
+347:                     </div>
+348:                     <div>
+349:                       <label style={labelStyle}>Memory Limit (MB)</label>
+350:                       <input type="number" value={cRam} onChange={e => setCRam(Number(e.target.value))} style={inputStyle} />
+351:                     </div>
+352:                     <button onClick={handleCreate} style={{ ...btnStyle, backgroundColor: THEME.accent, color: '#fff', fontWeight: 'bold', justifyContent: 'center', marginTop: '8px' }}>
+353:                       <Play size={14} /> Deploy
+354:                     </button>
+355:                   </div>
+356:                 </div>
+357:               </div>
+358:             )}
+359:           </div>
+360:         </div>
+361:       )}
+362:     </div>
+363:   );
+364: }
+365: 
+366: 
+The above content shows the entire, complete file contents of the requested file.

@@ -5,6 +5,7 @@ use core_engine::docker_engine::container::{
 };
 use core_engine::docker_engine::logs::stream_container_logs;
 use core_engine::docker_engine::stats::stream_container_stats;
+use core_engine::docker_engine::terminal::{spawn_terminal, write_to_terminal, TerminalOutput};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use std::sync::Arc;
@@ -128,4 +129,20 @@ pub async fn docker_stream_stats(app_handle: AppHandle, id: String) -> Result<()
     });
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn docker_exec_terminal(app_handle: AppHandle, id: String) -> Result<String, String> {
+    let client = get_client().await?;
+    
+    let exec_id = spawn_terminal(&client.docker, &id, move |output: TerminalOutput| {
+        let _ = app_handle.emit("docker_terminal_out", output);
+    }).await?;
+
+    Ok(exec_id)
+}
+
+#[tauri::command]
+pub async fn docker_write_terminal(exec_id: String, data: String) -> Result<(), String> {
+    write_to_terminal(&exec_id, data).await
 }
