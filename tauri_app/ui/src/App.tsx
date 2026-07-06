@@ -224,7 +224,13 @@ export default function App() {
   const [theme, setTheme] = useState<"dark" | "light">("dark");
 
   // Window label state to detect multi-window views (e.g. PingZero ping window)
-  const [windowLabel, setWindowLabel] = useState<string>("main");
+  const [windowLabel, setWindowLabel] = useState<string>(() => {
+    try {
+      return getCurrentWindow().label || "main";
+    } catch {
+      return "main";
+    }
+  });
 
   useEffect(() => {
     try {
@@ -314,6 +320,20 @@ export default function App() {
   const [isDraggingTabList, setIsDraggingTabList] = useState(false);
   const [isDraggingMonitor, setIsDraggingMonitor] = useState(false);
   const [isDraggingConfig, setIsDraggingConfig] = useState(false);
+
+  // Áp dụng global CSS class khi đang kéo giãn (drag) để sửa lỗi chuột bị rời xa hoặc rớt sự kiện
+  useEffect(() => {
+    const isDraggingV = isDraggingLeft || isDraggingRight;
+    const isDraggingH = isDraggingTabList || isDraggingMonitor || isDraggingConfig;
+
+    if (isDraggingV || isDraggingH) {
+      document.body.classList.add("is-resizing");
+      if (isDraggingV) document.body.classList.add("is-resizing-v");
+      if (isDraggingH) document.body.classList.add("is-resizing-h");
+    } else {
+      document.body.classList.remove("is-resizing", "is-resizing-v", "is-resizing-h");
+    }
+  }, [isDraggingLeft, isDraggingRight, isDraggingTabList, isDraggingMonitor, isDraggingConfig]);
 
   // ── Cross-hook dependency holders (useRef pattern to break circular deps) ──
   const setResourceHistoryRef = useRef<

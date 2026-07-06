@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
+import { WindowControls } from "./WindowControls";
 function ZenIcon({ size = 16 }: { size?: number }) {
   return (
     <svg
@@ -270,18 +271,7 @@ export default function AdminPanel() {
             {DOCK_ITEMS.find((d) => d.id === activeDock)?.label || "Setting"}
           </span>
           <div className="admin-titlebar-actions">
-            <button className="admin-win-btn" onClick={handleMinimize}>
-              <Minus size={12} />
-            </button>
-            <button className="admin-win-btn" onClick={handleMaximize}>
-              <Square size={10} />
-            </button>
-            <button
-              className="admin-win-btn admin-win-close"
-              onClick={handleClose}
-            >
-              <X size={12} />
-            </button>
+            <WindowControls />
           </div>
         </header>
 
