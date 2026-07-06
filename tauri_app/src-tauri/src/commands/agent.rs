@@ -2163,6 +2163,22 @@ pub async fn switch_agent_project(
         let mut harness = app_state.agent_harness.lock().await;
         harness.set_workspace_root(&std::path::PathBuf::from(&new_project_cwd));
     }
+    
+    // Notify the active session of the workspace change so it doesn't hallucinate old paths
+    {
+        let mut sg = app_state.agent_session.lock().unwrap();
+        if let Some(ref mut session) = *sg {
+            session.history.push(core_engine::agent_harness::ChatMessage {
+                id: format!("sys_{}", chrono::Local::now().timestamp_millis()),
+                role: "user".to_string(),
+                content: core_engine::agent_harness::MessageContent::Text(format!(
+                    "<system-reminder>Workspace changed to {}. Previous file paths from other projects are no longer accessible.</system-reminder>",
+                    new_project_cwd
+                )),
+                timestamp: chrono::Local::now().format("%H:%M").to_string(),
+            });
+        }
+    }
 
     // 6. Tạo entry mới nếu chưa có
     if is_new {
@@ -2303,7 +2319,7 @@ fn build_loop_result(session: &AgentSession, final_text: String) -> LoopResult {
 
     for msg in &session.history {
         match &msg.content {
-            MessageContent::ToolCalls(tcs) => {
+            MessageContent::ToolCalls(tcs, _) => {
                 for tc in tcs {
                     tool_calls_made += 1;
                     iterations.push(LoopResultIteration {

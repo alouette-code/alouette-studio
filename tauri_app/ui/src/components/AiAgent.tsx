@@ -1310,16 +1310,19 @@ export default function AiAgent({
         if (!isActiveSender.current) return;
         const data = event.payload;
 
-        const iterKey = `iter_${data.iteration}`;
+        const iterKey = `iter_${data.iteration}_${!!data.tool_result}`;
         if (processedIters.current.has(iterKey)) return;
         processedIters.current.add(iterKey);
+        
+        // Clear stream placeholder so the next iteration starts fresh
+        activeStreamMessageIdRef.current = null;
 
         setActiveThought(data.thought || null);
         setLoopIterations(data.iteration || 0);
 
         if (data.tool_name) {
           const status = data.tool_result
-            ? data.tool_success
+            ? data.tool_success !== false
               ? "success"
               : "failed"
             : "running";
@@ -1469,6 +1472,7 @@ export default function AiAgent({
     setIsTyping(true);
     // Đánh dấu instance này là sender đang active
     isActiveSender.current = true;
+    activeStreamMessageIdRef.current = null;
 
     processedIters.current = new Set();
     setLoopIterations(0);
@@ -1728,6 +1732,7 @@ export default function AiAgent({
 
     setIsTyping(true);
     isActiveSender.current = true;
+    activeStreamMessageIdRef.current = null;
 
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {
@@ -1815,6 +1820,20 @@ export default function AiAgent({
             return item;
           }),
         );
+      } else if (response.reply_type === "tool_request") {
+        const toolMsg: ChatItem = {
+          id: response.pending_id || Date.now().toString(),
+          type: "tool_request",
+          sender: "agent",
+          toolName: response.tool_name,
+          args: response.args,
+          toolStatus: "waiting",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          }),
+        };
+        setChatHistory((prev) => [...prev, toolMsg]);
       }
 
       const loopResult = response.loop_result;
@@ -1910,6 +1929,7 @@ export default function AiAgent({
 
     setIsTyping(true);
     isActiveSender.current = true;
+    activeStreamMessageIdRef.current = null;
 
     let backendModelName = selectedModel;
     if (selectedModel.startsWith("custom-")) {

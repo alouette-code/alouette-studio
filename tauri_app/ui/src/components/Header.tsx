@@ -16,6 +16,8 @@ import {
   ExternalLink,
 } from "lucide-react";
 
+import { WindowControls } from "./WindowControls";
+
 // Search Engine
 import { isAgentHistorySearch } from "../lib/search";
 
@@ -717,29 +719,7 @@ export default function Header({
         </button>
 
         {/* Custom Window Action Controls */}
-        <div className="window-controls-container">
-          <button
-            className="window-control-btn minimize"
-            onClick={handleMinimize}
-            title="Minimize"
-          >
-            <Minus size={13} />
-          </button>
-          <button
-            className="window-control-btn maximize"
-            onClick={handleMaximize}
-            title="Maximize"
-          >
-            <Square size={10} />
-          </button>
-          <button
-            className="window-control-btn close"
-            onClick={handleClose}
-            title="Close"
-          >
-            <X size={13} />
-          </button>
-        </div>
+        <WindowControls />
       </div>
     </header>
   );

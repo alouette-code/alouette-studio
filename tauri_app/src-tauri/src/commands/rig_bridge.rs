@@ -37,7 +37,7 @@ fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Valu
             MessageContent::Text(text) => {
                 messages.push(json!({ "role": role, "content": text }));
             }
-            MessageContent::ToolCalls(tcs) => {
+            MessageContent::ToolCalls(tcs, text_opt) => {
                 let tc_json: Vec<Value> = tcs
                     .iter()
                     .enumerate()
@@ -54,7 +54,7 @@ fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Valu
                     .collect();
                 messages.push(json!({
                     "role": "assistant",
-                    "content": null,
+                    "content": text_opt,
                     "tool_calls": tc_json
                 }));
             }
@@ -97,7 +97,10 @@ fn build_conversation_text(system_prompt: &str, history: &[ChatMessage]) -> Stri
             } => {
                 conversation.push_str(&format!("\n{} ({})\n{}", prefix, tool_name, result));
             }
-            MessageContent::ToolCalls(tcs) => {
+            MessageContent::ToolCalls(tcs, text_opt) => {
+                if let Some(t) = text_opt {
+                    conversation.push_str(&format!("\nAssistant: {}", t));
+                }
                 for tc in tcs {
                     conversation.push_str(&format!(
                         "\nAssistant calls: {}({})",

@@ -148,7 +148,7 @@ pub enum MessageContent {
     /// Văn bản thuần túy
     Text(String),
     /// Khi AI quyết định gọi một hoặc nhiều tools (Native Tool Calling)
-    ToolCalls(Vec<parser::ToolCall>),
+    ToolCalls(Vec<parser::ToolCall>, Option<String>),
     /// Kết quả trả về sau khi chạy tool
     ToolResult {
         tool_call_id: String,
@@ -893,8 +893,8 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     fn execute_get_project_files(&self) -> Result<String, String> {
         let mut files = Vec::new();
         self.list_dir_recursive(&self.workspace_root, &mut files, 0)?;
-        if files.len() >= 1000 {
-            files.push("... (truncated due to file limit of 1000)".to_string());
+        if files.len() >= 3000 {
+            files.push("... (truncated due to file limit of 3000)".to_string());
         }
         Ok(files.join("\n"))
     }
@@ -1549,10 +1549,13 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                         .iter()
                         .map(|m| match &m.content {
                             MessageContent::Text(t) => t.len(),
-                            MessageContent::ToolCalls(tcs) => tcs
-                                .iter()
-                                .map(|tc| tc.name.len() + tc.raw_arguments.len())
-                                .sum(),
+                            MessageContent::ToolCalls(tcs, text_opt) => {
+                                let tc_len: usize = tcs
+                                    .iter()
+                                    .map(|tc| tc.name.len() + tc.raw_arguments.len())
+                                    .sum();
+                                tc_len + text_opt.as_ref().map_or(0, |t| t.len())
+                            }
                             MessageContent::ToolResult { result, .. } => result.len(),
                         })
                         .sum::<usize>()) as u64
@@ -1598,7 +1601,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                     session.history.push(ChatMessage {
                         id: format!("model_{}", chrono::Local::now().timestamp_millis()),
                         role: "assistant".to_string(),
-                        content: MessageContent::ToolCalls(all_tools.clone()),
+                        content: MessageContent::ToolCalls(all_tools.clone(), llm_reply.text.clone()),
                         timestamp: chrono::Local::now().format("%H:%M").to_string(),
                     });
 
@@ -1612,7 +1615,12 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                     } else {
                         // Tự động chạy tool
                         session.state = AgentState::ExecutingTool;
-                        Box::pin(self.tick(session, system_prompt, llm_call_fn)).await
+                        return TickResult::Continue {
+                            thought: None,
+                            tool_name: Some(all_tools.first().map(|t| t.name.clone()).unwrap_or_default()),
+                            tool_result: None,
+                            iteration,
+                        };
                     }
                 } else {
                     // Text response — hoan thanh
@@ -1647,7 +1655,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                     .find_map(|msg| {
                         if msg.role == "assistant" {
                             match &msg.content {
-                                MessageContent::ToolCalls(tcs) => Some(tcs.clone()),
+                                MessageContent::ToolCalls(tcs, _) => Some(tcs.clone()),
                                 _ => None,
                             }
                         } else {
@@ -1715,7 +1723,12 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
                 // Chạy xong tool → quay lại Thinking
                 session.state = AgentState::Thinking;
-                Box::pin(self.tick(session, system_prompt, llm_call_fn)).await
+                return TickResult::Continue {
+                    thought: None,
+                    tool_name: Some(tool_calls.first().map(|t| t.name.clone()).unwrap_or_default()),
+                    tool_result: Some("Executed tools".to_string()),
+                    iteration: session.iteration_count,
+                };
             }
 
             // ─── STATE: AwaitingApproval ──────────────────────────────────
@@ -1852,7 +1865,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         current_depth: usize,
     ) -> Result<(), String> {
         const MAX_DEPTH: usize = 8;
-        const MAX_FILES: usize = 1000;
+        const MAX_FILES: usize = 3000;
 
         if current_depth > MAX_DEPTH {
             return Ok(());
@@ -1874,9 +1887,20 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                     let name_str = name.to_string_lossy();
                     if name_str == ".git"
                         || name_str == ".idea"
+                        || name_str == ".vscode"
                         || name_str == "target"
                         || name_str == "node_modules"
                         || name_str == "logs"
+                        || name_str == "dist"
+                        || name_str == "build"
+                        || name_str == "out"
+                        || name_str == ".next"
+                        || name_str == ".venv"
+                        || name_str == "venv"
+                        || name_str == "__pycache__"
+                        || name_str == ".claude"
+                        || name_str == "app_data"
+                        || name_str == "scratch_llama_build"
                     {
                         continue;
                     }
@@ -1911,7 +1935,7 @@ mod tests {
             ChatMessage {
                 id: "2".to_string(),
                 role: "assistant".to_string(),
-                content: MessageContent::ToolCalls(vec![]),
+                content: MessageContent::ToolCalls(vec![], None),
                 timestamp: "".to_string(),
             },
             ChatMessage {
@@ -1934,7 +1958,7 @@ mod tests {
             ChatMessage {
                 id: "5".to_string(),
                 role: "assistant".to_string(),
-                content: MessageContent::ToolCalls(vec![]),
+                content: MessageContent::ToolCalls(vec![], None),
                 timestamp: "".to_string(),
             },
             ChatMessage {
