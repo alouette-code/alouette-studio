@@ -1,5 +1,5 @@
 use tokio::process::Command;
-use crate::memory_inspector::models::{InspectionConfig, TelemetryData};
+use crate::memory_inspector::models::{InspectionConfig, TelemetryData, TargetType};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct DockerDriver;
@@ -47,9 +47,65 @@ impl super::ContainerDriver for DockerDriver {
         args.push("--cap-add".to_string());
         args.push("SYS_PTRACE".to_string());
         
-        args.push(config.image.clone());
+        let mut actual_image = config.image.clone();
+        let mut actual_cmd = config.cmd.clone();
+
+        if let Some(target) = &config.target_type {
+            match target {
+                TargetType::DockerImage => {}
+                TargetType::CodeSnippet { language, code } => {
+                    let tmp_dir = std::env::temp_dir().join("alouette_snippets");
+                    let _ = std::fs::create_dir_all(&tmp_dir);
+                    let ext = match language.as_str() {
+                        "python" => "py",
+                        "node" | "javascript" => "js",
+                        "bash" => "sh",
+                        "c" => "c",
+                        "cpp" => "cpp",
+                        "rust" => "rs",
+                        "go" => "go",
+                        "java" => "java",
+                        "php" => "php",
+                        "ruby" => "rb",
+                        _ => "txt"
+                    };
+                    let file_name = if language.as_str() == "java" { "Main".to_string() } else { name.to_string() };
+                    let file_path = tmp_dir.join(format!("{}.{}", file_name, ext));
+                    let _ = std::fs::write(&file_path, code);
+                    
+                    args.push("-v".to_string());
+                    let dest_name = if language.as_str() == "java" { "Main".to_string() } else { "snippet".to_string() };
+                    args.push(format!("{}:/app/{}.{}", file_path.display(), dest_name, ext));
+                    
+                    actual_cmd = Some(match language.as_str() {
+                        "python" => format!("python /app/{}.{}", dest_name, ext),
+                        "node" | "javascript" => format!("node /app/{}.{}", dest_name, ext),
+                        "bash" => format!("bash /app/{}.{}", dest_name, ext),
+                        "c" => format!("gcc /app/{}.c -o /app/run && /app/run", dest_name),
+                        "cpp" => format!("g++ /app/{}.cpp -o /app/run && /app/run", dest_name),
+                        "rust" => format!("rustc /app/{}.rs -o /app/run && /app/run", dest_name),
+                        "go" => format!("go run /app/{}.go", dest_name),
+                        "java" => format!("javac /app/{}.java && java -cp /app {}", dest_name, dest_name),
+                        "php" => format!("php /app/{}.php", dest_name),
+                        "ruby" => format!("ruby /app/{}.rb", dest_name),
+                        _ => format!("cat /app/{}.{}", dest_name, ext)
+                    });
+                }
+                TargetType::ExecutableFile { host_path } => {
+                    args.push("-v".to_string());
+                    args.push(format!("{}:/app/run_me", host_path));
+                    
+                    if config.image.trim().is_empty() {
+                        actual_image = "ubuntu:22.04".to_string();
+                    }
+                    actual_cmd = Some("/app/run_me".to_string());
+                }
+            }
+        }
         
-        if let Some(cmd_str) = &config.cmd {
+        args.push(actual_image);
+        
+        if let Some(cmd_str) = &actual_cmd {
             if !cmd_str.trim().is_empty() {
                 let cmd_parts: Vec<String> = cmd_str.split_whitespace().map(|s| s.to_string()).collect();
                 args.extend(cmd_parts);

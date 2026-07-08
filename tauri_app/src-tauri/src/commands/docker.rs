@@ -168,3 +168,18 @@ pub async fn docker_exec_terminal(app_handle: AppHandle, id: String) -> Result<S
 pub async fn docker_write_terminal(exec_id: String, data: String) -> Result<(), String> {
     write_to_terminal(&exec_id, data).await
 }
+
+#[tauri::command]
+pub async fn docker_cleanup() -> Result<String, String> {
+    let output = tokio::process::Command::new("docker")
+        .args(["system", "prune", "-a", "-f"])
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}

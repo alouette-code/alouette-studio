@@ -14,7 +14,16 @@ pub enum InspectorState {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TargetType {
+    DockerImage,
+    CodeSnippet { language: String, code: String },
+    ExecutableFile { host_path: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InspectionConfig {
+    #[serde(default)]
+    pub target_type: Option<TargetType>,
     pub image: String,
     pub initial_ram_mb: f64,
     pub env_vars: std::collections::HashMap<String, String>,

@@ -1,5 +1,5 @@
 import { InspectorState } from '../types';
-import { Terminal, CheckCircle2, CircleDashed, Circle } from 'lucide-react';
+import { Terminal } from 'lucide-react';
 
 interface ExecutionLogProps {
     state: InspectorState;

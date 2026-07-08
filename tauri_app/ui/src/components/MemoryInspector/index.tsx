@@ -6,19 +6,13 @@ import { InsightsPanel } from './components/InsightsPanel';
 import { TaskHistory } from './components/TaskHistory';
 import { ExecutionLog } from './components/ExecutionLog';
 import { ActivityLog } from './components/ActivityLog';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import brandIcon from '../logo_alouette.png';
 import WindowResizer from '../WindowResizer';
 import { WindowControls } from '../WindowControls';
 import './styles.css';
 
-interface MemoryInspectorProps {
-    onClose?: () => void;
-}
-
-export function MemoryInspector({ onClose }: MemoryInspectorProps) {
+export function MemoryInspector() {
     const { history, state, isActive, tasks, startInspection, stopInspection, fetchTaskHistory } = useMemoryInspector();
-    const appWindow = getCurrentWindow();
     
     const latestData = history.length > 0 ? history[history.length - 1] : null;
 

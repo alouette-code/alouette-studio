@@ -22,7 +22,13 @@ export interface InspectorState {
     error?: string;
 }
 
+export type TargetType = 
+    | 'DockerImage'
+    | { CodeSnippet: { language: string; code: string } }
+    | { ExecutableFile: { host_path: string } };
+
 export interface InspectionConfig {
+    target_type?: TargetType;
     image: string;
     initial_ram_mb: number;
     env_vars: Record<string, string>;
