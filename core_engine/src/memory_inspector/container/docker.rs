@@ -73,23 +73,54 @@ impl super::ExecutionProvider for DockerDriver {
                     let file_path = tmp_dir.join(format!("{}.{}", file_name, ext));
                     let _ = std::fs::write(&file_path, code);
                     
-                    args.push("-v".to_string());
+                    let is_compiled = match language.as_str() {
+                        "c" | "cpp" | "rust" | "go" | "java" => true,
+                        _ => false,
+                    };
+
                     let dest_name = if language.as_str() == "java" { "Main".to_string() } else { "snippet".to_string() };
-                    args.push(format!("{}:/app/{}.{}", file_path.display(), dest_name, ext));
-                    
-                    actual_cmd = Some(match language.as_str() {
-                        "python" => format!("python /app/{}.{}", dest_name, ext),
-                        "node" | "javascript" => format!("node /app/{}.{}", dest_name, ext),
-                        "bash" => format!("bash /app/{}.{}", dest_name, ext),
-                        "c" => format!("gcc /app/{}.c -o /app/run && /app/run", dest_name),
-                        "cpp" => format!("g++ /app/{}.cpp -o /app/run && /app/run", dest_name),
-                        "rust" => format!("rustc /app/{}.rs -o /app/run && /app/run", dest_name),
-                        "go" => format!("go run /app/{}.go", dest_name),
-                        "java" => format!("javac /app/{}.java && java -cp /app {}", dest_name, dest_name),
-                        "php" => format!("php /app/{}.php", dest_name),
-                        "ruby" => format!("ruby /app/{}.rb", dest_name),
-                        _ => format!("cat /app/{}.{}", dest_name, ext)
-                    });
+
+                    if is_compiled {
+                        // Synchronously compile in a throwaway container
+                        let compile_cmd = match language.as_str() {
+                            "c" => format!("gcc /app/{}.c -o /app/run", file_name),
+                            "cpp" => format!("g++ /app/{}.cpp -o /app/run", file_name),
+                            "rust" => format!("rustc /app/{}.rs -o /app/run", file_name),
+                            "go" => format!("cd /app && go build -o run {}.go", file_name),
+                            "java" => format!("javac -d /app /app/{}.java", file_name),
+                            _ => "".to_string(),
+                        };
+                        
+                        let compile_output = Command::new("docker")
+                            .args(["run", "--rm", "-v", &format!("{}:/app", tmp_dir.display()), &config.image, "sh", "-c", &compile_cmd])
+                            .output()
+                            .await
+                            .map_err(|e| e.to_string())?;
+                            
+                        if !compile_output.status.success() {
+                            return Err(format!("Compilation failed: {}", String::from_utf8_lossy(&compile_output.stderr)));
+                        }
+
+                        args.push("-v".to_string());
+                        args.push(format!("{}:/app", tmp_dir.display()));
+                        
+                        actual_cmd = Some(match language.as_str() {
+                            "java" => format!("java -cp /app {}", dest_name),
+                            _ => "/app/run".to_string(),
+                        });
+                    } else {
+                        args.push("-v".to_string());
+                        args.push(format!("{}:/app/{}.{}", file_path.display(), dest_name, ext));
+                        
+                        actual_cmd = Some(match language.as_str() {
+                            "python" => format!("python /app/{}.{}", dest_name, ext),
+                            "node" | "javascript" => format!("node /app/{}.{}", dest_name, ext),
+                            "bash" => format!("bash /app/{}.{}", dest_name, ext),
+                            "php" => format!("php /app/{}.{}", dest_name, ext),
+                            "ruby" => format!("ruby /app/{}.{}", dest_name, ext),
+                            _ => format!("cat /app/{}.{}", dest_name, ext)
+                        });
+                    }
                 }
                 TargetType::ExecutableFile { host_path } => {
                     args.push("-v".to_string());
