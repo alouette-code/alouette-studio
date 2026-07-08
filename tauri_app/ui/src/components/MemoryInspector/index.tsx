@@ -5,10 +5,10 @@ import { HeatmapTimeline } from './components/HeatmapTimeline';
 import { InsightsPanel } from './components/InsightsPanel';
 import { TaskHistory } from './components/TaskHistory';
 import { ExecutionLog } from './components/ExecutionLog';
-import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import brandIcon from '../logo_alouette.png';
 import WindowResizer from '../WindowResizer';
+import { WindowControls } from '../WindowControls';
 import './styles.css';
 
 interface MemoryInspectorProps {
@@ -20,20 +20,6 @@ export function MemoryInspector({ onClose }: MemoryInspectorProps) {
     const appWindow = getCurrentWindow();
     
     const latestData = history.length > 0 ? history[history.length - 1] : null;
-
-    const handleMinimize = async () => {
-        try { await appWindow.minimize(); } catch { }
-    };
-    const handleMaximize = async () => {
-        try { await appWindow.toggleMaximize(); } catch { }
-    };
-    const handleClose = async () => {
-        if (onClose) {
-            onClose();
-        } else {
-            try { await appWindow.close(); } catch { }
-        }
-    };
 
     return (
         <div className="inspector-container">
@@ -51,30 +37,7 @@ export function MemoryInspector({ onClose }: MemoryInspectorProps) {
                     <span className="titlebar-subtitle">System & Container Diagnostics</span>
                 </div>
                 <div className="titlebar-right" data-tauri-drag-region="false">
-                    <button
-                        className="window-control-btn minimize"
-                        onClick={handleMinimize}
-                        title="Minimize"
-                        data-tauri-drag-region="false"
-                    >
-                        <Minus size={13} data-tauri-drag-region="false" />
-                    </button>
-                    <button
-                        className="window-control-btn maximize"
-                        onClick={handleMaximize}
-                        title="Maximize"
-                        data-tauri-drag-region="false"
-                    >
-                        <Square size={10} data-tauri-drag-region="false" />
-                    </button>
-                    <button
-                        className="window-control-btn close"
-                        onClick={handleClose}
-                        title="Close"
-                        data-tauri-drag-region="false"
-                    >
-                        <X size={14} data-tauri-drag-region="false" />
-                    </button>
+                    <WindowControls />
                 </div>
             </div>
             
