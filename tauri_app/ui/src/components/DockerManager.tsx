@@ -418,6 +418,25 @@ export default function DockerManager() {
                 );
               })}
             </div>
+            <div style={{ padding: '12px', borderTop: `1px solid ${THEME.border}` }}>
+              <button 
+                onClick={async () => {
+                  if (confirm("This will remove all stopped containers and unused images. Are you sure?")) {
+                    try {
+                      const res = await invoke("docker_cleanup");
+                      alert("Cleanup successful:\n" + res);
+                      loadContainers();
+                    } catch (e) {
+                      alert("Cleanup failed: " + e);
+                    }
+                  }
+                }}
+                style={{ ...btnStyle, width: '100%', justifyContent: 'center', backgroundColor: THEME.bgInput, color: THEME.warning, fontSize: '11px' }}
+                title="Remove all unused containers and images to free up disk space"
+              >
+                <Trash2 size={12} /> System Cleanup
+              </button>
+            </div>
           </div>
 
           {/* Main Content Area */}

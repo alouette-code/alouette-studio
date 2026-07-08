@@ -304,6 +304,7 @@ fn main() {
             commands::docker::docker_stream_stats,
             commands::docker::docker_exec_terminal,
             commands::docker::docker_write_terminal,
+            commands::docker::docker_cleanup,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
