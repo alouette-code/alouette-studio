@@ -352,7 +352,7 @@ export default function DockerManager() {
       
       {!daemonRunning ? (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-          <RefreshCw size={48} className="spin" style={{ color: THEME.accent, marginBottom: '24px' }} />
+          <DockerIcon size={48} className={checkingDaemon ? "spin" : ""} style={{ color: THEME.accent, margin: '0 0 24px 0' }} />
           <h3 style={{ fontSize: '20px', margin: '0 0 8px 0' }}>{checkingDaemon ? "Starting Docker Engine..." : "Docker Engine is stopped"}</h3>
           {daemonError && <div style={{ color: THEME.error, marginTop: '16px', fontSize: '13px', textAlign: 'center', maxWidth: '500px', backgroundColor: THEME.bgPanel, padding: '12px', borderRadius: '4px', border: `1px solid ${THEME.border}` }}>{daemonError}</div>}
           {!checkingDaemon && <button onClick={checkDaemon} style={{ ...btnStyle, marginTop: '24px', backgroundColor: THEME.accent, color: '#fff', border: 'none', padding: '8px 24px', fontSize: '14px' }}><Play size={16}/> Start Engine</button>}
