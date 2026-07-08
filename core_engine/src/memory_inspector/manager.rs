@@ -89,12 +89,14 @@ impl MemoryInspectorManager {
                     InspectorEvent::StartTask { config } => {
                         if let Err(e) = execution_provider.check_health().await {
                             state = InspectorState::Error(e);
+                            *state_mutex.lock().await = state.clone();
                             continue;
                         }
 
                         let _ = execution_provider.destroy_sandbox(&container_name).await;
                         if let Err(e) = execution_provider.create_sandbox(&config, &container_name).await {
                             state = InspectorState::Error(e);
+                            *state_mutex.lock().await = state.clone();
                             continue;
                         }
 
@@ -227,16 +229,16 @@ impl MemoryInspectorManager {
         }
 
         let status_str = match &state {
-            InspectorState::Idle => "Idle",
-            InspectorState::PreFlightChecks => "PreFlightChecks",
-            InspectorState::Isolating => "Isolating",
-            InspectorState::BaselineProfiling => "BaselineProfiling",
-            InspectorState::StressTesting => "StressTesting",
-            InspectorState::SmartInspection => "SmartInspection",
-            InspectorState::GeneratingReport => "GeneratingReport",
-            InspectorState::Finished => "Finished",
-            InspectorState::Error(_e) => "Error",
-        }.to_string();
+            InspectorState::Idle => "Idle".to_string(),
+            InspectorState::PreFlightChecks => "PreFlightChecks".to_string(),
+            InspectorState::Isolating => "Isolating".to_string(),
+            InspectorState::BaselineProfiling => "BaselineProfiling".to_string(),
+            InspectorState::StressTesting => "StressTesting".to_string(),
+            InspectorState::SmartInspection => "SmartInspection".to_string(),
+            InspectorState::GeneratingReport => "GeneratingReport".to_string(),
+            InspectorState::Finished => "Finished".to_string(),
+            InspectorState::Error(e) => format!("Error: {}", e),
+        };
 
         let mut telemetry = self.pipeline.get_recent(1).await.get(0).cloned().unwrap_or_else(|| TelemetryData {
             timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),

@@ -34,9 +34,11 @@ export function InsightsPanel({ state, latestData }: InsightsProps) {
             statusText = "Inspection Complete.";
             statusIcon = <CheckCircle className="text-green-500" />;
             break;
-        case 'Error':
-            statusText = `Error: ${state.error}`;
-            statusIcon = <AlertTriangle className="text-red-500" />;
+        default:
+            if (state.status.startsWith('Error')) {
+                statusText = state.status;
+                statusIcon = <AlertTriangle className="text-red-500" />;
+            }
             break;
     }
 
@@ -44,7 +46,7 @@ export function InsightsPanel({ state, latestData }: InsightsProps) {
         <div className="flat-panel">
             <h3 className="panel-title">Smart Insights</h3>
             
-            {state.status === 'Error' ? (
+            {state.status.startsWith('Error') ? (
                 <div className="alert-box">
                     <div className="alert-icon">{statusIcon}</div>
                     <div className="alert-content">{statusText}</div>
