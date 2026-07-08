@@ -4,8 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub struct DockerDriver;
 
-impl super::ContainerDriver for DockerDriver {
-    async fn check_daemon_health(&self) -> Result<(), String> {
+impl super::ExecutionProvider for DockerDriver {
+    async fn check_health(&self) -> Result<(), String> {
         let status = Command::new("docker")
             .arg("info")
             .output()
@@ -107,8 +107,9 @@ impl super::ContainerDriver for DockerDriver {
         
         if let Some(cmd_str) = &actual_cmd {
             if !cmd_str.trim().is_empty() {
-                let cmd_parts: Vec<String> = cmd_str.split_whitespace().map(|s| s.to_string()).collect();
-                args.extend(cmd_parts);
+                args.push("sh".to_string());
+                args.push("-c".to_string());
+                args.push(cmd_str.clone());
             }
         }
 
@@ -150,7 +151,7 @@ impl super::ContainerDriver for DockerDriver {
     }
 
     async fn update_memory_limit(&self, name: &str, memory_mb: f64) -> Result<(), String> {
-        let mem_str = format!("{}m", memory_mb);
+        let mem_str = format!("{}m", memory_mb.round() as u64);
         let status = Command::new("docker")
             .args(["update", "-m", &mem_str, name])
             .status()
@@ -160,6 +161,56 @@ impl super::ContainerDriver for DockerDriver {
         if !status.success() {
             return Err("Failed to update docker memory limit".to_string());
         }
+        Ok(())
+    }
+
+    async fn inject_chaos(&self, name: &str) -> Result<(), String> {
+        use rand::Rng;
+        let scenario = {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0..3)
+        };
+        
+        match scenario {
+            0 => {
+                // Memory Spike: Extremely low limit for a short duration
+                let _ = Command::new("docker").args(["update", "-m", "80m", name]).status().await;
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                // It will be restored by the StressController in the next tick
+            }
+            1 => {
+                // Network Blackout
+                let _ = Command::new("docker")
+                    .args(["exec", name, "tc", "qdisc", "add", "dev", "eth0", "root", "netem", "loss", "100%"])
+                    .status()
+                    .await;
+                
+                tokio::spawn({
+                    let n = name.to_string();
+                    async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                        let _ = Command::new("docker")
+                            .args(["exec", &n, "tc", "qdisc", "del", "dev", "eth0", "root", "netem"])
+                            .status()
+                            .await;
+                    }
+                });
+            }
+            2 => {
+                // Thread Panic / Freeze
+                // Freeze process 1 for 1 second
+                let _ = Command::new("docker").args(["exec", name, "kill", "-STOP", "1"]).status().await;
+                tokio::spawn({
+                    let n = name.to_string();
+                    async move {
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                        let _ = Command::new("docker").args(["exec", &n, "kill", "-CONT", "1"]).status().await;
+                    }
+                });
+            }
+            _ => {}
+        }
+        
         Ok(())
     }
 

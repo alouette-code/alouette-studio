@@ -47,7 +47,7 @@ export function TaskHistory({ tasks, onRefresh }: TaskHistoryProps) {
                             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
                                 <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={10} /> {formatTime(task.start_time)}</span>
                                 {task.final_diagnosis && (
-                                    <span style={{ color: 'var(--color-warning)' }}>Diagnosis: {task.final_diagnosis}</span>
+                                    <span style={{ color: 'var(--color-warning)', fontWeight: 500 }}>{task.final_diagnosis}</span>
                                 )}
                             </div>
                         </div>

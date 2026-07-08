@@ -88,8 +88,12 @@ fn main() {
             vm_manager,
         })
         .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
-        .manage(Arc::new(Mutex::new(MemoryInspectorManager::new())))
         .setup(move |app| {
+            let memory_manager = tauri::async_runtime::block_on(async {
+                MemoryInspectorManager::new()
+            });
+            app.manage(Arc::new(Mutex::new(memory_manager)));
+
             // Get the main webview window. Standard API in Tauri v2.
             let window = app
                 .get_webview_window("main")

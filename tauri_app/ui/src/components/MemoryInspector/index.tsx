@@ -12,7 +12,7 @@ import { WindowControls } from '../WindowControls';
 import './styles.css';
 
 export function MemoryInspector() {
-    const { history, state, isActive, tasks, startInspection, stopInspection, fetchTaskHistory } = useMemoryInspector();
+    const { history, state, isActive, tasks, startInspection, stopInspection, fetchTaskHistory, currentTaskId } = useMemoryInspector();
     
     const latestData = history.length > 0 ? history[history.length - 1] : null;
 
@@ -60,7 +60,7 @@ export function MemoryInspector() {
                         <PressureChamberChart data={history} />
                     </div>
                     <div className="flat-panel">
-                        <HeatmapTimeline data={history} />
+                        <HeatmapTimeline data={history} currentTask={tasks.find(t => t.task_id === currentTaskId) || tasks[0]} />
                     </div>
                     <ActivityLog activities={latestData?.activities} />
                 </div>

@@ -17,6 +17,7 @@ pub async fn start_memory_inspection(
 
     let manager_clone = state.inner().clone();
     let app_clone = app.clone();
+    let task_id_clone = task_id.clone();
     
     // Spawn background task for tick loop
     tauri::async_runtime::spawn(async move {
@@ -24,19 +25,22 @@ pub async fn start_memory_inspection(
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             let mut m = manager_clone.lock().await;
             
-            // If idle or finished, break loop
-            match m.state {
-                core_engine::memory_inspector::models::InspectorState::Idle |
-                core_engine::memory_inspector::models::InspectorState::Finished => break,
-                _ => {}
+            // If a new task was started or inspection stopped, break loop
+            if m.current_task_id.as_deref() != Some(task_id_clone.as_str()) {
+                break;
             }
 
             match m.tick().await {
                 Ok(telemetry) => {
+                    let status = telemetry.status.clone();
                     emit_telemetry(&app_clone, telemetry);
+                    if status == "Finished" || status == "Error" || status.starts_with("Error") {
+                        break;
+                    }
                 }
                 Err(e) => {
                     eprintln!("Memory inspector tick error: {}", e);
+                    break;
                 }
             }
         }

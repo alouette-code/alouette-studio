@@ -43,9 +43,16 @@ pub struct TaskRecord {
     pub end_time: Option<u64>,
     pub status: String,
     pub final_diagnosis: Option<Diagnosis>,
+    pub culprit_summary: Option<Vec<Culprit>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Culprit {
+    pub name: String,
+    pub count: u32,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TelemetryData {
     pub timestamp: u64,
     pub memory_usage_mb: f64,
