@@ -41,6 +41,7 @@ export function useMemoryInspector() {
         };
     }, [isActive]);
 
+
     const fetchTaskHistory = useCallback(async () => {
         try {
             const history = await invoke<TaskRecord[]>('get_task_history');
@@ -49,6 +50,13 @@ export function useMemoryInspector() {
             console.error("Failed to fetch task history:", e);
         }
     }, []);
+
+    useEffect(() => {
+        if (state.status === 'Finished' || state.status === 'Error' || (state as any).error) {
+            setIsActive(false);
+            fetchTaskHistory(); // refresh history to get final diagnosis
+        }
+    }, [state.status, fetchTaskHistory]);
 
     const startInspection = async (config: InspectionConfig) => {
         try {

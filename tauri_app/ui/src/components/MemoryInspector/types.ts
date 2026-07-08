@@ -47,4 +47,10 @@ export interface TaskRecord {
     end_time: number | null;
     status: string;
     final_diagnosis: Diagnosis | null;
+    culprit_summary?: Culprit[];
+}
+
+export interface Culprit {
+    name: string;
+    count: number;
 }
