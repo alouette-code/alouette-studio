@@ -1,4 +1,4 @@
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Legend } from 'recharts';
 import { TelemetryData } from '../types';
 
 interface ChartProps {
@@ -8,52 +8,30 @@ interface ChartProps {
 export function PressureChamberChart({ data }: ChartProps) {
     const chartData = data.map(d => ({
         time: new Date(d.timestamp * 1000).toLocaleTimeString(),
-        usage: d.memory_usage_mb,
-        limit: d.memory_limit_mb
+        usage: Number(d.memory_usage_mb.toFixed(1)),
+        limit: Number(d.memory_limit_mb.toFixed(1))
     }));
 
     return (
         <div className="inspector-chart-container">
-            <h3 className="chart-title">Pressure Chamber</h3>
+            <h3 className="panel-title">Pressure Chamber</h3>
             <div className="chart-wrapper">
-                <ResponsiveContainer width="100%" height={300}>
-                    <AreaChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
-                        <defs>
-                            <linearGradient id="colorUsage" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                                <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                            </linearGradient>
-                            <linearGradient id="colorLimit" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                            </linearGradient>
-                        </defs>
-                        <XAxis dataKey="time" stroke="#6b7280" fontSize={12} />
-                        <YAxis stroke="#6b7280" fontSize={12} />
-                        <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartData} margin={{ top: 20, right: 30, left: 0, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#22222a" vertical={false} />
+                        <XAxis dataKey="time" stroke="#92929e" fontSize={11} tickMargin={10} />
+                        <YAxis stroke="#92929e" fontSize={11} />
                         <Tooltip 
-                            contentStyle={{ backgroundColor: '#1f2937', border: '1px solid #374151', borderRadius: '8px' }}
-                            itemStyle={{ color: '#e5e7eb' }}
+                            contentStyle={{ backgroundColor: '#111115', border: '1px solid #22222a' }}
+                            itemStyle={{ color: '#e6e6eb' }}
+                            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
                         />
-                        <Area 
-                            type="monotone" 
-                            dataKey="limit" 
-                            stroke="#ef4444" 
-                            strokeWidth={2}
-                            fillOpacity={1} 
-                            fill="url(#colorLimit)" 
-                            name="Memory Limit"
-                        />
-                        <Area 
-                            type="monotone" 
-                            dataKey="usage" 
-                            stroke="#3b82f6" 
-                            strokeWidth={2}
-                            fillOpacity={1} 
-                            fill="url(#colorUsage)" 
-                            name="Memory Usage"
-                        />
-                    </AreaChart>
+                        <Legend wrapperStyle={{ fontSize: '12px', color: '#92929e' }} />
+                        <Bar dataKey="limit" name="Memory Limit (MB)" fill="#ef4444" radius={[2, 2, 0, 0]} opacity={0.3} />
+                        <Bar dataKey="usage" name="Memory Usage (MB)" fill="#3a86ff" radius={[2, 2, 0, 0]}>
+                            <LabelList dataKey="usage" position="top" fill="#e6e6eb" fontSize={10} />
+                        </Bar>
+                    </BarChart>
                 </ResponsiveContainer>
             </div>
         </div>

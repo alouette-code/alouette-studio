@@ -1,3 +1,10 @@
+export interface ProcessActivity {
+    timestamp: number;
+    event_type: string;
+    pid: string;
+    details: string;
+}
+
 export interface TelemetryData {
     timestamp: number;
     memory_usage_mb: number;
@@ -5,6 +12,7 @@ export interface TelemetryData {
     thread_count: number;
     gc_events_detected: number;
     crash_imminent: boolean;
+    activities?: ProcessActivity[];
 }
 
 export type Diagnosis = 'CacheEviction' | 'StubbornLeak' | 'Unknown';
@@ -17,7 +25,10 @@ export interface InspectorState {
 export interface InspectionConfig {
     image: string;
     initial_ram_mb: number;
-    env_vars: string[];
+    env_vars: Record<string, string>;
+    ports: string[];
+    volumes: string[];
+    network: string | null;
     cmd: string | null;
     stress_ramp_rate: number;
     timeout_secs: number;

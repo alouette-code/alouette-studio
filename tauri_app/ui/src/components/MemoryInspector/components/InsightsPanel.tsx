@@ -41,13 +41,20 @@ export function InsightsPanel({ state, latestData }: InsightsProps) {
     }
 
     return (
-        <div className="inspector-insights-panel">
+        <div className="flat-panel">
             <h3 className="panel-title">Smart Insights</h3>
             
-            <div className="status-indicator">
-                {statusIcon}
-                <span className="status-text">{statusText}</span>
-            </div>
+            {state.status === 'Error' ? (
+                <div className="alert-box">
+                    <div className="alert-icon">{statusIcon}</div>
+                    <div className="alert-content">{statusText}</div>
+                </div>
+            ) : (
+                <div className="status-indicator" style={{ display: statusIcon || statusText ? 'flex' : 'none' }}>
+                    {statusIcon && <div className="alert-icon" style={{ color: 'var(--color-info)' }}>{statusIcon}</div>}
+                    <span className="status-text">{statusText}</span>
+                </div>
+            )}
 
             {latestData && (
                 <div className="metrics-grid">

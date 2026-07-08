@@ -9,7 +9,7 @@ use crate::memory_inspector::stress::{StressController, ramp_down::ExponentialRa
 
 pub struct MemoryInspectorManager {
     pub state: InspectorState,
-    container_driver: Box<dyn ContainerDriver + Send + Sync>,
+    container_driver: DockerDriver,
     profiler: Arc<Mutex<dyn Profiler + Send + Sync>>,
     stress_controller: Option<Box<dyn StressController + Send + Sync>>,
     container_name: String,
@@ -21,7 +21,7 @@ impl MemoryInspectorManager {
     pub fn new() -> Self {
         Self {
             state: InspectorState::Idle,
-            container_driver: Box::new(DockerDriver),
+            container_driver: DockerDriver,
             profiler: Arc::new(Mutex::new(SmartAnalyzer::new())),
             stress_controller: None,
             container_name: "proto-memory-inspector".to_string(),
@@ -34,13 +34,13 @@ impl MemoryInspectorManager {
         self.state = InspectorState::PreFlightChecks;
         
         // Check tools
-        self.container_driver.check_daemon_health()?;
+        self.container_driver.check_daemon_health().await?;
 
         self.state = InspectorState::Isolating;
         // Clean up any previous container
-        let _ = self.container_driver.destroy_sandbox(&self.container_name);
+        let _ = self.container_driver.destroy_sandbox(&self.container_name).await;
         
-        self.container_driver.create_sandbox(&config, &self.container_name)?;
+        self.container_driver.create_sandbox(&config, &self.container_name).await?;
         self.state = InspectorState::BaselineProfiling;
 
         let task_id = format!("task-{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis());
@@ -61,7 +61,7 @@ impl MemoryInspectorManager {
     }
 
     pub async fn tick(&mut self) -> Result<TelemetryData, String> {
-        let stats = self.container_driver.get_stats(&self.container_name)?;
+        let mut stats = self.container_driver.get_stats(&self.container_name).await?;
         
         let mut profiler = self.profiler.lock().await;
         profiler.record_telemetry(stats.clone());
@@ -77,7 +77,7 @@ impl MemoryInspectorManager {
             InspectorState::StressTesting => {
                 if let Some(controller) = &mut self.stress_controller {
                     let next_limit = controller.calculate_next_limit(stats.memory_usage_mb);
-                    let _ = self.container_driver.update_memory_limit(&self.container_name, next_limit);
+                    let _ = self.container_driver.update_memory_limit(&self.container_name, next_limit).await;
                     
                     if controller.is_finished() {
                         self.state = InspectorState::SmartInspection;
@@ -107,11 +107,12 @@ impl MemoryInspectorManager {
             _ => {}
         }
 
+        stats.status = format!("{:?}", self.state);
         Ok(stats)
     }
 
     pub async fn stop(&mut self) {
-        let _ = self.container_driver.destroy_sandbox(&self.container_name);
+        let _ = self.container_driver.destroy_sandbox(&self.container_name).await;
         self.state = InspectorState::Idle;
     }
 }

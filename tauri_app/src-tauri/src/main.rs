@@ -294,6 +294,7 @@ fn main() {
             commands::memory_inspector::actions::get_task_history,
             commands::docker::docker_ensure_started,
             commands::docker::docker_list_containers,
+            commands::docker::docker_list_images,
             commands::docker::docker_create_container,
             commands::docker::docker_start_container,
             commands::docker::docker_stop_container,

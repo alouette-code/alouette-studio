@@ -5,6 +5,7 @@ import { HeatmapTimeline } from './components/HeatmapTimeline';
 import { InsightsPanel } from './components/InsightsPanel';
 import { TaskHistory } from './components/TaskHistory';
 import { ExecutionLog } from './components/ExecutionLog';
+import { ActivityLog } from './components/ActivityLog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import brandIcon from '../logo_alouette.png';
 import WindowResizer from '../WindowResizer';
@@ -60,9 +61,14 @@ export function MemoryInspector({ onClose }: MemoryInspectorProps) {
                     />
                 </div>
                 
-                <div className="inspector-right-col" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                    <PressureChamberChart data={history} />
-                    <HeatmapTimeline data={history} />
+                <div className="inspector-right-col">
+                    <div className="flat-panel" style={{ flex: 1 }}>
+                        <PressureChamberChart data={history} />
+                    </div>
+                    <div className="flat-panel">
+                        <HeatmapTimeline data={history} />
+                    </div>
+                    <ActivityLog activities={latestData?.activities} />
                 </div>
             </div>
         </div>

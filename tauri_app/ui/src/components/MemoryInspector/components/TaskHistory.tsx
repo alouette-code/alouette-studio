@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { TaskRecord } from '../types';
-import { Database, Clock, Activity, CheckCircle2, XCircle } from 'lucide-react';
+import { Database, Clock, CheckCircle2, XCircle } from 'lucide-react';
+import { DockerIcon } from '../../DockerManager';
 
 interface TaskHistoryProps {
     tasks: TaskRecord[];
@@ -33,7 +34,7 @@ export function TaskHistory({ tasks, onRefresh }: TaskHistoryProps) {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ fontFamily: 'monospace', color: 'var(--color-info)', fontSize: '11px' }}>{task.task_id}</span>
                                 {task.status === 'Running' ? (
-                                    <span style={{ color: 'var(--color-warning)', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}><Activity size={12} /> Running</span>
+                                    <span style={{ color: '#0db7ed', display: 'flex', alignItems: 'center' }} title="Container is running"><DockerIcon size={16} style={{ margin: 0 }} /></span>
                                 ) : task.status === 'Finished' ? (
                                     <span style={{ color: 'var(--color-success)', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px' }}><CheckCircle2 size={12} /> Finished</span>
                                 ) : (
