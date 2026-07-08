@@ -40,6 +40,28 @@ pub async fn docker_list_containers(all: bool) -> Result<Vec<bollard::models::Co
 }
 
 #[tauri::command]
+pub async fn docker_list_images() -> Result<Vec<String>, String> {
+    let client = get_client().await?;
+    let images = client.docker.list_images(Some(bollard::image::ListImagesOptions::<String> {
+        all: true,
+        ..Default::default()
+    })).await.map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for img in images {
+        for tag in img.repo_tags {
+            if tag != "<none>:<none>" {
+                result.push(tag);
+            }
+        }
+    }
+    
+    result.sort();
+    result.dedup();
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn docker_create_container(config: DockerContainerConfig) -> Result<String, String> {
     let client = get_client().await?;
     create_container(&client.docker, config).await

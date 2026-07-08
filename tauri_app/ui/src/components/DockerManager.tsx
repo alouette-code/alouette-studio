@@ -58,7 +58,7 @@ const btnStyle: React.CSSProperties = {
   gap: "6px"
 };
 
-const DockerIcon = ({ size = 14, className = "", style = {} }: { size?: number, className?: string, style?: React.CSSProperties }) => (
+export const DockerIcon = ({ size = 14, className = "", style = {} }: { size?: number, className?: string, style?: React.CSSProperties }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     width={size}

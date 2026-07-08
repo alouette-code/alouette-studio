@@ -17,7 +17,10 @@ pub enum InspectorState {
 pub struct InspectionConfig {
     pub image: String,
     pub initial_ram_mb: f64,
-    pub env_vars: Vec<String>,
+    pub env_vars: std::collections::HashMap<String, String>,
+    pub ports: Vec<String>,
+    pub volumes: Vec<String>,
+    pub network: Option<String>,
     pub cmd: Option<String>,
     pub stress_ramp_rate: f64,
     pub timeout_secs: u64,
@@ -41,6 +44,16 @@ pub struct TelemetryData {
     pub thread_count: u32,
     pub gc_events_detected: u32,
     pub crash_imminent: bool,
+    pub status: String,
+    pub activities: Vec<ProcessActivity>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessActivity {
+    pub timestamp: u64,
+    pub event_type: String,
+    pub pid: String,
+    pub details: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

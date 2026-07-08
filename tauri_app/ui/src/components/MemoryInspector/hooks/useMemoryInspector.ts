@@ -14,7 +14,7 @@ export function useMemoryInspector() {
         let unlisten: (() => void) | undefined;
 
         async function setupListener() {
-            unlisten = await listen<TelemetryData>('memory-inspector-telemetry', (event) => {
+            unlisten = await listen<TelemetryData & { status: string }>('memory-inspector-telemetry', (event) => {
                 setHistory(prev => {
                     const newHistory = [...prev, event.payload];
                     // keep last 100 points for chart
@@ -22,12 +22,13 @@ export function useMemoryInspector() {
                     return newHistory;
                 });
                 
-                // If we see limits dropping, we are in stress mode
-                if (event.payload.memory_limit_mb < (history[0]?.memory_limit_mb || Infinity)) {
-                    setState({ status: 'StressTesting' });
-                } else {
-                    setState({ status: 'BaselineProfiling' });
-                }
+                // Extract status from backend payload instead of guessing
+                setState(prev => {
+                    if (prev.status !== event.payload.status) {
+                        return { status: event.payload.status as any };
+                    }
+                    return prev;
+                });
             });
         }
 
@@ -38,7 +39,7 @@ export function useMemoryInspector() {
         return () => {
             if (unlisten) unlisten();
         };
-    }, [isActive, history]);
+    }, [isActive]);
 
     const fetchTaskHistory = useCallback(async () => {
         try {
