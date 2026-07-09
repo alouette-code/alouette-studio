@@ -303,6 +303,48 @@ pub fn all_tools() -> Vec<ToolDef> {
                 "required": ["url", "method"]
             }),
         },
+        ToolDef {
+            name: "search_web",
+            description: "Search DuckDuckGo to get a list of results (titles, URLs, snippets). Use this to find information before fetching a specific webpage.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query."
+                    }
+                },
+                "required": ["query"]
+            }),
+        },
+        ToolDef {
+            name: "fetch_webpage",
+            description: "Fetch a webpage, extract text as Markdown, chunk it by headings, and return the Table of Contents. Use read_chunk subsequently to read specific sections.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL of the webpage to fetch."
+                    }
+                },
+                "required": ["url"]
+            }),
+        },
+        ToolDef {
+            name: "read_chunk",
+            description: "Read a specific chunk of content from the last fetched webpage using its Chunk ID.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "chunk_id": {
+                        "type": "integer",
+                        "description": "The Chunk ID from the Table of Contents returned by fetch_webpage."
+                    }
+                },
+                "required": ["chunk_id"]
+            }),
+        },
     ]
 }
 

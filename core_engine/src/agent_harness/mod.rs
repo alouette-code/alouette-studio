@@ -678,6 +678,9 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "search_symbol" => self.execute_search_symbol(tool),
             "edit_file" => self.execute_edit_file(tool),
             "ping_zero_min" => self.execute_ping_zero_min(tool).await,
+            "search_web" => self.execute_search_web(tool).await,
+            "fetch_webpage" => self.execute_fetch_webpage(tool).await,
+            "read_chunk" => self.execute_read_chunk(tool).await,
             _ => Err(format!("Unknown tool: {}", tool.name)),
         };
 
@@ -943,6 +946,177 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             }
             Err(e) => Err(format!("HTTP Request failed: {}", e)),
         }
+    }
+
+    async fn execute_search_web(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let query = tool.arguments.get("query")
+            .and_then(|q| q.as_str())
+            .ok_or_else(|| "Missing 'query' argument".to_string())?;
+
+        let url = "https://lite.duckduckgo.com/lite/";
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .build()
+            .map_err(|e| format!("Request failed: {}", e))?;
+
+        let body = format!("q={}", query.replace(" ", "+"));
+        let response = client.post(url)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .body(body)
+            .send()
+            .await
+            .map_err(|e| format!("Request failed: {}", e))?;
+        let html = response.text().await.map_err(|e| format!("Read failed: {}", e))?;
+
+        let html_clean = html.replace('\n', " ").replace('\r', "");
+        let re_item = regex::Regex::new(r#"<a rel="nofollow" href="([^"]+)" class='result-link'>(.*?)</a>.*?<td class='result-snippet'>(.*?)</td>"#).unwrap();
+        
+        let mut output = format!("Search Results for '{}':\n\n", query);
+        let mut count = 0;
+        
+        for cap in re_item.captures_iter(&html_clean) {
+            let href = cap.get(1).map_or("", |m| m.as_str());
+            let title_html = cap.get(2).map_or("", |m| m.as_str());
+            let snippet_html = cap.get(3).map_or("", |m| m.as_str());
+            
+            let re_tags = regex::Regex::new(r"<[^>]+>").unwrap();
+            let title = re_tags.replace_all(title_html, "");
+            let snippet = re_tags.replace_all(snippet_html, "");
+            let snippet = snippet.replace("&#x27;", "'").replace("&quot;", "\"").replace("&amp;", "&");
+            let title = title.replace("&#x27;", "'").replace("&quot;", "\"").replace("&amp;", "&");
+
+            count += 1;
+            output.push_str(&format!("[{}] {}\nURL: {}\nSnippet: {}\n\n", count, title, href, snippet.trim()));
+            if count >= 10 { break; }
+        }
+
+        if count == 0 {
+            output.push_str("No results found.");
+        }
+
+        Ok(output)
+    }
+
+    async fn execute_fetch_webpage(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let url = tool.arguments.get("url")
+            .and_then(|u| u.as_str())
+            .ok_or_else(|| "Missing 'url' argument".to_string())?;
+
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        let response = client.get(url).send().await.map_err(|e| e.to_string())?;
+        let html = response.text().await.map_err(|e| e.to_string())?;
+
+        let re_script = regex::Regex::new(r"(?is)<script.*?>.*?</script>").unwrap();
+        let re_style = regex::Regex::new(r"(?is)<style.*?>.*?</style>").unwrap();
+        let html = re_script.replace_all(&html, "");
+        let html = re_style.replace_all(&html, "");
+        
+        let re_h1 = regex::Regex::new(r"(?i)<h1[^>]*>(.*?)</h1>").unwrap();
+        let html = re_h1.replace_all(&html, "\n\n# $1\n\n");
+        let re_h2 = regex::Regex::new(r"(?i)<h2[^>]*>(.*?)</h2>").unwrap();
+        let html = re_h2.replace_all(&html, "\n\n## $1\n\n");
+        let re_h3 = regex::Regex::new(r"(?i)<h3[^>]*>(.*?)</h3>").unwrap();
+        let html = re_h3.replace_all(&html, "\n\n### $1\n\n");
+        let re_p = regex::Regex::new(r"(?i)<p[^>]*>(.*?)</p>").unwrap();
+        let html = re_p.replace_all(&html, "\n\n$1\n\n");
+        
+        let re_tags = regex::Regex::new(r"(?is)<[^>]+>").unwrap();
+        let mut text = re_tags.replace_all(&html, "").to_string();
+        text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"").replace("&#x27;", "'");
+
+        let lines: Vec<&str> = text.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
+        
+        let mut chunks = Vec::new();
+        let mut current_chunk = Vec::new();
+        let mut current_length = 0;
+        let mut current_title = "Introduction".to_string();
+
+        for line in lines {
+            if line.starts_with("#") {
+                if current_length > 300 {
+                    chunks.push(serde_json::json!({
+                        "title": current_title,
+                        "content": current_chunk.join("\n")
+                    }));
+                    current_chunk.clear();
+                    current_length = 0;
+                }
+                current_title = line.trim_start_matches('#').trim().to_string();
+                current_chunk.push(line.to_string());
+                current_length += line.split_whitespace().count();
+            } else {
+                current_chunk.push(line.to_string());
+                current_length += line.split_whitespace().count();
+                
+                if current_length > 1000 {
+                    chunks.push(serde_json::json!({
+                        "title": current_title,
+                        "content": current_chunk.join("\n")
+                    }));
+                    current_chunk.clear();
+                    current_length = 0;
+                    current_title = format!("{} (Continued)", current_title);
+                }
+            }
+        }
+        
+        if !current_chunk.is_empty() {
+            chunks.push(serde_json::json!({
+                "title": current_title,
+                "content": current_chunk.join("\n")
+            }));
+        }
+
+        let cache_file = std::env::temp_dir().join("alouette_rag_cache.json");
+        let cache_data = serde_json::json!({
+            "url": url,
+            "chunks": chunks
+        });
+        std::fs::write(&cache_file, serde_json::to_string_pretty(&cache_data).unwrap())
+            .map_err(|e| format!("Failed to write cache: {}", e))?;
+
+        let mut output = format!("Webpage loaded successfully: {}\nThe content has been divided into {} chunks.\n\nTable of Contents:\n", url, chunks.len());
+        
+        for (i, chunk) in chunks.iter().enumerate() {
+            let title = chunk["title"].as_str().unwrap_or("");
+            let content = chunk["content"].as_str().unwrap_or("");
+            let words = content.split_whitespace().count();
+            output.push_str(&format!("[Chunk ID: {}] {} ({} words)\n", i, title, words));
+        }
+        
+        output.push_str("\nUse the `read_chunk` tool with the Chunk ID to read a specific section.");
+        Ok(output)
+    }
+
+    async fn execute_read_chunk(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let chunk_id = tool.arguments.get("chunk_id")
+            .and_then(|c| c.as_i64())
+            .ok_or_else(|| "Missing 'chunk_id' argument".to_string())? as usize;
+
+        let cache_file = std::env::temp_dir().join("alouette_rag_cache.json");
+        let cache_data = std::fs::read_to_string(&cache_file)
+            .map_err(|_| "No webpage has been fetched recently. Please use `fetch_webpage` first.".to_string())?;
+            
+        let data: serde_json::Value = serde_json::from_str(&cache_data)
+            .map_err(|e| format!("Failed to parse cache: {}", e))?;
+            
+        let chunks = data["chunks"].as_array().ok_or("Invalid cache format")?;
+        
+        if chunk_id >= chunks.len() {
+            return Err(format!("Invalid Chunk ID. Valid IDs are 0 to {}.", chunks.len() - 1));
+        }
+        
+        let chunk = &chunks[chunk_id];
+        let title = chunk["title"].as_str().unwrap_or("");
+        let content = chunk["content"].as_str().unwrap_or("");
+        let url = data["url"].as_str().unwrap_or("");
+        
+        let output = format!("--- Content of {} (Chunk {}) ---\n\n## {}\n\n{}\n\n--- End of Chunk ---", url, chunk_id, title, content);
+        Ok(output)
     }
 
     fn execute_get_project_files(&self) -> Result<String, String> {
