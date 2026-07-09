@@ -130,7 +130,7 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
           {approved ? "✓" : "✕"}
         </span>
         <span style={{ color: "var(--text-muted)" }}>
-          {getFriendlyToolNameStatic(tool.name)}
+          {getFriendlyToolNameStatic(tool.name, tool.args)}
         </span>
       </div>
     );
@@ -180,7 +180,7 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
               color: "var(--text-primary)",
             }}
           >
-            {getFriendlyToolNameStatic(tool.name)}
+            {getFriendlyToolNameStatic(tool.name, tool.args)}
           </span>
         </div>
 
@@ -293,7 +293,17 @@ function getToolIconComponent(name: string): React.ReactNode {
   }
 }
 
-function getFriendlyToolNameStatic(name: string): string {
+function getFriendlyToolNameStatic(name: string, argsStr?: string): string {
+  if (name === "execute_command" && argsStr) {
+    try {
+      const parsed = JSON.parse(argsStr);
+      if (parsed.command) {
+        return `Chạy lệnh: ${parsed.command}`;
+      }
+    } catch (e) {
+      // ignore
+    }
+  }
   switch (name) {
     case "read_file":
     case "read_file_range":
@@ -386,7 +396,7 @@ function SingleToolRequestCard({
               color: "var(--text-primary)",
             }}
           >
-            {getFriendlyToolNameStatic(item.toolName || "")}
+            {getFriendlyToolNameStatic(item.toolName || "", item.args)}
           </span>
         </div>
         <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>
@@ -2175,7 +2185,17 @@ export default function AiAgent({
     }
   };
 
-  const getFriendlyToolName = (name: string) => {
+  const getFriendlyToolName = (name: string, argsStr?: string) => {
+    if (name === "execute_command" && argsStr) {
+      try {
+        const parsed = JSON.parse(argsStr);
+        if (parsed.command) {
+          return `Chạy lệnh: ${parsed.command}`;
+        }
+      } catch (e) {
+        // ignore
+      }
+    }
     switch (name) {
       case "read_file":
       case "read_file_range":
@@ -2708,7 +2728,7 @@ export default function AiAgent({
                         color: "var(--text-primary)",
                       }}
                     >
-                      {getFriendlyToolName(item.toolName || "")}
+                      {getFriendlyToolName(item.toolName || "", item.args)}
                     </span>
                   </div>
 
