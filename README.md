@@ -1,6 +1,6 @@
 # Alouette Studio
 
-**Integrated Development Studio & Native Process Orchestrator** — a high-performance desktop workspace for running and managing isolated development environments. Built with enterprise-grade toolchain isolation, a 3-tier Sandbox command protector, an Environment Simulator (firewall, latency, packet loss, CPU/RAM limits), a Monaco-based Split Editor, a SQLite database browser, the robust **PingZero Mini** API client, a full Git UI, a Cloudflare Tunnel manager, and an integrated AI Agent harness with multi-provider LLM support.
+**Integrated Development Studio & Native Process Orchestrator** — a high-performance desktop workspace for running and managing isolated development environments. Built with enterprise-grade toolchain isolation, a 3-tier Sandbox command protector, an Environment Simulator (firewall, latency, packet loss, CPU/RAM limits), a Monaco-based Split Editor, a SQLite database browser, the robust **PingZero Mini** API client, a full Git UI, a Cloudflare Tunnel manager, an integrated AI Agent harness with multi-provider LLM support, and an advanced Memory Inspector with eBPF profiling and stress testing.
 
 Built with **Rust + Tauri v2 + React 19 + TypeScript**.
 
@@ -152,7 +152,15 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 - **Batch Authorization Guard:** Intercepts critical actions (file edits, system command executions, port binds, etc.) and presents them as expandable pending cards. Supports approval or rejection in batches or individually.
 - **Sanitized Markdown Layouts:** Safely renders agent responses with HTML formatting, tables, list arrays, and code blocks using a sanitized pipeline (`react-markdown`, `rehype-sanitize`, and `DOMPurify`) to prevent malicious script payloads.
 
-### 20. Docker Container Manager
+### 20. Memory Inspector & Stress Profiling
+- **eBPF Tracing & Profiling:** Deep memory allocation tracing and analysis using eBPF (`ebpf_tracer.rs`) for accurate memory profiling.
+- **Stress Testing & Fuzzing:** Built-in memory stress fuzzer to validate application resilience and fault tolerance under heavy load.
+- **Docker Container Inspection:** Direct integration with Docker to inspect containerized memory usage limits and memory leaks.
+- **Visual Analytics:** Advanced interactive dashboards featuring a Heatmap Timeline and Pressure Chamber Chart for real-time memory pressure visualization.
+- **Fault Tolerance Pipeline:** Automated fault monitoring and robust pipeline execution tracking.
+- **Transparent Execution:** Secure and sandboxed background processing with comprehensive logging (ExecutionLog, TaskHistory).
+
+### 21. Docker Container Manager
 - **Native Daemon Integration:** Connects directly to the local Docker socket via the Rust `bollard` crate for high-speed, direct API communication.
 - **Container Lifecycle:** Full CRUD management—deploy new containers with custom images, commands, and RAM limits, and start, stop, restart, or forcefully remove them.
 - **Real-Time Logs & Stats:** Streams container logs in real-time to an xterm.js terminal with ANSI color highlighting and specific `since` timeline clearing.
@@ -172,6 +180,7 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 │  │  react-markdown | fuse.js | Custom VM & Local AI Managers         │  │
 │  │  Welcome Dashboard Page | PingZero Mini Interface                 │  │
 │  │  AI Assistant panel (with @mentions, token metrics & batches)    │  │
+│  │  Memory Inspector (eBPF Profiling, Heatmap, Pressure Chamber)     │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 │  │              Tauri IPC Bridge (Commands + Events)                 │  │
 │  ┌───────────────────────────────────────────────────────────────────┐  │
@@ -189,7 +198,7 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 
 | Layer | Technology | Responsibility |
 |-------|-----------|----------------|
-| **UI** | React 19 + TypeScript + Vite + xterm.js + Monaco + react-markdown | Desktop interface with process dashboards, terminals, file editor, SQLite browser, PingZero Mini API client, local AI chatbot, VM manager, Welcome landing page, AI assistant chat panel, Docker container manager |
+| **UI** | React 19 + TypeScript + Vite + xterm.js + Monaco + react-markdown | Desktop interface with process dashboards, terminals, file editor, SQLite browser, PingZero Mini API client, local AI chatbot, VM manager, Welcome landing page, AI assistant chat panel, Docker container manager, Memory Inspector dashboards |
 | **Bridge** | Tauri v2 IPC | Type-safe command handlers (19 command modules), event routers (5 routers + agent + file watcher), state management (R2D2 pool, DashMap registry, Shared model manager) |
 | **Engine** | Rust (Tokio async) | Process lifecycle, sandbox enforcement, proto toolchain, resource monitoring, SQLite persistence (r2d2 WAL), AI agent loop (rig-core), ONNX inference (tract-onnx) for error scanner, Code RAG indexing & similarity search, Candle local LLM inference, native git2 diffs, file notify watcher, Local Axum HTTP API gateway, PyO3 FFI interpreter, Docker daemon client (bollard) |
 
@@ -249,7 +258,8 @@ alouette_studio/
 │       ├── process/                   # Process lifecycle management
 │       │   ├── network_simulate_proxy.rs # SOCKS5/HTTP proxy: firewall, weak net, unstable server
 │       │   └── sandbox/               # 3-tier command protection
-│       ├── agent_harness/             # AI Agent Loop Engine
+│       ├── agent_harness/             # AI Agent Loop Engine (Secure/Transparent Tools)
+│       ├── memory_inspector/          # eBPF profiling, fuzzing & memory stress testing
 │       └── code_rag/                  # Code RAG Vector database & indexer
 │           ├── mod.rs                 # Module declaration
 │           ├── db.rs                  # VectorDb in-RAM / disk storage
@@ -312,6 +322,7 @@ alouette_studio/
             │   ├── WelcomePage.tsx         # Welcome landing screen dashboard
             │   ├── MiniPostman.tsx         # PingZero Mini API Client UI
             │   ├── AiAgent.tsx             # AI Assistant main panel
+            │   ├── MemoryInspector/        # Memory profiling & stress dashboards
             │   └── ...
             └── ...
 ```
@@ -403,6 +414,19 @@ Alouette Studio exposes 80+ Tauri IPC commands registered across 18 modules:
 | **local_chat** | `local_chat_send`, `local_chat_stop` | Candle local LLM inference streaming |
 | **ai_manager** | `start_ai_engine`, `stop_ai_engine`, `get_ai_engine_status`, `save_ai_settings` | External LLM engines supervisor |
 | **docker** | `docker_create_container`, `docker_list_containers`, `docker_stream_logs`, `docker_exec_terminal` | Docker daemon socket integration API |
+| **memory_inspector**| `start_memory_profile`, `run_stress_test`, `get_insights` | Memory tracing, eBPF profiling, fuzzer actions |
+
+---
+
+## AI Agent Tools
+
+The embedded AI Agent acts as an intelligent supervisor capable of iterating over the user's codebase and the internet. It leverages native tools directly baked into the Rust Core Engine.
+
+### Iterative Reading & Web Search (RAG)
+To avoid context window overflow and reduce token consumption, the AI utilizes an **Iterative Reading** architecture for processing large web content:
+- **`search_web`**: Queries DuckDuckGo Lite and retrieves search results (titles, URLs, snippets) safely.
+- **`fetch_webpage`**: Acts as a native headless crawler using `reqwest`. Downloads HTML, strips malicious tags (`<script>`, `<style>`), converts semantic tags to Markdown (`<h1>` -> `#`), and divides the content into indexed chunks (~1000 words max) to prevent token overload. Generates a Table of Contents.
+- **`read_chunk`**: Performs on-demand reading of a specific chunk by referencing the ID from the generated Table of Contents.
 
 ---
 
