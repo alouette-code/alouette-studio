@@ -1,6 +1,5 @@
 import {
   FolderPen,
-  BrainCircuit,
   Droplets,
   Proportions,
   UserRoundKey
@@ -25,8 +24,7 @@ interface GlobalDockProps {
   onOpenMemoryInspector?: () => void;
   onOpenDocker?: () => void;
 }
-
-export default function GlobalDock({ onOpenLocalAi, onOpenVmManager, onOpenMemoryInspector, onOpenDocker }: GlobalDockProps) {
+export default function GlobalDock({ onOpenVmManager, onOpenMemoryInspector, onOpenDocker }: GlobalDockProps) {
   return (
     <div className="global-dock">
       <div className="dock-top">
@@ -35,9 +33,6 @@ export default function GlobalDock({ onOpenLocalAi, onOpenVmManager, onOpenMemor
         </button>
         <button className="dock-btn" title="Docker Container" onClick={onOpenDocker}>
           <DockerIcon size={20} />
-        </button>
-        <button className="dock-btn" title="AI Assistant" onClick={onOpenLocalAi}>
-          <BrainCircuit size={20} />
         </button>
         <button className="dock-btn" title="Memory Leak" onClick={onOpenMemoryInspector}>
           <Droplets size={20} />
