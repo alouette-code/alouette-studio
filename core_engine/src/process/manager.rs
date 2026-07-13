@@ -72,7 +72,7 @@ impl ProcessManager {
                 "cloudflared"
             });
 
-        let db_manager = crate::db::DbManager::new(&db_path);
+        let db_manager = crate::db::DbManager::new(&db_path).expect("Failed to initialize DbManager");
         if let Err(e) = db_manager.init() {
             eprintln!(
                 "CRITICAL ERROR: Failed to initialize SQLite database: {}",
@@ -174,7 +174,7 @@ impl ProcessManager {
                 updated_config.cwd = Some(dest.to_string_lossy().to_string());
             }
         }
-        self.db_manager.save_project(&updated_config)?;
+        self.db_manager.save_project(&updated_config).map_err(|e| e.to_string())?;
         self.instances.insert(
             id,
             ProjectInstance {
@@ -188,7 +188,7 @@ impl ProcessManager {
 
     pub async fn deregister_project(&mut self, project_id: &str) -> Result<(), String> {
         let _ = self.stop_process(project_id).await;
-        self.db_manager.delete_project(project_id)?;
+        self.db_manager.delete_project(project_id).map_err(|e| e.to_string())?;
         self.instances.remove(project_id);
         Ok(())
     }

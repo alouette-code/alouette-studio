@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Database, Lock, Server, User, Cable, ArrowLeft, HardDrive, FolderOpen, Leaf, Zap } from 'lucide-react';
+import { Database, Lock, Server, User, Cable, ArrowLeft, FolderOpen } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 
 export interface DbConnection {
@@ -25,6 +25,12 @@ export default function DatabaseConnectionTab({ onConnect }: Props) {
     const [password, setPassword] = useState('');
     const [database, setDatabase] = useState('');
     const [sqlitePath, setSqlitePath] = useState('');
+    
+    // Advanced / Cloud Mode state
+    const [connectionMode, setConnectionMode] = useState<'standard' | 'advanced'>('standard');
+    const [customUri, setCustomUri] = useState('');
+    const [authType, setAuthType] = useState('basic');
+    const [sslCert, setSslCert] = useState('');
     
     // Firebase specific
     const [projectId, setProjectId] = useState('');
@@ -54,13 +60,31 @@ export default function DatabaseConnectionTab({ onConnect }: Props) {
         }
     };
 
+    const handleBrowseCert = async () => {
+        try {
+            const selectedPath: string | null = await invoke("open_file_dialog");
+            if (selectedPath) {
+                setSslCert(selectedPath);
+            }
+        } catch (err: any) {
+            setError(err.toString());
+        }
+    };
+
     const handleConnect = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
         setLoading(true);
         setError(null);
         
         let uri = '';
-        if (driver === 'sqlite') {
+        if (driver !== 'sqlite' && driver !== 'firebase' && connectionMode === 'advanced') {
+            if (!customUri) {
+                setError('Connection URI is required in Advanced mode.');
+                setLoading(false);
+                return;
+            }
+            uri = customUri;
+        } else if (driver === 'sqlite') {
             if (!sqlitePath) {
                 setError('Please select a SQLite database file.');
                 setLoading(false);
@@ -101,7 +125,13 @@ export default function DatabaseConnectionTab({ onConnect }: Props) {
         try {
             let res = { success: true, message: '' };
             if (driver !== 'sqlite') {
-                res = await invoke<{ success: boolean; message: string }>('connect_to_db', { uri });
+                res = await invoke<{ success: boolean; message: string }>('connect_to_db', { 
+                    options: { 
+                        uri, 
+                        auth_type: (connectionMode === 'advanced') ? authType : 'basic',
+                        ssl_cert: (connectionMode === 'advanced' && authType === 'x509_cert') ? sslCert : null
+                    } 
+                });
             }
             
             if (res.success) {
@@ -251,6 +281,23 @@ export default function DatabaseConnectionTab({ onConnect }: Props) {
                                     </div>
                                 )}
                                 
+                                {driver !== 'sqlite' && driver !== 'firebase' && (
+                                    <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', backgroundColor: 'var(--bg-primary, #0a0a0c)', padding: '6px', borderRadius: '8px' }}>
+                                        <button type="button" onClick={() => setConnectionMode('standard')} style={{
+                                            flex: 1, padding: '10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+                                            backgroundColor: connectionMode === 'standard' ? 'var(--color-accent, #3a86ff)' : 'transparent',
+                                            color: connectionMode === 'standard' ? '#fff' : 'var(--text-muted, #585866)',
+                                            transition: 'all 0.2s'
+                                        }}>Standard (Local)</button>
+                                        <button type="button" onClick={() => setConnectionMode('advanced')} style={{
+                                            flex: 1, padding: '10px', borderRadius: '6px', border: 'none', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+                                            backgroundColor: connectionMode === 'advanced' ? 'var(--color-accent, #3a86ff)' : 'transparent',
+                                            color: connectionMode === 'advanced' ? '#fff' : 'var(--text-muted, #585866)',
+                                            transition: 'all 0.2s'
+                                        }}>Advanced (Cloud URI)</button>
+                                    </div>
+                                )}
+                                
                                 {/* Connection Name (Common) */}
                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                                     <label style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--text-muted, #585866)', letterSpacing: '0.5px' }}>
@@ -300,6 +347,51 @@ export default function DatabaseConnectionTab({ onConnect }: Props) {
                                                 borderRadius: '8px', padding: '12px 16px', fontSize: '13px', color: 'var(--text-primary, #e6e6eb)', outline: 'none',
                                             }} />
                                         </div>
+                                    </>
+                                ) : connectionMode === 'advanced' ? (
+                                    <>
+                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <label style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--text-muted, #585866)', letterSpacing: '0.5px' }}>
+                                                Connection URI
+                                            </label>
+                                            <textarea value={customUri} onChange={e => setCustomUri(e.target.value)} required placeholder={`e.g. ${driver}://user:pass@host:port/db`} rows={3} style={{
+                                                backgroundColor: 'var(--bg-primary, #0a0a0c)', border: '1px solid var(--border-primary, #22222a)',
+                                                borderRadius: '8px', padding: '12px 16px', fontSize: '13px', color: 'var(--text-primary, #e6e6eb)', outline: 'none', resize: 'vertical'
+                                            }} />
+                                        </div>
+                                        <div style={{ display: 'flex', gap: '24px' }}>
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                                                <label style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--text-muted, #585866)', letterSpacing: '0.5px' }}>
+                                                    Authentication Type
+                                                </label>
+                                                <select value={authType} onChange={e => setAuthType(e.target.value)} style={{
+                                                    backgroundColor: 'var(--bg-primary, #0a0a0c)', border: '1px solid var(--border-primary, #22222a)',
+                                                    borderRadius: '8px', padding: '12px 16px', fontSize: '13px', color: 'var(--text-primary, #e6e6eb)', outline: 'none'
+                                                }}>
+                                                    <option value="basic">Basic / Password</option>
+                                                    <option value="x509_cert">X.509 Certificate (SSL/TLS)</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                        {authType === 'x509_cert' && (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
+                                                <label style={{ fontSize: '11px', textTransform: 'uppercase', fontWeight: 700, color: 'var(--text-muted, #585866)', letterSpacing: '0.5px' }}>
+                                                    SSL Certificate Path (.pem / .crt)
+                                                </label>
+                                                <div style={{ display: 'flex', gap: '12px' }}>
+                                                    <input type="text" value={sslCert} onChange={e => setSslCert(e.target.value)} required placeholder="/path/to/cert.pem" style={{
+                                                        backgroundColor: 'var(--bg-primary, #0a0a0c)', border: '1px solid var(--border-primary, #22222a)',
+                                                        borderRadius: '8px', padding: '12px 16px', fontSize: '13px', color: 'var(--text-primary, #e6e6eb)', outline: 'none', flex: 1
+                                                    }} />
+                                                    <button type="button" onClick={handleBrowseCert} style={{
+                                                        backgroundColor: 'var(--bg-tertiary, #1b1b22)', color: 'var(--text-primary)', border: '1px solid var(--border-primary)',
+                                                        borderRadius: '8px', padding: '0 20px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 500
+                                                    }}>
+                                                        <FolderOpen size={16} /> Browse...
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        )}
                                     </>
                                 ) : (
                                     <>

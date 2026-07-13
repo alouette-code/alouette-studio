@@ -85,3 +85,51 @@ pub fn configure_autostart(_enabled: bool) -> Result<(), String> {
     }
     Ok(())
 }
+use std::panic;
+use std::fs::OpenOptions;
+use std::io::Write;
+
+use chrono::Local;
+
+/// Bắt mọi Panic phát sinh từ các luồng (thread) trong ứng dụng.
+/// Thay vì crash thẳng, nó sẽ ghi lại stack trace vào log và có thể gọi một hàm dọn dẹp.
+pub fn setup_panic_hook(log_dir: PathBuf) {
+    panic::set_hook(Box::new(move |panic_info| {
+        // Trích xuất thông tin lỗi (vị trí file, dòng, thông báo)
+        let payload = if let Some(s) = panic_info.payload().downcast_ref::<&str>() {
+            *s
+        } else if let Some(s) = panic_info.payload().downcast_ref::<String>() {
+            s.as_str()
+        } else {
+            "Unknown panic"
+        };
+
+        let location = panic_info.location().unwrap();
+        
+        let crash_message = format!(
+            "[{}] CRASH DETECTED at {}:{}:{} - Panic Payload: {}\n",
+            Local::now().format("%Y-%m-%d %H:%M:%S"),
+            location.file(),
+            location.line(),
+            location.column(),
+            payload
+        );
+
+        // Ghi vào terminal
+        eprintln!("\n================ FATAL ERROR ================");
+        eprintln!("{}", crash_message);
+        eprintln!("=============================================\n");
+
+        // Ghi vào file log khẩn cấp
+        let crash_log_path = log_dir.join("crash_report.log");
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&crash_log_path)
+        {
+            let _ = file.write_all(crash_message.as_bytes());
+        }
+
+        // Tùy chọn: Ở đây có thể gửi sự kiện (Event) lên Frontend để báo UI hiển thị "Ứng dụng gặp lỗi nội bộ".
+    }));
+}

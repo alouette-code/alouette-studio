@@ -348,8 +348,6 @@ export default function FileExplorer({
     };
   }, [activeCwd]);
 
-  const [showDbModal, setShowDbModal] = useState(false);
-
   // Check if we are inside a Tauri window to load files automatically
   useEffect(() => {
     const interval = setInterval(() => {

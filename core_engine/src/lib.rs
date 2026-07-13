@@ -1,3 +1,4 @@
+pub mod error;
 pub mod agent_harness;
 pub mod cloudflared_manager;
 pub mod code_rag;
@@ -28,6 +29,8 @@ pub use config::{
     SandboxConfig,
 };
 pub use db::DbManager;
+pub use db::models::*;
+pub use db::repositories::project_repo::ProjectRepository;
 pub use monitor::{ResourceMonitor, ResourceStats};
 pub use process::{
     check_command, collect_child_processes, is_os_sandbox_supported,

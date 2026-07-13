@@ -31,7 +31,7 @@ pub async fn load_sandbox_configs(
     let pm = state.process_manager.lock().await;
     let db = &pm.db_manager;
 
-    let configs = db.load_all_sandbox_configs()?;
+    let configs = db.load_all_sandbox_configs().map_err(|e| e.to_string())?;
     let mut map = HashMap::new();
     for cfg in configs {
         map.insert(cfg.project_id.clone(), cfg);
@@ -46,7 +46,7 @@ pub async fn save_sandbox_config(
 ) -> Result<(), String> {
     let pm = state.process_manager.lock().await;
     let db = &pm.db_manager;
-    db.save_sandbox_config(&config)?;
+    db.save_sandbox_config(&config).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -58,7 +58,7 @@ pub async fn save_all_sandbox_configs(
     let pm = state.process_manager.lock().await;
     let db = &pm.db_manager;
     for config in &configs {
-        db.save_sandbox_config(config)?;
+        db.save_sandbox_config(config).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
@@ -70,6 +70,6 @@ pub async fn delete_sandbox_config(
 ) -> Result<(), String> {
     let pm = state.process_manager.lock().await;
     let db = &pm.db_manager;
-    db.delete_sandbox_config(&project_id)?;
+    db.delete_sandbox_config(&project_id).map_err(|e| e.to_string())?;
     Ok(())
 }
