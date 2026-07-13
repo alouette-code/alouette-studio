@@ -3,23 +3,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
 import { WindowControls } from "./WindowControls";
-function ZenIcon({ size = 16 }: { size?: number }) {
+function ChromeIcon({ size = 16, color = "currentColor" }: { size?: number, color?: string }) {
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      fill={color}
       xmlns="http://www.w3.org/2000/svg"
     >
-      {/* Vòng tròn hở nghệ thuật Zen Ensō */}
-      <path d="M12 3a9 9 0 1 0 9 9c0-1.5-.4-3-1.1-4.2" />
-      {/* Chữ Z cách điệu mềm mại thanh thoát ở tâm */}
-      <path d="M8.5 8.5h7L10 15.5h7" />
+      <path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.848A5.454 5.454 0 0 1 12 6.545h10.691A12 12 0 0 0 12 0zM1.931 5.47A11.943 11.943 0 0 0 0 12c0 6.012 4.42 10.991 10.189 11.864l3.953-6.847a5.45 5.45 0 0 1-6.865-2.29zm13.342 2.166a5.446 5.446 0 0 1 1.45 7.09l-5.345 9.257c.2.016.401.026.603.026 6.627 0 12-5.373 12-12 0-1.53-.288-3-.81-4.373zM12 16.364a4.364 4.364 0 1 1 0-8.728 4.364 4.364 0 0 1 0 8.728Z" />
     </svg>
   );
 }
@@ -67,7 +60,7 @@ const DOCK_ITEMS: DockItem[] = [
   { id: "user", label: "User", icon: <User size={16} /> },
   { id: "ai", label: "Model AI", icon: <Sparkles size={16} /> },
   { id: "pingzero", label: "Ping Zero Min", icon: <Wifi size={16} /> },
-  { id: "browser", label: "Zen Browser", icon: <ZenIcon size={16} /> },
+  { id: "browser", label: "Google Chrome", icon: <ChromeIcon size={16} /> },
   { id: "environment", label: "Environment", icon: <Server size={16} /> },
   { id: "sandbox", label: "Sandbox", icon: <Box size={16} /> },
   { id: "theme", label: "Theme", icon: <Palette size={16} /> },
@@ -166,7 +159,7 @@ export default function AdminPanel() {
     try {
       await invoke("open_browser_window");
     } catch (e) {
-      setToast({ message: "Failed to open Zen Browser", type: "error" });
+      setToast({ message: "Failed to open Google Chrome", type: "error" });
     }
   };
 
@@ -1840,7 +1833,7 @@ function SandboxSection() {
                     </div>
                   </div>
                   <div className="admin-card">
-                    <div className="admin-card-header">Zen Browser Mode</div>
+                    <div className="admin-card-header">Google Chrome Mode</div>
                     <select
                       className="admin-select"
                       value={currentConfig.browserMode}

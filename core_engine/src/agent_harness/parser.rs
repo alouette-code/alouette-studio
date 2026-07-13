@@ -1009,7 +1009,7 @@ fn extract_json_candidates(content: &str) -> Vec<String> {
             }
 
             if end > start {
-                let block = content[start..end].to_string();
+                let block: String = chars[start..end].iter().collect();
                 if !candidates.contains(&block) {
                     candidates.push(block);
                 }

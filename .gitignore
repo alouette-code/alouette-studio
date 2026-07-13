@@ -40,8 +40,8 @@ git_diff_admin.txt
 AI.json
 
 # ── Proto Toolchains ──
-tauri_app/zen_bundle/zen
-tauri_app/zen_bundle/
+tauri_app/chrome/
+chrome/
 
 # ── Generated Reports ──
 core_engine/src/agent_harness/report_C/
@@ -58,4 +58,5 @@ tauri_app/src-tauri/icons/*
 
 
 # browser
-zen browser/
+chrome/
+chrome_profile/

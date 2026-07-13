@@ -201,6 +201,20 @@ pub fn all_tools() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "read_file",
+            description: "Read the entire contents of a file up to a certain limit.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Relative path to the file."
+                    }
+                },
+                "required": ["path"]
+            }),
+        },
+        ToolDef {
             name: "read_file_range",
             description: "Read a specific range of lines from a file. Typically used AFTER extract_symbol told you the exact line numbers.",
             parameters: json!({
@@ -343,6 +357,108 @@ pub fn all_tools() -> Vec<ToolDef> {
                     }
                 },
                 "required": ["chunk_id"]
+            }),
+        },
+        ToolDef {
+            name: "open_browser",
+            description: "Open the integrated Google Chrome and navigate to a specific URL. This will start the browser instance so you can interact with it.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "The URL to open."
+                    }
+                },
+                "required": ["url"]
+            }),
+        },
+        ToolDef {
+            name: "get_browser_elements",
+            description: "Get all interactive elements (buttons, inputs, links) from the currently open Google Chrome page with their coordinates.",
+            parameters: json!({
+                "type": "object",
+                "properties": {}
+            }),
+        },
+        ToolDef {
+            name: "browser_click",
+            description: "Move the mouse to specific coordinates and click. Use this after getting coordinates from get_browser_elements.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "x": {
+                        "type": "integer",
+                        "description": "The X coordinate."
+                    },
+                    "y": {
+                        "type": "integer",
+                        "description": "The Y coordinate."
+                    }
+                },
+                "required": ["x", "y"]
+            }),
+        },
+        ToolDef {
+            name: "browser_type",
+            description: "Type text using the virtual keyboard. You may optionally press Enter by setting press_enter to true. Use this after clicking on an input element.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text to type."
+                    },
+                    "press_enter": {
+                        "type": "boolean",
+                        "description": "If true, presses the Enter key after typing."
+                    }
+                },
+                "required": ["text"]
+            }),
+        },
+        ToolDef {
+            name: "browser_click_hardware",
+            description: "FALLBACK: Move the physical OS mouse to coordinates and click. Use ONLY if standard browser_click fails due to anti-bot protections. Make sure the window is focused.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "x": {
+                        "type": "integer",
+                        "description": "The X coordinate."
+                    },
+                    "y": {
+                        "type": "integer",
+                        "description": "The Y coordinate."
+                    }
+                },
+                "required": ["x", "y"]
+            }),
+        },
+        ToolDef {
+            name: "browser_type_hardware",
+            description: "FALLBACK: Type text using the physical OS keyboard. Use ONLY if standard browser_type fails due to JS blocking or anti-bot. Make sure the window is focused.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "The text to type."
+                    },
+                    "press_enter": {
+                        "type": "boolean",
+                        "description": "If true, presses the Enter key."
+                    }
+                },
+                "required": ["text"]
+            }),
+        },
+        ToolDef {
+            name: "read_screen_fallback",
+            description: "Fallback tool to parse the screen using grid, edge detection, and OCR when get_browser_elements fails due to bot protection or browser incompatibility. Returns a list of bounding boxes and text.",
+            parameters: json!({
+                "type": "object",
+                "properties": {}
             }),
         },
     ]

@@ -122,6 +122,7 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
             : "rgba(239, 68, 68, 0.06)",
           opacity: 0.7,
           fontSize: "10px",
+          flexShrink: 0,
         }}
       >
         <span
@@ -144,6 +145,7 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
         border: "1px solid var(--border-primary)",
         borderRadius: "4px",
         overflow: "hidden",
+        flexShrink: 0,
       }}
     >
       {/* Mini header */}
@@ -357,6 +359,7 @@ function SingleToolRequestCard({
         display: "flex",
         flexDirection: "column",
         gap: "4px",
+        flexShrink: 0,
       }}
     >
       {/* Compact header */}
@@ -2612,6 +2615,7 @@ export default function AiAgent({
                   lineHeight: "1.5",
                   whiteSpace: "pre-wrap",
                   position: "relative",
+                  flexShrink: 0,
                 }}
               >
                 <div
@@ -2670,6 +2674,7 @@ export default function AiAgent({
                   borderRadius: "8px",
                   background: "var(--bg-primary)",
                   overflow: "hidden",
+                  flexShrink: 0,
                 }}
               >
                 {/* Header */}
@@ -2862,6 +2867,7 @@ export default function AiAgent({
                   display: "flex",
                   flexDirection: "column",
                   gap: "6px",
+                  flexShrink: 0,
                 }}
               >
                 <div
@@ -2966,6 +2972,7 @@ export default function AiAgent({
                 alignItems: isUser ? "flex-end" : "flex-start",
                 maxWidth: "100%",
                 position: "relative",
+                flexShrink: 0,
               }}
             >
               {/* Sender label */}

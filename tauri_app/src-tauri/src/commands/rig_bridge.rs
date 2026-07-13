@@ -472,21 +472,31 @@ async fn call_openai_compatible(
 
     // ── Reconstruct tool calls ──
     let mut tool_calls = Vec::new();
-    for stc in streamed_tool_calls {
+    let mut used_ids = std::collections::HashSet::new();
+    for (i, stc) in streamed_tool_calls.into_iter().enumerate() {
         if stc.name.is_empty() {
             continue;
         }
         let args_val: Value =
             serde_json::from_str(&stc.arguments).unwrap_or(Value::Object(Default::default()));
+        
+        let mut final_id = if stc.id.is_empty() {
+            format!("call_{}", i)
+        } else {
+            stc.id.clone()
+        };
+
+        // Ensure uniqueness
+        if used_ids.contains(&final_id) {
+            final_id = format!("{}_{}", final_id, i);
+        }
+        used_ids.insert(final_id.clone());
+
         tool_calls.push(ToolCall {
             name: stc.name,
             arguments: args_val,
             raw_arguments: stc.arguments,
-            call_id: Some(if stc.id.is_empty() {
-                "call_0".to_string()
-            } else {
-                stc.id
-            }),
+            call_id: Some(final_id),
         });
     }
 
