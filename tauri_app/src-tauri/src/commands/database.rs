@@ -116,7 +116,7 @@ fn decode_any_value(row: &sqlx::any::AnyRow, i: usize) -> serde_json::Value {
 #[tauri::command]
 pub async fn get_db_tables(options: DbAuthOptions, state: State<'_, DbState>) -> Result<Vec<String>, String> {
     let uri = options.uri.clone();
-    if uri.starts_with("sqlite://") {
+    if uri.starts_with("sqlite://") || !uri.contains("://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::get_sqlite_tables(path.to_string()).await;
     }
@@ -154,7 +154,7 @@ pub async fn get_db_tables(options: DbAuthOptions, state: State<'_, DbState>) ->
 #[tauri::command]
 pub async fn get_db_table_data(options: DbAuthOptions, table: String, limit: u32, offset: u32, state: State<'_, DbState>) -> Result<SqliteTableData, String> {
     let uri = options.uri.clone();
-    if uri.starts_with("sqlite://") {
+    if uri.starts_with("sqlite://") || !uri.contains("://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::get_sqlite_table_data(path.to_string(), table, limit, offset).await;
     }
@@ -205,7 +205,7 @@ pub async fn get_db_table_data(options: DbAuthOptions, table: String, limit: u32
 #[tauri::command]
 pub async fn run_db_query(options: DbAuthOptions, query: String, state: State<'_, DbState>) -> Result<SqliteQueryResult, String> {
     let uri = options.uri.clone();
-    if uri.starts_with("sqlite://") {
+    if uri.starts_with("sqlite://") || !uri.contains("://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::run_sqlite_query(path.to_string(), query).await;
     }
@@ -268,7 +268,7 @@ pub async fn run_db_query(options: DbAuthOptions, query: String, state: State<'_
 
 #[tauri::command]
 pub async fn update_db_cell(uri: String, table: String, pk_column: String, pk_value: serde_json::Value, col_name: String, new_value: serde_json::Value, state: State<'_, DbState>) -> Result<(), String> {
-    if uri.starts_with("sqlite://") {
+    if uri.starts_with("sqlite://") || !uri.contains("://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::update_sqlite_cell(path.to_string(), table, col_name, new_value, pk_column, pk_value).await;
     }
@@ -292,7 +292,7 @@ pub async fn update_db_cell(uri: String, table: String, pk_column: String, pk_va
 
 #[tauri::command]
 pub async fn delete_db_row(uri: String, table: String, pk_column: String, pk_value: serde_json::Value, state: State<'_, DbState>) -> Result<(), String> {
-    if uri.starts_with("sqlite://") {
+    if uri.starts_with("sqlite://") || !uri.contains("://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::delete_sqlite_row(path.to_string(), table, pk_column, pk_value).await;
     }
@@ -310,7 +310,7 @@ pub async fn delete_db_row(uri: String, table: String, pk_column: String, pk_val
 
 #[tauri::command]
 pub async fn insert_db_row(uri: String, table: String, state: State<'_, DbState>) -> Result<(), String> {
-    if uri.starts_with("sqlite://") {
+    if uri.starts_with("sqlite://") || !uri.contains("://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::insert_sqlite_row(path.to_string(), table).await;
     }
@@ -329,7 +329,7 @@ pub async fn insert_db_row(uri: String, table: String, state: State<'_, DbState>
 
 #[tauri::command]
 pub async fn add_db_column(uri: String, table: String, col_name: String, col_type: String, state: State<'_, DbState>) -> Result<(), String> {
-    if uri.starts_with("sqlite://") {
+    if uri.starts_with("sqlite://") || !uri.contains("://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::add_sqlite_column(path.to_string(), table, col_name, col_type).await;
     }
