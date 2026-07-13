@@ -126,47 +126,77 @@ export function useProjects(deps: UseProjectsDeps) {
         setIsFileLoading(true);
         setFileError(null);
         try {
-          // Tauri v2 trả về Vec<u8> → serialize thành number[] (JSON array), convert sang Uint8Array
-          const raw: number[] = await invoke<number[]>("read_file_content", {
+          const response = await invoke<{ encoding: string; content: string }>("read_file_content", {
             path,
           });
-          const bytes = new Uint8Array(raw);
-
-          // Phát hiện BOM và decode encoding
+          
           let decodedText = "";
-          if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
-            decodedText = new TextDecoder("utf-16le").decode(bytes.slice(2));
-          } else if (
-            bytes.length >= 2 &&
-            bytes[0] === 0xfe &&
-            bytes[1] === 0xff
-          ) {
-            decodedText = new TextDecoder("utf-16be").decode(bytes.slice(2));
-          } else if (
-            bytes.length >= 3 &&
-            bytes[0] === 0xef &&
-            bytes[1] === 0xbb &&
-            bytes[2] === 0xbf
-          ) {
-            decodedText = new TextDecoder("utf-8").decode(bytes.slice(3));
+          
+          const isImageExt = /\.(png|jpe?g|gif|webp|svg|ico)$/i.test(path);
+          
+          if (response.encoding.startsWith("image/")) {
+            // Backend detected image magic numbers
+            decodedText = `data:${response.encoding};base64,${response.content}`;
+          } else if (isImageExt) {
+            // Fallback for svg or other images without strong magic numbers
+            const ext = path.split('.').pop()?.toLowerCase();
+            let mime = "image/png";
+            if (ext === "jpg" || ext === "jpeg") mime = "image/jpeg";
+            else if (ext === "gif") mime = "image/gif";
+            else if (ext === "webp") mime = "image/webp";
+            else if (ext === "svg") mime = "image/svg+xml";
+            else if (ext === "ico") mime = "image/x-icon";
+
+            if (response.encoding === "base64") {
+              decodedText = `data:${mime};base64,${response.content}`;
+            } else {
+              decodedText = `data:${mime};utf8,${encodeURIComponent(response.content)}`;
+            }
+          } else if (response.encoding === "utf8") {
+            decodedText = response.content;
           } else {
-            try {
-              decodedText = new TextDecoder("utf-8", { fatal: true }).decode(
-                bytes,
-              );
-            } catch (_e) {
-              // UTF-8 thất bại → thử UTF-16LE nếu có nhiều null bytes
-              let nullCount = 0;
-              for (let i = 0; i < Math.min(bytes.length, 100); i++) {
-                if (bytes[i] === 0) nullCount++;
-              }
-              if (nullCount > 10) {
-                decodedText = new TextDecoder("utf-16le").decode(bytes);
-              } else {
-                console.warn(
-                  "UTF-8 fail, falling back to Windows-1258 (Vietnamese)",
+            const binStr = atob(response.content);
+            const len = binStr.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binStr.charCodeAt(i);
+            }
+
+            // Phát hiện BOM và decode encoding
+            if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+              decodedText = new TextDecoder("utf-16le").decode(bytes.slice(2));
+            } else if (
+              bytes.length >= 2 &&
+              bytes[0] === 0xfe &&
+              bytes[1] === 0xff
+            ) {
+              decodedText = new TextDecoder("utf-16be").decode(bytes.slice(2));
+            } else if (
+              bytes.length >= 3 &&
+              bytes[0] === 0xef &&
+              bytes[1] === 0xbb &&
+              bytes[2] === 0xbf
+            ) {
+              decodedText = new TextDecoder("utf-8").decode(bytes.slice(3));
+            } else {
+              try {
+                decodedText = new TextDecoder("utf-8", { fatal: true }).decode(
+                  bytes,
                 );
-                decodedText = new TextDecoder("windows-1258").decode(bytes);
+              } catch (_e) {
+                // UTF-8 thất bại → thử UTF-16LE nếu có nhiều null bytes
+                let nullCount = 0;
+                for (let i = 0; i < Math.min(bytes.length, 100); i++) {
+                  if (bytes[i] === 0) nullCount++;
+                }
+                if (nullCount > 10) {
+                  decodedText = new TextDecoder("utf-16le").decode(bytes);
+                } else {
+                  console.warn(
+                    "UTF-8 fail, falling back to Windows-1258 (Vietnamese)",
+                  );
+                  decodedText = new TextDecoder("windows-1258").decode(bytes);
+                }
               }
             }
           }

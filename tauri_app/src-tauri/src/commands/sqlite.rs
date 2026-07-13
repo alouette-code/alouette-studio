@@ -132,7 +132,7 @@ pub async fn get_sqlite_tables(path: String) -> Result<Vec<String>, String> {
 }
 
 #[tauri::command]
-pub async fn get_sqlite_table_data(path: String, table: String) -> Result<SqliteTableData, String> {
+pub async fn get_sqlite_table_data(path: String, table: String, limit: u32, offset: u32) -> Result<SqliteTableData, String> {
     log_to_app_file(&format!("SQLite: get_sqlite_table_data for {} -> {}", path, table));
     validate_sqlite_path(&path)?;
     validate_name(&table)?;
@@ -165,7 +165,7 @@ pub async fn get_sqlite_table_data(path: String, table: String) -> Result<Sqlite
     }
 
     let mut stmt_rows = conn
-        .prepare(&format!("SELECT * FROM \"{}\";", table.replace("\"", "\"\"")))
+        .prepare(&format!("SELECT * FROM \"{}\" LIMIT {} OFFSET {};", table.replace("\"", "\"\""), limit, offset))
         .map_err(|e: rusqlite::Error| e.to_string())?;
 
     let col_count = stmt_rows.column_count();
@@ -364,4 +364,106 @@ pub async fn add_sqlite_column(
 
     conn.execute(&query_str, []).map_err(|e: rusqlite::Error| e.to_string())?;
     Ok(())
+}
+
+#[derive(serde::Serialize)]
+pub struct SqliteQueryResult {
+    pub success: bool,
+    pub columns: Option<Vec<SqliteColumn>>,
+    pub rows: Option<Vec<Vec<serde_json::Value>>>,
+    pub rows_affected: Option<usize>,
+}
+
+#[tauri::command]
+pub async fn run_sqlite_query(path: String, query: String) -> Result<SqliteQueryResult, String> {
+    log_to_app_file(&format!("SQLite: run_sqlite_query on {}", path));
+    validate_sqlite_path(&path)?;
+
+    let conn = rusqlite::Connection::open(&path)
+        .map_err(|e: rusqlite::Error| format!("Failed to open database: {}", e))?;
+
+    let stmt_result = conn.prepare(&query);
+    let mut stmt = match stmt_result {
+        Ok(s) => s,
+        Err(e) => {
+            let err_str = e.to_string();
+            if err_str.to_lowercase().contains("multiple statement") || err_str.to_lowercase().contains("trailing") {
+                match conn.execute_batch(&query) {
+                    Ok(_) => {
+                        return Ok(SqliteQueryResult {
+                            success: true,
+                            columns: None,
+                            rows: None,
+                            rows_affected: Some(0),
+                        });
+                    }
+                    Err(batch_err) => {
+                        return Err(batch_err.to_string());
+                    }
+                }
+            }
+            return Err(err_str);
+        }
+    };
+
+    let col_count = stmt.column_count();
+    
+    if col_count > 0 {
+        let mut columns = Vec::new();
+        for i in 0..col_count {
+            let name = stmt.column_name(i).unwrap_or("").to_string();
+            columns.push(SqliteColumn {
+                name,
+                data_type: "ANY".to_string(),
+                is_pk: false,
+            });
+        }
+
+        let mut rows_iter = stmt.query([]).map_err(|e: rusqlite::Error| e.to_string())?;
+        let mut rows = Vec::new();
+
+        while let Some(row) = rows_iter.next().map_err(|e: rusqlite::Error| e.to_string())? {
+            let mut row_values = Vec::new();
+            for i in 0..col_count {
+                let val_ref = row.get_ref(i).map_err(|e: rusqlite::Error| e.to_string())?;
+                let json_val = match val_ref {
+                    rusqlite::types::ValueRef::Null => serde_json::Value::Null,
+                    rusqlite::types::ValueRef::Integer(i_val) => serde_json::Value::Number(serde_json::Number::from(i_val)),
+                    rusqlite::types::ValueRef::Real(f_val) => {
+                        if let Some(num) = serde_json::Number::from_f64(f_val) {
+                            serde_json::Value::Number(num)
+                        } else {
+                            serde_json::Value::Null
+                        }
+                    }
+                    rusqlite::types::ValueRef::Text(t_bytes) => {
+                        let s = std::str::from_utf8(t_bytes).unwrap_or("");
+                        serde_json::Value::String(s.to_string())
+                    }
+                    rusqlite::types::ValueRef::Blob(b_bytes) => {
+                        let b64 = general_purpose::STANDARD.encode(b_bytes);
+                        serde_json::Value::String(format!("[Blob: {} bytes] {}", b_bytes.len(), b64))
+                    }
+                };
+                row_values.push(json_val);
+            }
+            rows.push(row_values);
+        }
+
+        Ok(SqliteQueryResult {
+            success: true,
+            columns: Some(columns),
+            rows: Some(rows),
+            rows_affected: None,
+        })
+    } else {
+        drop(stmt);
+        let rows_affected = conn.execute(&query, []).map_err(|e: rusqlite::Error| e.to_string())?;
+        Ok(SqliteQueryResult {
+            success: true,
+            columns: None,
+            rows: None,
+            rows_affected: Some(rows_affected),
+        })
+    }
 }

@@ -925,12 +925,7 @@ export default React.memo(function CodeEditor({
         </div>
       </div>
 
-      {isLoading ? (
-        <div className="editor-loading">
-          <RefreshCw size={24} className="spin-animation" />
-          <span>Reading file contents...</span>
-        </div>
-      ) : error ? (
+      {error ? (
         <div className="editor-error">
           <AlertCircle size={24} />
           <span>{error}</span>
@@ -964,7 +959,52 @@ export default React.memo(function CodeEditor({
               onClose={() => setRagSearchOpen(false)}
             />
           )}
-          <Editor
+          
+          {/* Loading overlay */}
+          {isLoading && (
+            <div 
+              style={{
+                position: 'absolute',
+                top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: 'var(--bg-primary)',
+                opacity: 0.7,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                zIndex: 50
+              }}
+            >
+              <RefreshCw size={24} className="spin-animation" />
+              <span style={{marginLeft: '8px'}}>Reading...</span>
+            </div>
+          )}
+
+          {content && content.startsWith("data:image/") ? (
+            <div style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              backgroundColor: "var(--bg-secondary)",
+              overflow: "auto",
+              padding: "20px",
+              boxSizing: "border-box"
+            }}>
+              <img 
+                src={content} 
+                alt={filePath || "Image"} 
+                style={{
+                  maxWidth: "100%",
+                  maxHeight: "100%",
+                  objectFit: "contain",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                  backgroundColor: "transparent" /* To allow checking transparency */
+                }} 
+              />
+            </div>
+          ) : (
+            <Editor
             height="100%"
             width="100%"
             language={getLanguageFromPath(filePath)}
@@ -1022,6 +1062,7 @@ export default React.memo(function CodeEditor({
               },
             }}
           />
+          )}
         </div>
       )}
     </div>

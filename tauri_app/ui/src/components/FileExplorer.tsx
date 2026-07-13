@@ -14,6 +14,7 @@ import {
   RotateCw,
   CircleDot,
   Pencil,
+  Database,
 } from "lucide-react";
 
 interface FileNode {
@@ -347,7 +348,9 @@ export default function FileExplorer({
     };
   }, [activeCwd]);
 
-  // Pool git status riêng biệt ở tần suất thấp (10 giây)
+  const [showDbModal, setShowDbModal] = useState(false);
+
+  // Check if we are inside a Tauri window to load files automatically
   useEffect(() => {
     const interval = setInterval(() => {
       fetchGitStatus();
@@ -540,8 +543,18 @@ export default function FileExplorer({
           >
             <RotateCw size={12} />
           </button>
+          <button
+            onClick={() => onFileSelect("db://new_connection")}
+            className="explorer-action-btn"
+            title="Connect Database"
+            style={{ color: 'var(--color-accent)' }}
+          >
+            <Database size={12} />
+          </button>
         </div>
       </header>
+
+
 
       <div className="explorer-scroll-viewport">
         {loading && <div className="explorer-empty">Traversing files...</div>}

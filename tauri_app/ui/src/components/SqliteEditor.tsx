@@ -11,6 +11,10 @@ import {
   FileSpreadsheet,
   HelpCircle,
   Columns,
+  TerminalSquare,
+  Play,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -60,6 +64,22 @@ export default function SqliteEditor({
   >("idle");
   const [statusMessage, setStatusMessage] = useState<string>("");
 
+  // View mode
+  const [viewMode, setViewMode] = useState<"table" | "query">("table");
+  
+  // Raw Query state
+  const [rawQuery, setRawQuery] = useState<string>("");
+  const [queryResult, setQueryResult] = useState<{
+    success: boolean;
+    columns: SqliteColumn[] | null;
+    rows: any[][] | null;
+    rows_affected: number | null;
+    error?: string;
+  } | null>(null);
+  const [isQueryRunning, setIsQueryRunning] = useState<boolean>(false);
+  const [limit, setLimit] = useState(100);
+  const [offset, setOffset] = useState(0);
+
   const fileName = filePath.split(/[\\/]/).pop() || "";
 
   // Load tables in the database
@@ -67,8 +87,8 @@ export default function SqliteEditor({
     setLoading(true);
     setError(null);
     try {
-      const res = await invoke<string[]>("get_sqlite_tables", {
-        path: filePath,
+      const res = await invoke<string[]>("get_db_tables", {
+        uri: filePath,
       });
       setTables(res);
       if (res.length > 0) {
@@ -93,9 +113,11 @@ export default function SqliteEditor({
     setLoading(true);
     setError(null);
     try {
-      const res = await invoke<SqliteTableData>("get_sqlite_table_data", {
-        path: filePath,
+      const res = await invoke<SqliteTableData>("get_db_table_data", {
+        uri: filePath,
         table: tableName,
+        limit: limit,
+        offset: offset,
       });
       setData(res);
     } catch (err: any) {
@@ -119,6 +141,11 @@ export default function SqliteEditor({
       setData(null);
     }
     setShowAddColumn(false);
+  }, [activeTable, filePath, limit, offset]);
+
+  // Reset offset when table changes
+  useEffect(() => {
+    setOffset(0);
   }, [activeTable]);
 
   // Show dynamic status message
@@ -175,8 +202,8 @@ export default function SqliteEditor({
 
     triggerStatus("saving", "Saving changes to database...");
     try {
-      await invoke("update_sqlite_cell", {
-        path: filePath,
+      await invoke("update_db_cell", {
+        uri: filePath,
         table: activeTable,
         column: colName,
         value: formattedValue,
@@ -197,8 +224,8 @@ export default function SqliteEditor({
     if (!activeTable) return;
     triggerStatus("saving", "Inserting new row...");
     try {
-      await invoke("insert_sqlite_row", {
-        path: filePath,
+      await invoke("insert_db_row", {
+        uri: filePath,
         table: activeTable,
       });
       triggerStatus("success", "New row added!");
@@ -219,8 +246,8 @@ export default function SqliteEditor({
     const performDelete = async () => {
       triggerStatus("saving", "Deleting row...");
       try {
-        await invoke("delete_sqlite_row", {
-          path: filePath,
+        await invoke("delete_db_row", {
+          uri: filePath,
           table: activeTable,
           pkColumn: pkColumn.name,
           pkValue: pkValue,
@@ -256,8 +283,8 @@ export default function SqliteEditor({
 
     triggerStatus("saving", "Adding column...");
     try {
-      await invoke("add_sqlite_column", {
-        path: filePath,
+      await invoke("add_db_column", {
+        uri: filePath,
         table: activeTable,
         colName: newColName.trim().replace(/[^a-zA-Z0-9_]/g, "_"), // safe column name
         colType: newColType,
@@ -272,6 +299,37 @@ export default function SqliteEditor({
     }
   };
 
+  const handleRunQuery = async () => {
+    if (!rawQuery.trim()) return;
+    setIsQueryRunning(true);
+    setQueryResult(null);
+    triggerStatus("saving", "Running query...");
+    try {
+      const res = await invoke<any>("run_db_query", {
+        uri: filePath,
+        query: rawQuery,
+      });
+      setQueryResult(res);
+      triggerStatus("success", "Query executed successfully!");
+      if (res.rows_affected !== null) {
+        // If it was an execution query, maybe refresh tables just in case a table was created/dropped
+        loadTables();
+      }
+    } catch (err: any) {
+      console.error("Query failed:", err);
+      setQueryResult({
+        success: false,
+        columns: null,
+        rows: null,
+        rows_affected: null,
+        error: err.toString(),
+      });
+      triggerStatus("error", `Query failed: ${err.toString()}`);
+    } finally {
+      setIsQueryRunning(false);
+    }
+  };
+
   return (
     <div className="sqlite-editor-container">
       {/* Editor Header */}
@@ -281,6 +339,23 @@ export default function SqliteEditor({
           <span className="db-name font-semibold">{fileName}</span>
           <span className="db-badge">SQLite DB</span>
           <span className="db-path text-muted">{filePath}</span>
+        </div>
+
+        <div className="view-mode-toggle">
+          <button 
+            className={`btn-toggle ${viewMode === 'table' ? 'active' : ''}`}
+            onClick={() => setViewMode('table')}
+          >
+            <Columns size={13} />
+            <span>Table View</span>
+          </button>
+          <button 
+            className={`btn-toggle ${viewMode === 'query' ? 'active' : ''}`}
+            onClick={() => setViewMode('query')}
+          >
+            <TerminalSquare size={13} />
+            <span>SQL Query</span>
+          </button>
         </div>
 
         {/* Save Status Indicators */}
@@ -347,7 +422,106 @@ export default function SqliteEditor({
             </div>
           )}
 
-          {activeTable ? (
+          {viewMode === "query" ? (
+            <div className="query-view" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '16px', gap: '16px', overflow: 'hidden' }}>
+              <div className="query-editor-container" style={{ flex: '0 0 40%', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span className="font-semibold text-accent">SQL Query</span>
+                  <button 
+                    className="btn-primary" 
+                    onClick={handleRunQuery}
+                    disabled={isQueryRunning || !rawQuery.trim()}
+                    style={{ padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '6px', borderRadius: '4px', cursor: 'pointer', border: 'none' }}
+                  >
+                    {isQueryRunning ? <RefreshCw size={14} className="spin-animation" /> : <Play size={14} />}
+                    Run Query
+                  </button>
+                </div>
+                <textarea
+                  value={rawQuery}
+                  onChange={e => setRawQuery(e.target.value)}
+                  placeholder="SELECT * FROM table_name WHERE id = 1; \nINSERT INTO table_name (col) VALUES ('val');"
+                  style={{
+                    flex: 1,
+                    width: '100%',
+                    backgroundColor: 'var(--bg-primary)',
+                    color: 'var(--text-primary)',
+                    border: '1px solid var(--border-color)',
+                    borderRadius: '4px',
+                    padding: '12px',
+                    fontFamily: 'monospace',
+                    fontSize: '13px',
+                    resize: 'none',
+                    outline: 'none'
+                  }}
+                />
+              </div>
+
+              <div className="query-results-container" style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden' }}>
+                <span className="font-semibold text-muted">Results</span>
+                <div style={{ flex: '1', backgroundColor: 'var(--bg-primary)', border: '1px solid var(--border-color)', borderRadius: '4px', overflow: 'auto' }}>
+                  {isQueryRunning ? (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                      <RefreshCw size={24} className="spin-animation" />
+                      <span style={{ marginLeft: '8px' }}>Executing...</span>
+                    </div>
+                  ) : !queryResult ? (
+                    <div style={{ display: 'flex', height: '100%', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)' }}>
+                      Run a query to see results here.
+                    </div>
+                  ) : !queryResult.success ? (
+                    <div style={{ padding: '16px', color: 'var(--text-danger)' }}>
+                      <AlertCircle size={16} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
+                      {queryResult.error}
+                    </div>
+                  ) : queryResult.rows_affected !== null ? (
+                    <div style={{ padding: '16px', color: 'var(--text-success)' }}>
+                      <Check size={16} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
+                      Query executed successfully. {queryResult.rows_affected} row(s) affected.
+                    </div>
+                  ) : queryResult.columns && queryResult.rows ? (
+                    <div className="table-viewport" style={{ height: '100%' }}>
+                      <table style={{ width: '100%' }}>
+                        <thead>
+                          <tr>
+                            {queryResult.columns.map((col, idx) => (
+                              <th key={idx}>
+                                <div className="header-cell">
+                                  <span className="col-name">{col.name}</span>
+                                </div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {queryResult.rows.map((row, rIdx) => (
+                            <tr key={rIdx}>
+                              {row.map((val, cIdx) => (
+                                <td key={cIdx} className={`grid-cell ${val === null ? "cell-null" : ""}`}>
+                                  {val === null ? (
+                                    <span className="null-tag">NULL</span>
+                                  ) : (
+                                    <span className="cell-value">{String(val)}</span>
+                                  )}
+                                </td>
+                              ))}
+                            </tr>
+                          ))}
+                          {queryResult.rows.length === 0 && (
+                            <tr>
+                              <td colSpan={queryResult.columns.length} className="empty-rows text-muted">
+                                No results returned.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : activeTable ? (
             <div className="table-grid-view">
               {/* Grid Control Toolbar */}
               <div className="grid-toolbar">
@@ -449,8 +623,9 @@ export default function SqliteEditor({
                   <span>Loading table records...</span>
                 </div>
               ) : data ? (
-                <div className="table-viewport">
-                  <table>
+                <>
+                <div className="sqlite-table-container">
+                  <table className="sqlite-table">
                     <thead>
                       <tr>
                         {data.columns.map((col) => (
@@ -563,6 +738,46 @@ export default function SqliteEditor({
                     </tbody>
                   </table>
                 </div>
+                
+                {/* Pagination Toolbar */}
+                <div className="flex items-center justify-between p-2 border-t border-[#333] bg-[#1a1a1a] text-xs text-gray-400">
+                  <div className="flex items-center gap-2">
+                    <span>Rows per page:</span>
+                    <select 
+                      value={limit} 
+                      onChange={e => {
+                        setLimit(Number(e.target.value));
+                        setOffset(0);
+                      }}
+                      className="bg-[#222] border border-[#333] rounded px-2 py-1 outline-none focus:border-blue-500"
+                    >
+                      <option value="50">50</option>
+                      <option value="100">100</option>
+                      <option value="500">500</option>
+                    </select>
+                  </div>
+                  
+                  <div className="flex items-center gap-4">
+                    <span>Showing {offset + 1} - {offset + (data?.rows.length || 0)}</span>
+                    <div className="flex items-center gap-1">
+                      <button 
+                        onClick={() => setOffset(Math.max(0, offset - limit))}
+                        disabled={offset === 0}
+                        className="p-1 hover:bg-[#333] rounded disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                      >
+                        <ChevronLeft size={16} />
+                      </button>
+                      <button 
+                        onClick={() => setOffset(offset + limit)}
+                        disabled={!data || data.rows.length < limit}
+                        className="p-1 hover:bg-[#333] rounded disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                      >
+                        <ChevronRight size={16} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                </>
               ) : null}
             </div>
           ) : (

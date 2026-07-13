@@ -75,6 +75,7 @@ fn main() {
     let rm_clone = resource_monitor.clone();
 
     tauri::Builder::default()
+        .manage(commands::database::DbState::default())
         .manage(AppState {
             process_manager,
             resource_monitor,
@@ -228,6 +229,15 @@ fn main() {
             commands::sqlite::insert_sqlite_row,
             commands::sqlite::delete_sqlite_row,
             commands::sqlite::add_sqlite_column,
+            commands::sqlite::run_sqlite_query,
+            commands::database::connect_to_db,
+            commands::database::get_db_tables,
+            commands::database::get_db_table_data,
+            commands::database::run_db_query,
+            commands::database::update_db_cell,
+            commands::database::delete_db_row,
+            commands::database::insert_db_row,
+            commands::database::add_db_column,
             commands::sandbox::load_sandbox_configs,
             commands::sandbox::save_sandbox_config,
             commands::sandbox::save_all_sandbox_configs,
