@@ -2956,6 +2956,41 @@ select option {
     border-color: rgba(239, 68, 68, 0.2);
 }
 
+/* View Mode Toggles */
+.view-mode-toggle {
+    display: flex;
+    align-items: center;
+    background-color: var(--bg-primary);
+    border-radius: 6px;
+    padding: 3px;
+    border: 1px solid var(--border-primary);
+}
+
+.btn-toggle {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+}
+
+.btn-toggle:hover {
+    color: var(--text-primary);
+}
+
+.btn-toggle.active {
+    background-color: var(--color-accent, #3a86ff);
+    color: #ffffff;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
 .sqlite-editor-body {
     display: flex;
     flex: 1;
@@ -3253,28 +3288,38 @@ select option {
     border-collapse: collapse;
     text-align: left;
     font-size: 11px;
+    border: 1px solid var(--border-primary);
 }
 
 .table-viewport th {
     position: sticky;
     top: 0;
     background-color: var(--bg-tertiary, #151515);
-    padding: 6px 12px;
-    font-weight: 600;
+    padding: 8px 12px;
+    font-weight: 700;
     color: var(--text-secondary);
     border-bottom: 1px solid var(--border-primary);
+    border-right: 1px solid var(--border-primary);
     z-index: 10;
     height: 32px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    font-size: 10px;
+}
+
+.table-viewport th:last-child {
+    border-right: none;
 }
 
 .table-viewport th.pk-header {
     border-bottom-color: rgba(58, 134, 255, 0.4);
+    background-color: rgba(58, 134, 255, 0.05);
 }
 
 .table-viewport .header-cell {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     line-height: 1.2;
 }
 
@@ -3294,14 +3339,23 @@ select option {
 }
 
 .table-viewport td {
-    padding: 4px 12px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border-primary);
+    border-right: 1px solid var(--border-primary);
     height: 28px;
     white-space: nowrap;
     max-width: 250px;
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: middle;
+}
+
+.table-viewport td:last-child {
+    border-right: none;
+}
+
+.table-viewport tr:nth-child(even) td {
+    background-color: rgba(255, 255, 255, 0.01);
 }
 
 .table-viewport tr:hover td {

@@ -32,6 +32,7 @@ import ProcessManager from "./components/ProcessManager";
 import AdminPanel from "./components/AdminPanel";
 import FileExplorer from "./components/FileExplorer";
 import SqliteEditor from "./components/SqliteEditor";
+import DatabaseConnectionTab from "./components/DatabaseConnectionTab";
 import PingZero from "./components/PingZero";
 import AiAgent from "./components/AiAgent";
 import LocalAiManager from "./components/LocalAiManager";
@@ -64,26 +65,6 @@ function ChromeIcon({ size = 14, color = "currentColor" }: { size?: number, colo
   );
 }
 
-function ZenIcon({ size = 14 }: { size?: number }) {
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      {/* Vòng tròn hở nghệ thuật Zen Ensō */}
-      <path d="M12 3a9 9 0 1 0 9 9c0-1.5-.4-3-1.1-4.2" />
-      {/* Chữ Z cách điệu mềm mại thanh thoát ở tâm */}
-      <path d="M8.5 8.5h7L10 15.5h7" />
-    </svg>
-  );
-}
 
 function LayoutLeftIcon({
   active,
@@ -789,9 +770,20 @@ export default function App() {
         try {
           const selectedPath: string | null = await invoke("open_file_dialog");
           if (selectedPath && selectedPath.endsWith(".json")) {
-            const rawBytes: number[] = await invoke("read_file_content", { path: selectedPath });
-            const decoded = new TextDecoder("utf-8").decode(new Uint8Array(rawBytes));
-            const parsed = JSON.parse(decoded);
+            const response = await invoke<{ encoding: string; content: string }>("read_file_content", { path: selectedPath });
+            let decodedText = "";
+            if (response.encoding === "utf8") {
+              decodedText = response.content;
+            } else {
+              const binStr = atob(response.content);
+              const len = binStr.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) {
+                bytes[i] = binStr.charCodeAt(i);
+              }
+              decodedText = new TextDecoder("utf-8").decode(bytes);
+            }
+            const parsed = JSON.parse(decodedText);
             if (Array.isArray(parsed)) {
               for (const p of parsed) {
                 if (p.id && p.name) {
@@ -1442,8 +1434,17 @@ export default function App() {
                     const paneIsSqliteFile = paneOpenFilePath
                       ? paneOpenFilePath.toLowerCase().endsWith(".db") ||
                         paneOpenFilePath.toLowerCase().endsWith(".sqlite") ||
-                        paneOpenFilePath.toLowerCase().endsWith(".sqlite3")
+                        paneOpenFilePath.toLowerCase().endsWith(".sqlite3") ||
+                        paneOpenFilePath.startsWith("postgres://") ||
+                        paneOpenFilePath.startsWith("mysql://") ||
+                        paneOpenFilePath.startsWith("sqlite://") ||
+                        paneOpenFilePath.startsWith("mongodb://") ||
+                        paneOpenFilePath.startsWith("redis://") ||
+                        paneOpenFilePath.startsWith("firebase://") ||
+                        paneOpenFilePath.startsWith("mssql://")
                       : false;
+                      
+                    const paneIsDbConnection = paneOpenFilePath === "db://new_connection";
 
                     return (
                       <div
@@ -1664,6 +1665,13 @@ export default function App() {
                               filePath={paneOpenFilePath}
                               triggerConfirm={triggerConfirm}
                               triggerToast={triggerToast}
+                            />
+                          ) : paneIsDbConnection ? (
+                            <DatabaseConnectionTab
+                              onConnect={(uri) => {
+                                handleFileCloseCustom(paneIdx, "db://new_connection");
+                                handleFileOpenCustom(uri);
+                              }}
                             />
                           ) : (
                             <CodeEditor

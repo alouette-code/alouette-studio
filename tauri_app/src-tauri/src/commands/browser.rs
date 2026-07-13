@@ -1,4 +1,3 @@
-use tauri::Manager;
 
 #[tauri::command]
 pub async fn open_browser_window(_app_handle: tauri::AppHandle) -> Result<(), String> {

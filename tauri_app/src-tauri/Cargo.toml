@@ -13,8 +13,14 @@ core_engine = { path = "../../core_engine" }
 bollard = "0.17"
 
 chrono = "0.4"
+uuid = { version = "1.0", features = ["serde", "v4"] }
 base64 = "0.22"
-rusqlite = { version = "0.39.0", features = ["bundled"] }
+rusqlite = { version = "0.29.0", features = ["bundled"] }
+sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "any", "mysql", "postgres", "sqlite", "chrono", "uuid"] }
+mongodb = "3.1.0"
+redis = { version = "0.27.6", features = ["tokio-comp"] }
+tiberius = "0.12"
+tokio-util = { version = "0.7", features = ["compat"] }
 reqwest = { version = "0.13", features = ["json", "multipart", "cookies"] }
 sha2 = "0.11"
 sha1 = "0.11"
@@ -28,7 +34,7 @@ langchain-rust = "4.4.0"
 async-trait = "0.1"
 futures-util = "0.3.32"
 r2d2 = "0.8"
-r2d2_sqlite = "0.34.0"
+r2d2_sqlite = "0.22.0"
 secrecy = { version = "0.8", features = ["serde"] }
 dashmap = "6.1"
 notify = { version = "7.0", features = ["macos_fsevent"] }

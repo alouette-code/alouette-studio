@@ -127,12 +127,37 @@ pub async fn get_project_files(
     get_directory_contents(state, validated.to_string_lossy().to_string()).await
 }
 
-/// Đọc file và trả về Vec<u8> — Tauri v2 tự serialize thành Uint8Array ở frontend.
+#[derive(serde::Serialize)]
+pub struct FileContentResponse {
+    pub encoding: String,
+    pub content: String,
+}
+
+fn detect_image_mime_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("image/png");
+    }
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.starts_with(b"RIFF") && bytes.len() > 11 && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    // Ico files
+    if bytes.starts_with(&[0x00, 0x00, 0x01, 0x00]) {
+        return Some("image/x-icon");
+    }
+    None
+}
+
 #[tauri::command]
 pub async fn read_file_content(
     state: State<'_, AppState>,
     path: String,
-) -> Result<Vec<u8>, String> {
+) -> Result<FileContentResponse, String> {
     log_to_app_file(&format!("Reading file: {}", path));
     let validated = validate_path(&state, &path).await?;
     let metadata = fs::metadata(&validated).await.map_err(|e| e.to_string())?;
@@ -144,7 +169,29 @@ pub async fn read_file_content(
     }
 
     let bytes = fs::read(&validated).await.map_err(|e| e.to_string())?;
-    Ok(bytes)
+    
+    use base64::Engine;
+    
+    // Check for binary image signatures first
+    if let Some(mime) = detect_image_mime_type(&bytes) {
+        return Ok(FileContentResponse {
+            encoding: mime.to_string(),
+            content: base64::engine::general_purpose::STANDARD.encode(&bytes),
+        });
+    }
+
+    match String::from_utf8(bytes.clone()) {
+        Ok(text) => Ok(FileContentResponse {
+            encoding: "utf8".to_string(),
+            content: text,
+        }),
+        Err(_) => {
+            Ok(FileContentResponse {
+                encoding: "base64".to_string(),
+                content: base64::engine::general_purpose::STANDARD.encode(bytes),
+            })
+        }
+    }
 }
 
 #[tauri::command]
