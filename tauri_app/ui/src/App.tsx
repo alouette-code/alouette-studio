@@ -1441,7 +1441,11 @@ export default function App() {
                         paneOpenFilePath.startsWith("mongodb://") ||
                         paneOpenFilePath.startsWith("redis://") ||
                         paneOpenFilePath.startsWith("firebase://") ||
-                        paneOpenFilePath.startsWith("mssql://")
+                        paneOpenFilePath.startsWith("mssql://") ||
+                        paneOpenFilePath.startsWith("duckdb://") ||
+                        paneOpenFilePath.startsWith("sled://") ||
+                        paneOpenFilePath.startsWith("redb://") ||
+                        paneOpenFilePath.startsWith("surrealdb://")
                       : false;
                       
                     const paneIsDbConnection = paneOpenFilePath === "db://new_connection";

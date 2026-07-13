@@ -72,6 +72,14 @@ pub async fn connect_to_db(options: DbAuthOptions, state: State<'_, DbState>) ->
             }),
         };
     }
+    
+    // Non-pooled embedded DBs (connection is just a file path check or simple open/close)
+    if uri.starts_with("duckdb://") || uri.starts_with("sled://") || uri.starts_with("redb://") {
+        return Ok(DbConnectionResult {
+            success: true,
+            message: "Connected locally successfully".to_string(),
+        });
+    }
 
     match get_or_create_pool(&uri, &state).await {
         Ok(_) => Ok(DbConnectionResult {
@@ -125,6 +133,14 @@ pub async fn get_db_tables(options: DbAuthOptions, state: State<'_, DbState>) ->
         return crate::commands::db_mongo::get_mongo_tables(options).await;
     }
 
+    if uri.starts_with("duckdb://") {
+        return crate::commands::db_duckdb::get_duckdb_tables(&uri).await;
+    }
+    
+    if uri.starts_with("sled://") || uri.starts_with("redb://") {
+        return crate::commands::db_kv::get_kv_namespaces(&uri).await;
+    }
+
     let pool = get_or_create_pool(&uri, &state).await?;
     
     let query_str = if uri.starts_with("postgres") {
@@ -161,6 +177,36 @@ pub async fn get_db_table_data(options: DbAuthOptions, table: String, limit: u32
     
     if uri.starts_with("mongodb://") || uri.starts_with("mongodb+srv://") {
         return crate::commands::db_mongo::get_mongo_table_data(options, &table, limit, offset).await;
+    }
+    
+    if uri.starts_with("duckdb://") {
+        return crate::commands::db_duckdb::get_duckdb_table_data(&uri, &table, limit, offset).await;
+    }
+
+    if uri.starts_with("sled://") || uri.starts_with("redb://") {
+        let kv_data = crate::commands::db_kv::get_kv_data(&uri, &table).await?;
+        let mut rows = Vec::new();
+        for pair in kv_data {
+            rows.push(vec![
+                serde_json::Value::String(pair.key),
+                serde_json::Value::String(pair.value),
+            ]);
+        }
+        return Ok(crate::commands::sqlite::SqliteTableData {
+            columns: vec![
+                crate::commands::sqlite::SqliteColumn {
+                    name: "Key".to_string(),
+                    data_type: "TEXT".to_string(),
+                    is_pk: true,
+                },
+                crate::commands::sqlite::SqliteColumn {
+                    name: "Value".to_string(),
+                    data_type: "TEXT".to_string(),
+                    is_pk: false,
+                },
+            ],
+            rows,
+        });
     }
 
     let pool = get_or_create_pool(&uri, &state).await?;
@@ -212,6 +258,10 @@ pub async fn run_db_query(options: DbAuthOptions, query: String, state: State<'_
 
     if uri.starts_with("mongodb://") || uri.starts_with("mongodb+srv://") {
         return crate::commands::db_mongo::run_mongo_query(options, &query).await;
+    }
+    
+    if uri.starts_with("duckdb://") {
+        return crate::commands::db_duckdb::run_duckdb_query(&uri, &query).await;
     }
 
     let pool = get_or_create_pool(&uri, &state).await?;
