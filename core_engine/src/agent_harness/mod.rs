@@ -600,6 +600,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         arguments: &serde_json::Value,
     ) -> BlastRadius {
         match tool_name {
+            "open_browser" | "get_browser_elements" | "browser_click" | "browser_type" | "browser_click_hardware" | "browser_type_hardware" => BlastRadius::Local,
             "write_file" | "edit_file" | "execute_command" | "check_port" => BlastRadius::Local,
             "get_project_files" | "read_file" => BlastRadius::Local,
             "delete_file" | "force_push" | "git_reset" => {
@@ -681,6 +682,13 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "search_web" => self.execute_search_web(tool).await,
             "fetch_webpage" => self.execute_fetch_webpage(tool).await,
             "read_chunk" => self.execute_read_chunk(tool).await,
+            "open_browser" => self.execute_open_browser(tool).await,
+            "get_browser_elements" => self.execute_get_browser_elements(tool).await,
+            "browser_click" => self.execute_browser_click(tool).await,
+            "browser_type" => self.execute_browser_type(tool).await,
+            "browser_click_hardware" => self.execute_browser_click_hardware(tool),
+            "browser_type_hardware" => self.execute_browser_type_hardware(tool),
+            "read_screen_fallback" => self.execute_read_screen_fallback(tool),
             _ => Err(format!("Unknown tool: {}", tool.name)),
         };
 
@@ -737,6 +745,224 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         } else {
             result
         }
+    }
+
+    async fn execute_open_browser(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let url = tool.arguments.get("url").and_then(|v| v.as_str()).unwrap_or("https://google.com");
+        let profile_path = "/home/nhatanh/projet/alouette_studio/chrome_profile";
+
+        // Tạo profile nếu chưa có
+        let _ = std::fs::create_dir_all(profile_path);
+
+        // Khởi chạy Google Chrome thay vì Google Chrome
+        let child = tokio::process::Command::new("/home/nhatanh/projet/alouette_studio/chrome/chrome")
+            .arg(format!("--remote-debugging-port={}", 9222))
+            .arg(format!("--user-data-dir={}", profile_path))
+            .arg("--no-first-run")
+            .arg("--no-default-browser-check")
+            .arg("--no-sandbox")
+            .arg("--disable-gpu-sandbox")
+            .arg("--disable-gpu")
+            .arg("--disable-dev-shm-usage")
+            .arg("--disable-software-rasterizer")
+            .arg("--in-process-gpu")
+            .arg(url)
+            .env_remove("GDK_BACKEND") // Cực kỳ quan trọng để không bị crash Wayland
+            .spawn();
+
+        match child {
+            Ok(_) => {
+                tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+                Ok(format!("Opened Google Chrome at {}", url))
+            },
+            Err(e) => Err(format!("Failed to open browser: {}", e))
+        }
+    }
+
+    async fn execute_get_browser_elements(&self, _tool: &parser::ToolCall) -> Result<String, String> {
+        use crate::agent_tools::browser_control::BrowserControl;
+        
+        let client = reqwest::Client::new();
+        // Google Chrome thường trả về cấu hình WebSocket tại /json/version
+        let resp_res = client.get("http://127.0.0.1:9222/json/version").send().await;
+        
+        let resp = match resp_res {
+            Ok(r) => r,
+            Err(_) => return Ok("Error: Could not connect to browser CDP on port 9222. It might still be loading or unsupported. Please use 'read_screen_fallback' instead.".to_string()),
+        };
+        
+        let json_text = resp.text().await.unwrap_or_default();
+        let json_val: serde_json::Value = serde_json::from_str(&json_text).unwrap_or(serde_json::json!({}));
+        let ws_url = json_val.get("webSocketDebuggerUrl").and_then(|v| v.as_str());
+            
+        let ws_url = match ws_url {
+            Some(url) => url,
+            None => return Ok(format!("Error: No webSocketDebuggerUrl found in /json/version. Response was: {}. Please use 'read_screen_fallback' instead.", json_text)),
+        };
+
+        let mut bc = BrowserControl::new();
+        if let Err(e) = bc.connect_cdp(ws_url).await {
+            return Ok(format!("Error connecting to CDP: {}. Please use 'read_screen_fallback' instead.", e));
+        }
+        
+        match bc.get_interactive_elements().await {
+            Ok(elements) => Ok(serde_json::to_string_pretty(&elements).unwrap_or_else(|_| "[]".to_string())),
+            Err(e) => Ok(format!("Error getting elements via JS: {}. Please use 'read_screen_fallback' instead.", e))
+        }
+    }
+
+    fn execute_browser_click_hardware(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let x = tool.arguments.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let y = tool.arguments.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+        use crate::agent_tools::mouse_control::MouseControl;
+        let mut mc = MouseControl::new();
+        mc.click_at(x, y);
+        Ok(format!("(Hardware Fallback) Moved OS mouse and clicked at ({}, {})", x, y))
+    }
+
+    fn execute_browser_type_hardware(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let text = tool.arguments.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        let press_enter = tool.arguments.get("press_enter").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        use crate::agent_tools::mouse_control::MouseControl;
+        let mut mc = MouseControl::new();
+        mc.type_text(text);
+        if press_enter {
+            mc.press_enter();
+        }
+
+        let enter_str = if press_enter { " and pressed Enter" } else { "" };
+        Ok(format!("(Hardware Fallback) Typed text '{}'{} using OS keyboard", text, enter_str))
+    }
+
+    fn execute_read_screen_fallback(&self, _tool: &parser::ToolCall) -> Result<String, String> {
+        use crate::agent_tools::screen_parser::ScreenParser;
+        // Tạm thời trả về lưới màn hình ảo 1920x1080 chia 10x10 để AI biết tọa độ án chừng
+        let grid = ScreenParser::create_grid(1920, 1080, 10, 10);
+        let text = "Màn hình đã được chia lưới. Do tính năng chụp ảnh chưa được cấp quyền, hệ thống chỉ trả về lưới tọa độ tham khảo để bạn nhấp (click) theo ước lượng.";
+        Ok(format!("{}\n\n{}", text, serde_json::to_string_pretty(&grid).unwrap_or_default()))
+    }
+
+    async fn execute_browser_click(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let x = tool.arguments.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let y = tool.arguments.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+
+        let client = reqwest::Client::new();
+        let resp_res = client.get("http://127.0.0.1:9222/json/version").send().await;
+        let resp = match resp_res {
+            Ok(r) => r,
+            Err(_) => return Ok("Error: Could not connect to browser CDP".to_string()),
+        };
+        let json_text = resp.text().await.unwrap_or_default();
+        let json_val: serde_json::Value = serde_json::from_str(&json_text).unwrap_or(serde_json::json!({}));
+        let ws_url = json_val.get("webSocketDebuggerUrl").and_then(|v| v.as_str());
+
+        let ws_url_string = match ws_url {
+            Some(url) => url.to_string(),
+            None => return Ok("Error: No webSocketDebuggerUrl found".to_string()),
+        };
+
+        // Sử dụng thư viện headless_chrome chuẩn trong một thread đồng bộ để đảm bảo ổn định 100%
+        let res = tokio::task::spawn_blocking(move || {
+            use headless_chrome::Browser;
+            let browser = Browser::connect(ws_url_string).map_err(|e| format!("Connect error: {}", e))?;
+            let mut tab = None;
+            for _ in 0..15 {
+                let tabs_mutex = browser.get_tabs();
+                if let Ok(guard) = tabs_mutex.lock() {
+                    if let Some(t) = guard.first() {
+                        tab = Some(t.clone());
+                        break;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            let tab = tab.ok_or("No pages found after retries")?;
+            
+            // Ẩn overlay nếu có để click không bị vướng
+            let _ = tab.evaluate(r#"
+                let o = document.getElementById('alouette-ai-overlay');
+                if (o) o.style.display = 'none';
+            "#, false);
+
+            // Gọi hàm click chuẩn của thư viện (tự động xử lý CDP cấp thấp)
+            use headless_chrome::browser::tab::point::Point;
+            let point = Point { x: x as f64, y: y as f64 };
+            tab.click_point(point).map_err(|e| format!("Native click error: {:?}", e))?;
+            
+            // Tạm dừng chờ trang xử lý sự kiện
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            
+            // Hiển thị lại overlay
+            let _ = tab.evaluate(r#"
+                let o = document.getElementById('alouette-ai-overlay');
+                if (o) o.style.display = 'flex';
+            "#, false);
+            
+            Ok::<String, String>(format!("Clicked at ({}, {}) natively via headless_chrome", x, y))
+        }).await.map_err(|e| e.to_string())??;
+
+        Ok(res)
+    }
+
+    async fn execute_browser_type(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let text = tool.arguments.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        let press_enter = tool.arguments.get("press_enter").and_then(|v| v.as_bool()).unwrap_or(false);
+
+        let client = reqwest::Client::new();
+        let resp_res = client.get("http://127.0.0.1:9222/json/version").send().await;
+        let resp = match resp_res {
+            Ok(r) => r,
+            Err(_) => return Ok("Error: Could not connect to browser CDP".to_string()),
+        };
+        let json_text = resp.text().await.unwrap_or_default();
+        let json_val: serde_json::Value = serde_json::from_str(&json_text).unwrap_or(serde_json::json!({}));
+        let ws_url = json_val.get("webSocketDebuggerUrl").and_then(|v| v.as_str());
+
+        let ws_url_string = match ws_url {
+            Some(url) => url.to_string(),
+            None => return Ok("Error: No webSocketDebuggerUrl found".to_string()),
+        };
+
+        let text = text.to_string();
+
+        let res = tokio::task::spawn_blocking(move || {
+            use headless_chrome::Browser;
+            let browser = Browser::connect(ws_url_string).map_err(|e| format!("Connect error: {}", e))?;
+            let mut tab = None;
+            for _ in 0..15 {
+                let tabs_mutex = browser.get_tabs();
+                if let Ok(guard) = tabs_mutex.lock() {
+                    if let Some(t) = guard.first() {
+                        tab = Some(t.clone());
+                        break;
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            let tab = tab.ok_or("No pages found after retries")?;
+
+            if !text.is_empty() {
+                // Sử dụng hàm type_str của thư viện headless_chrome (chuẩn công nghiệp)
+                tab.type_str(&text).map_err(|e| format!("Native typing error: {:?}", e))?;
+            }
+
+            if press_enter {
+                tab.press_key("Enter").map_err(|e| format!("Enter key error: {:?}", e))?;
+            }
+            
+            // Đảm bảo overlay đang hiện
+            let _ = tab.evaluate(r#"
+                let o = document.getElementById('alouette-ai-overlay');
+                if (o) o.style.display = 'flex';
+            "#, false);
+
+            Ok::<String, String>(format!("Typed '{}' natively via headless_chrome", text))
+        }).await.map_err(|e| e.to_string())??;
+
+        let enter_str = if press_enter { " and pressed Enter" } else { "" };
+        Ok(format!("{}{}", res, enter_str))
     }
 
     fn execute_check_port(&self, tool: &parser::ToolCall) -> Result<String, String> {
@@ -1803,7 +2029,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
                 // Use native tool_calls from LlmResponse directly
                 // Fallback: parse raw_text only if no native tool_calls
-                let all_tools = if !llm_reply.tool_calls.is_empty() {
+                let mut all_tools = if !llm_reply.tool_calls.is_empty() {
                     llm_reply.tool_calls.clone()
                 } else {
                     let parsed = parser::parse_model_response(&llm_reply.raw_text);
@@ -1815,6 +2041,13 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                         vec![]
                     }
                 };
+
+                // Ensure all tools have a call_id
+                for (i, t) in all_tools.iter_mut().enumerate() {
+                    if t.call_id.is_none() || t.call_id.as_ref().unwrap().is_empty() {
+                        t.call_id = Some(format!("call_{}", i));
+                    }
+                }
 
                 if !all_tools.is_empty() {
                     // Có tool calls → kiểm tra cần approve không
@@ -2029,26 +2262,37 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         // Always keep the first user message as context anchor
         let first_user = history.iter().find(|m| m.role == "user").cloned();
 
-        let target_len = max_messages.saturating_sub(1); // -1 to make room for first_user
+        let target_len = max_messages.saturating_sub(2); // room for first_user and system notice
         let tail_start = history.len().saturating_sub(target_len);
 
-        // Find a safe cut point: walk backward from tail_start to find the nearest "user" message.
-        // Starting from a "user" message guarantees we do not break any assistant-tool or tool-result sequences.
+        // Find a safe cut point: walk backward to ensure we don't start at a "tool" message.
+        // A "tool" message MUST be preceded by the assistant's "tool_calls" message.
         let mut safe_start = tail_start;
-        for i in (0..=tail_start).rev() {
-            if history[i].role == "user" {
-                safe_start = i;
+        while safe_start > 0 {
+            if history[safe_start].role != "tool" {
                 break;
             }
+            safe_start -= 1;
         }
 
         let mut compacted: Vec<ChatMessage> = Vec::new();
-        if let Some(first) = first_user {
-            // Only add first_user if it's not already included in the safe_start.. range
+        if let Some(first) = first_user.clone() {
             if safe_start == 0 || history[safe_start..].iter().all(|m| m.id != first.id) {
                 compacted.push(first);
             }
         }
+        
+        if safe_start > 0 && safe_start < history.len() {
+            compacted.push(ChatMessage {
+                id: format!("sys_compact_{}", chrono::Local::now().timestamp_millis()),
+                role: "system".to_string(),
+                content: crate::agent_harness::MessageContent::Text(
+                    "[System Notice: Older tool execution history has been truncated to preserve context length. The original user request is preserved above. If you forgot any information, you can use research tools to find it again.]".to_string()
+                ),
+                timestamp: chrono::Local::now().format("%H:%M").to_string(),
+            });
+        }
+
         compacted.extend(history[safe_start..].iter().cloned());
         *history = compacted;
     }
@@ -2205,10 +2449,10 @@ mod tests {
 
         AgentHarness::compact_history(&mut history, 4);
 
-        assert_eq!(history.len(), 4);
+        assert_eq!(history.len(), 5);
         assert_eq!(history[0].id, "1");
-        assert_eq!(history[1].id, "4");
-        assert_eq!(history[2].id, "5");
-        assert_eq!(history[3].id, "6");
+        assert_eq!(history[2].id, "4");
+        assert_eq!(history[3].id, "5");
+        assert_eq!(history[4].id, "6");
     }
 }

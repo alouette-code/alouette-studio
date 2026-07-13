@@ -203,7 +203,7 @@ fn main() {
             commands::network::open_ping_window,
             commands::network::open_admin_window,
             commands::browser::open_browser_window,
-            commands::browser::navigate_webview,
+
             commands::network::send_http_request,
             commands::network::dns_lookup,
             commands::network::ping_host,

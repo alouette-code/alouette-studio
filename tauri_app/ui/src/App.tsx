@@ -45,10 +45,24 @@ import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
 import { MemoryInspector } from "./components/MemoryInspector";
 import DockerManager from "./components/DockerManager";
-import MiniBrowser from "./components/MiniBrowser";
+
 
 // Search Engine
 import { searchAgentHistoryFull, detectSearchIntent } from "./lib/search";
+
+function ChromeIcon({ size = 14, color = "currentColor" }: { size?: number, color?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill={color}
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M12 0C8.21 0 4.831 1.757 2.632 4.501l3.953 6.848A5.454 5.454 0 0 1 12 6.545h10.691A12 12 0 0 0 12 0zM1.931 5.47A11.943 11.943 0 0 0 0 12c0 6.012 4.42 10.991 10.189 11.864l3.953-6.847a5.45 5.45 0 0 1-6.865-2.29zm13.342 2.166a5.446 5.446 0 0 1 1.45 7.09l-5.345 9.257c.2.016.401.026.603.026 6.627 0 12-5.373 12-12 0-1.53-.288-3-.81-4.373zM12 16.364a4.364 4.364 0 1 1 0-8.728 4.364 4.364 0 0 1 0 8.728Z" />
+    </svg>
+  );
+}
 
 function ZenIcon({ size = 14 }: { size?: number }) {
   return (
@@ -216,9 +230,6 @@ export default function App() {
     return <DockerManager />;
   }
 
-  if (window.location.search.includes("window=mini-browser")) {
-    return <MiniBrowser />;
-  }
 
   // Theme State
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -1991,18 +2002,18 @@ export default function App() {
             <ArrowLeftRight size={14} />
           </button>
           <button
-            className="tool-btn tool-zen"
-            title="4. Zen Browser"
+            className="tool-btn tool-chrome"
+            title="chrome"
             onClick={async () => {
               try {
                 await invoke("open_browser_window");
               } catch (e) {
-                console.error("Failed to open Zen Browser:", e);
-                triggerToast("Failed to open Zen Browser.", "error");
+                console.error("Failed to open chrome:", e);
+                triggerToast("Failed to open chrome.", "error");
               }
             }}
           >
-            <ZenIcon size={14} />
+            <ChromeIcon size={14} />
           </button>
           <button
             className="tool-btn tool-env"

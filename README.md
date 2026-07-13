@@ -93,11 +93,11 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 - **Automatic Package Bootstrapping:** Installs PyTorch, Transformers, Accelerate, FastAPI, and Uvicorn automatically to serve as the ML engine basis.
 - **PyO3 FFI Integration:** Loads heavy Python model pipelines (vLLM, ExLlamaV2, TensorRT-LLM) directly via the Rust `pyo3` Foreign Function Interface without spawning CLI subprocesses ([python_ffi.rs](file:///home/nhatanh/projet/alouette_studio/tauri_app/src-tauri/src/ai_manager/python_ffi.rs)), injecting the virtual environment site-packages path directly into `sys.path`.
 
-### 10. Zen Browser Sandbox Integration
-- **Isolated Web Browser testing:** Launch Zen Browser windows directly from the workspace for secure web previewing and debugging ([browser.rs](file:///home/nhatanh/projet/alouette_studio/tauri_app/src-tauri/src/commands/browser.rs)).
+### 10. Google Chrome Sandbox Integration
+- **Isolated Web Browser testing:** Launch Google Chrome windows directly from the workspace for secure web previewing and debugging ([browser.rs](file:///home/nhatanh/projet/alouette_studio/tauri_app/src-tauri/src/commands/browser.rs)).
 - **Executable Resolution Strategy:** Resolves the browser executable automatically via three search paths:
-  1. *Production Bundle:* Looks under Tauri resource directory resources (`resources/zen_browser/`).
-  2. *Development Bundle:* Looks for a local bundle directory (`tauri_app/zen_bundle/`).
+  1. *Production Bundle:* Looks under Tauri resource directory resources (`resources/chrome/`).
+  2. *Development Bundle:* Looks for a local bundle directory (`chrome/`).
   3. *System Defaults:* Looks in default system installation directories (Windows Programs, Local AppData, etc.).
 - **Workspace Sandboxing:** Integrates browser tasks with AppContainer/Landlock boundaries to prevent local workspace exposure.
 
@@ -275,7 +275,7 @@ alouette_studio/
 │
 └── tauri_app/                         # Tauri v2 desktop application
     ├── .taurignore
-    ├── zen_bundle/                    # Zen Browser portable bundle (gitignored)
+    ├── chrome/                        # Google Chrome portable bundle (gitignored)
     ├── logs/                          # Runtime application logs
     ├── src-tauri/                     # Tauri Rust binary crate
     │   ├── Cargo.toml
