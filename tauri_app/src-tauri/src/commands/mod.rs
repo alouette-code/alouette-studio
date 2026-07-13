@@ -14,6 +14,8 @@ pub mod rig_bridge;
 pub mod sandbox;
 pub mod database;
 pub mod db_mongo;
+pub mod db_kv;
+pub mod db_duckdb;
 pub mod settings;
 pub mod sqlite;
 pub mod terminal;

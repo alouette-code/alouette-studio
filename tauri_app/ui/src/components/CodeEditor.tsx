@@ -148,6 +148,40 @@ function computeUnsavedDiff(
   return changes;
 }
 
+const editorOptions = {
+  fontSize: 12,
+  fontFamily: "'JetBrains Mono', Consolas, 'Courier New', monospace",
+  minimap: { enabled: false },
+  automaticLayout: true,
+  scrollBeyondLastLine: false,
+  cursorBlinking: "smooth" as const,
+  lineNumbers: "on" as const,
+  lineNumbersMinChars: 5,
+  tabSize: 4,
+  insertSpaces: true,
+  wordWrap: "on" as const,
+  renderLineHighlight: "all" as const,
+  glyphMargin: true,
+  quickSuggestions: true,
+  suggestOnTriggerCharacters: true,
+  quickSuggestionsDelay: 100,
+  wordBasedSuggestions: "currentDocument" as const,
+  suggest: {
+    showMethods: true,
+    showFunctions: true,
+    showConstructors: false,
+    showFields: false,
+    showVariables: false,
+    showKeywords: false,
+  },
+  scrollbar: {
+    vertical: "visible" as const,
+    horizontal: "visible" as const,
+    verticalScrollbarSize: 10,
+    horizontalScrollbarSize: 10,
+  },
+};
+
 export default React.memo(function CodeEditor({
   theme = "dark",
   filePath,
@@ -187,6 +221,25 @@ export default React.memo(function CodeEditor({
   const [ragSearchLine, setRagSearchLine] = useState(1);
   const ragSearchEditorRef = useRef<any>(null);
   const ragSearchColumnRef = useRef<number>(1);
+  
+  // ── Memoize onChange prop to avoid changing internal onChange reference ──
+  const onChangePropRef = useRef(onChange);
+  useEffect(() => {
+    onChangePropRef.current = onChange;
+  }, [onChange]);
+
+  const handleEditorChange = useCallback((val: string | undefined) => {
+    const newVal = val || "";
+    latestContentRef.current = newVal;
+    if (rafRef.current === null) {
+      rafRef.current = requestAnimationFrame(() => {
+        rafRef.current = null;
+        const latest = latestContentRef.current;
+        setContent((prev) => (prev === latest ? prev : latest));
+      });
+    }
+    if (onChangePropRef.current) onChangePropRef.current(newVal);
+  }, []);
 
   // ── Git diff decorations from backend (HEAD vs disk) ──
   const { diffLines, isUntracked } = useGitDiff({
@@ -205,7 +258,7 @@ export default React.memo(function CodeEditor({
       } else {
         setUnsavedChanges([]);
       }
-    }, 50); // 50ms debounce for smooth real-time updates
+    }, 1000); // 1000ms debounce to avoid interrupting IME composition
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
@@ -382,6 +435,10 @@ export default React.memo(function CodeEditor({
         setOriginalContent(initialContent);
         setUnsavedChanges([]);
         lastPathRef.current = filePath;
+
+        if (editorRef.current && editorRef.current.getValue() !== initialContent) {
+          editorRef.current.setValue(initialContent);
+        }
 
         if (filePath && editorRef.current) {
           const editor = editorRef.current;
@@ -728,6 +785,28 @@ export default React.memo(function CodeEditor({
     // Lưu cleanup function
     editor.onDidDispose(cleanupListener);
 
+    if (content && editor.getValue() !== content) {
+      editor.setValue(content);
+    }
+
+    // --- HACK ĐỂ CHẶN HOÀN TOÀN BỘ GÕ (IME) THEO YÊU CẦU ---
+    // Trên Linux Tauri, Monaco bị lỗi lặp chữ với IME. Ta chặn luôn bằng cách
+    // blur và focus lại ngay lập tức khi IME bắt đầu kích hoạt (compositionstart).
+    setTimeout(() => {
+      const domNode = editor.getDomNode();
+      if (domNode) {
+        const textArea = domNode.querySelector('textarea');
+        if (textArea) {
+          textArea.addEventListener('compositionstart', (e: Event) => {
+            // Ép huỷ quá trình gõ tiếng Việt của bộ gõ
+            textArea.blur();
+            textArea.focus();
+          });
+        }
+      }
+    }, 500);
+    // -------------------------------------------------------
+
     if (filePath) {
       const model = editor.getModel();
       if (model) {
@@ -1009,58 +1088,10 @@ export default React.memo(function CodeEditor({
             width="100%"
             language={getLanguageFromPath(filePath)}
             theme={theme === "light" ? "light" : "vs-dark"}
-            value={content}
-            onChange={(val) => {
-              const newVal = val || "";
-              // Luôn cập nhật ref (cho save handler)
-              latestContentRef.current = newVal;
-              // Batch setContent bằng requestAnimationFrame — giảm re-render
-              if (rafRef.current === null) {
-                rafRef.current = requestAnimationFrame(() => {
-                  rafRef.current = null;
-                  const latest = latestContentRef.current;
-                  setContent((prev) => (prev === latest ? prev : latest));
-                });
-              }
-              if (onChange) onChange(newVal);
-            }}
+            onChange={handleEditorChange}
             beforeMount={handleBeforeMount}
             onMount={handleEditorDidMount}
-            options={{
-              fontSize: 12,
-              fontFamily:
-                "'JetBrains Mono', Consolas, 'Courier New', monospace",
-              minimap: { enabled: false },
-              automaticLayout: true,
-              scrollBeyondLastLine: false,
-              cursorBlinking: "smooth",
-              lineNumbers: "on",
-              lineNumbersMinChars: 5,
-              tabSize: 4,
-              insertSpaces: true,
-              wordWrap: "on",
-              renderLineHighlight: "all",
-              glyphMargin: true,
-              // ── Suggest / Autocomplete configuration ──
-              quickSuggestions: true,
-              suggestOnTriggerCharacters: true,
-              quickSuggestionsDelay: 100,
-              wordBasedSuggestions: "currentDocument",
-              suggest: {
-                showMethods: true,
-                showFunctions: true,
-                showConstructors: false,
-                showFields: false,
-                showVariables: false,
-                showKeywords: false,
-              },
-              scrollbar: {
-                vertical: "visible",
-                horizontal: "visible",
-                verticalScrollbarSize: 10,
-                horizontalScrollbarSize: 10,
-              },
-            }}
+            options={editorOptions}
           />
           )}
         </div>
