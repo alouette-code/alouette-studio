@@ -80,40 +80,47 @@ impl BrowserControl {
                     overlay.style.left = '0';
                     overlay.style.width = '100vw';
                     overlay.style.height = '100vh';
-                    overlay.style.backgroundColor = 'transparent';
                     overlay.style.zIndex = '2147483647';
                     overlay.style.pointerEvents = 'auto'; // Block user interaction
                     overlay.style.boxSizing = 'border-box';
-                    // Plasma/Smoke border effect
-                    overlay.style.border = '12px solid rgba(255,255,255,0.1)';
-                    overlay.style.boxShadow = 'inset 0 0 50px rgba(255, 0, 128, 0.8), inset 0 0 100px rgba(0, 255, 255, 0.8), inset 0 0 150px rgba(255, 255, 0, 0.6)';
-                    overlay.style.animation = 'alouette-plasma 4s linear infinite';
+                    overlay.style.background = 'transparent';
+                    // Sharp glowing inner border
+                    overlay.style.border = '4px solid rgba(0, 212, 255, 0.8)';
+                    overlay.style.boxShadow = 'inset 0 0 20px rgba(0, 212, 255, 0.5), 0 0 20px rgba(0, 212, 255, 0.5)';
+                    overlay.style.animation = 'alouette-pulse 1.5s infinite alternate';
                     
                     overlay.innerHTML = `
                         <button id="alouette-close-overlay" style="
                             position: absolute; 
                             bottom: 30px; 
                             right: 30px; 
-                            padding: 10px 20px; 
-                            background: rgba(239, 68, 68, 0.7); 
-                            color: white; 
-                            border: 1px solid rgba(255,255,255,0.4); 
+                            padding: 10px 24px; 
+                            background: rgba(15, 23, 42, 0.9); 
+                            color: #fff; 
+                            border: 1px solid rgba(255, 255, 255, 0.2); 
                             border-radius: 30px; 
                             cursor: pointer; 
                             font-size: 14px; 
-                            font-family: sans-serif;
+                            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                             font-weight: bold;
-                            backdrop-filter: blur(5px);
+                            backdrop-filter: blur(10px);
                             pointer-events: auto;
-                            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                            box-shadow: 0 4px 15px rgba(0,0,0,0.5), 0 0 20px rgba(0, 212, 255, 0.4);
                             transition: all 0.2s ease;
-                        " onmouseover="this.style.background='rgba(239, 68, 68, 1)'; this.style.transform='scale(1.05)';" onmouseout="this.style.background='rgba(239, 68, 68, 0.7)'; this.style.transform='scale(1)';">
-                            ✨ Dừng AI (Click)
+                            text-transform: uppercase;
+                            letter-spacing: 1px;
+                        " onmouseover="this.style.background='rgba(30, 41, 59, 1)'; this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 15px rgba(0,0,0,0.5), 0 0 30px rgba(0, 212, 255, 0.7)';" onmouseout="this.style.background='rgba(15, 23, 42, 0.9)'; this.style.transform='scale(1)'; this.style.boxShadow='0 4px 15px rgba(0,0,0,0.5), 0 0 20px rgba(0, 212, 255, 0.4)';">
+                            ✨ Lấy lại quyền (Đóng)
                         </button>
                     `;
                     
                     let style = document.createElement('style');
-                    style.innerHTML = '@keyframes alouette-plasma { 0% { filter: hue-rotate(0deg); } 100% { filter: hue-rotate(360deg); } }';
+                    style.innerHTML = `
+                        @keyframes alouette-pulse {
+                            0% { box-shadow: inset 0 0 10px rgba(0, 212, 255, 0.3), 0 0 10px rgba(0, 212, 255, 0.3); border-color: rgba(0, 212, 255, 0.4); }
+                            100% { box-shadow: inset 0 0 40px rgba(0, 212, 255, 0.9), 0 0 30px rgba(0, 212, 255, 0.8); border-color: rgba(0, 212, 255, 1); }
+                        }
+                    `;
                     document.head.appendChild(style);
                     document.body.appendChild(overlay);
 
