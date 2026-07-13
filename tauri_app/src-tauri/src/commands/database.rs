@@ -23,6 +23,17 @@ pub struct DbConnectionResult {
     pub message: String,
 }
 
+#[derive(serde::Deserialize, serde::Serialize, Clone, Debug)]
+pub struct DbAuthOptions {
+    pub uri: String,
+    pub auth_type: Option<String>,
+    pub username: Option<String>,
+    pub password: Option<String>,
+    pub ssl_cert: Option<String>,
+    pub ssl_key: Option<String>,
+    pub auth_payload: Option<String>,
+}
+
 async fn get_or_create_pool(uri: &str, state: &State<'_, DbState>) -> Result<AnyPool, String> {
     let pools = state.pools.read().await;
     if let Some(pool) = pools.get(uri) {
@@ -47,7 +58,21 @@ async fn get_or_create_pool(uri: &str, state: &State<'_, DbState>) -> Result<Any
 }
 
 #[tauri::command]
-pub async fn connect_to_db(uri: String, state: State<'_, DbState>) -> Result<DbConnectionResult, String> {
+pub async fn connect_to_db(options: DbAuthOptions, state: State<'_, DbState>) -> Result<DbConnectionResult, String> {
+    let uri = options.uri.clone();
+    if uri.starts_with("mongodb://") || uri.starts_with("mongodb+srv://") {
+        return match crate::commands::db_mongo::connect_mongo(options).await {
+            Ok(_) => Ok(DbConnectionResult {
+                success: true,
+                message: "Connected to MongoDB successfully".to_string(),
+            }),
+            Err(e) => Ok(DbConnectionResult {
+                success: false,
+                message: e,
+            }),
+        };
+    }
+
     match get_or_create_pool(&uri, &state).await {
         Ok(_) => Ok(DbConnectionResult {
             success: true,
@@ -62,6 +87,7 @@ pub async fn connect_to_db(uri: String, state: State<'_, DbState>) -> Result<DbC
 
 use sqlx::{Row, Column, TypeInfo};
 use crate::commands::sqlite::{SqliteTableData, SqliteColumn, SqliteQueryResult};
+use tokio::time::{timeout, Duration};
 
 fn decode_any_value(row: &sqlx::any::AnyRow, i: usize) -> serde_json::Value {
     let col = row.column(i);
@@ -88,10 +114,15 @@ fn decode_any_value(row: &sqlx::any::AnyRow, i: usize) -> serde_json::Value {
 }
 
 #[tauri::command]
-pub async fn get_db_tables(uri: String, state: State<'_, DbState>) -> Result<Vec<String>, String> {
+pub async fn get_db_tables(options: DbAuthOptions, state: State<'_, DbState>) -> Result<Vec<String>, String> {
+    let uri = options.uri.clone();
     if uri.starts_with("sqlite://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::get_sqlite_tables(path.to_string()).await;
+    }
+    
+    if uri.starts_with("mongodb://") || uri.starts_with("mongodb+srv://") {
+        return crate::commands::db_mongo::get_mongo_tables(options).await;
     }
 
     let pool = get_or_create_pool(&uri, &state).await?;
@@ -104,10 +135,12 @@ pub async fn get_db_tables(uri: String, state: State<'_, DbState>) -> Result<Vec
         "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
     };
 
-    let rows = sqlx::query(query_str)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    let query_future = sqlx::query(query_str).fetch_all(&pool);
+    
+    let rows = match timeout(Duration::from_secs(30), query_future).await {
+        Ok(res) => res.map_err(|e| e.to_string())?,
+        Err(_) => return Err("Query Timeout: Tác vụ vượt quá 30 giây.".to_string()),
+    };
 
     let mut tables = Vec::new();
     for row in rows {
@@ -119,19 +152,27 @@ pub async fn get_db_tables(uri: String, state: State<'_, DbState>) -> Result<Vec
 }
 
 #[tauri::command]
-pub async fn get_db_table_data(uri: String, table: String, limit: u32, offset: u32, state: State<'_, DbState>) -> Result<SqliteTableData, String> {
+pub async fn get_db_table_data(options: DbAuthOptions, table: String, limit: u32, offset: u32, state: State<'_, DbState>) -> Result<SqliteTableData, String> {
+    let uri = options.uri.clone();
     if uri.starts_with("sqlite://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::get_sqlite_table_data(path.to_string(), table, limit, offset).await;
+    }
+    
+    if uri.starts_with("mongodb://") || uri.starts_with("mongodb+srv://") {
+        return crate::commands::db_mongo::get_mongo_table_data(options, &table, limit, offset).await;
     }
 
     let pool = get_or_create_pool(&uri, &state).await?;
 
     let query_str = format!("SELECT * FROM \"{}\" LIMIT {} OFFSET {}", table.replace("\"", "\"\""), limit, offset);
-    let rows = sqlx::query(&query_str)
-        .fetch_all(&pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    
+    let query_future = sqlx::query(&query_str).fetch_all(&pool);
+    
+    let rows = match timeout(Duration::from_secs(30), query_future).await {
+        Ok(res) => res.map_err(|e| e.to_string())?,
+        Err(_) => return Err("Query Timeout: Lấy dữ liệu bảng vượt quá 30 giây.".to_string()),
+    };
         
     let mut columns = Vec::new();
     let mut data = Vec::new();
@@ -162,15 +203,26 @@ pub async fn get_db_table_data(uri: String, table: String, limit: u32, offset: u
 }
 
 #[tauri::command]
-pub async fn run_db_query(uri: String, query: String, state: State<'_, DbState>) -> Result<SqliteQueryResult, String> {
+pub async fn run_db_query(options: DbAuthOptions, query: String, state: State<'_, DbState>) -> Result<SqliteQueryResult, String> {
+    let uri = options.uri.clone();
     if uri.starts_with("sqlite://") {
         let path = uri.trim_start_matches("sqlite://");
         return crate::commands::sqlite::run_sqlite_query(path.to_string(), query).await;
     }
 
+    if uri.starts_with("mongodb://") || uri.starts_with("mongodb+srv://") {
+        return crate::commands::db_mongo::run_mongo_query(options, &query).await;
+    }
+
     let pool = get_or_create_pool(&uri, &state).await?;
 
-    match sqlx::query(&query).fetch_all(&pool).await {
+    let query_future = sqlx::query(&query).fetch_all(&pool);
+    let query_result = match timeout(Duration::from_secs(45), query_future).await {
+        Ok(res) => res,
+        Err(_) => return Err("Query Timeout: Truy vấn phức tạp vượt quá 45 giây. Hệ thống tự động hủy để chống treo.".to_string()),
+    };
+
+    match query_result {
         Ok(rows) => {
             let mut columns = Vec::new();
             let mut data = Vec::new();

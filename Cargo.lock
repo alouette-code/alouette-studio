@@ -91,6 +91,7 @@ checksum = "683d7910e743518b0e34f1186f92494becacb047c7b6bf616c96772180fef923"
 name = "alouette-studio"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "axum",
  "base64 0.22.1",
@@ -125,6 +126,7 @@ dependencies = [
  "sqlx",
  "tauri",
  "tauri-build",
+ "thiserror 1.0.69",
  "tiberius",
  "tokio",
  "tokio-util",
@@ -1531,6 +1533,7 @@ dependencies = [
 name = "core_engine"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "async-trait",
  "base64 0.22.1",
  "bollard",
@@ -1552,6 +1555,8 @@ dependencies = [
  "lru",
  "parking_lot",
  "portable-pty",
+ "r2d2",
+ "r2d2_sqlite",
  "rand 0.8.6",
  "regex",
  "reqwest 0.13.3",
@@ -1564,6 +1569,7 @@ dependencies = [
  "sysinfo",
  "tar",
  "tempfile",
+ "thiserror 1.0.69",
  "tokenizers",
  "tokio",
  "toml 0.9.12+spec-1.1.0",

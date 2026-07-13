@@ -17,7 +17,7 @@ pub async fn get_language_runtimes(
     let pm = state.process_manager.lock().await;
     let db = &pm.db_manager;
 
-    let mut runtimes = db.load_all_language_runtimes()?;
+    let mut runtimes = db.load_all_language_runtimes().map_err(|e| e.to_string())?;
     let existing_ids: HashSet<String> = runtimes.iter().map(|r| r.id.to_lowercase()).collect();
 
     // 1. Scan Proto installed tools (file system)
@@ -82,7 +82,7 @@ pub async fn save_language_runtime(
 ) -> Result<(), String> {
     let pm = state.process_manager.lock().await;
     let db = &pm.db_manager;
-    db.save_language_runtime(&runtime)?;
+    db.save_language_runtime(&runtime).map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -93,7 +93,7 @@ pub async fn delete_language_runtime(
 ) -> Result<(), String> {
     let pm = state.process_manager.lock().await;
     let db = &pm.db_manager;
-    db.delete_language_runtime(&runtime_id)?;
+    db.delete_language_runtime(&runtime_id).map_err(|e| e.to_string())?;
     Ok(())
 }
 

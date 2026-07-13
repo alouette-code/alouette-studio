@@ -57,7 +57,7 @@ pub async fn get_project_logs(
     let db = pm.db_manager.clone();
 
     let logs = tokio::task::spawn_blocking(move || {
-        db.get_logs(&project_id, limit_val)
+        db.get_logs(&project_id, limit_val).map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("Task join error: {}", e))??;

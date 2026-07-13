@@ -21,6 +21,10 @@ fn main() {
     // Resolve paths relative to the project root (parent of src-tauri)
     // to keep app_data out of Tauri's file watcher scope.
     let log_dir = project_root().join("logs");
+    
+    // Thiết lập Panic Hook chặn crash toàn ứng dụng
+    crate::system_manager::setup_panic_hook(log_dir.clone());
+    
     let pm = ProcessManager::new(&log_dir);
 
     let process_manager = Arc::new(Mutex::new(pm));

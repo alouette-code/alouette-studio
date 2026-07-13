@@ -8,31 +8,30 @@ use crate::process::ProcessLog;
 /// optimized for multi-threaded access using WAL journal mode.
 #[derive(Debug, Clone)]
 pub struct DbManager {
-    db_path: PathBuf,
+    pool: r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
 }
 
 impl DbManager {
     /// Instantiates a new database manager targeting the specified path.
-    pub fn new<P: AsRef<Path>>(db_path: P) -> Self {
-        DbManager {
-            db_path: db_path.as_ref().to_path_buf(),
-        }
+    pub fn new<P: AsRef<Path>>(db_path: P) -> crate::error::Result<Self> {
+        let manager = r2d2_sqlite::SqliteConnectionManager::file(db_path.as_ref());
+        let pool = r2d2::Pool::new(manager).map_err(|e| crate::error::CoreError::Internal(e.to_string()))?;
+        Ok(DbManager { pool })
     }
 
     /// Initializes tables, sets WAL mode for concurrent execution safety,
     /// and establishes standard indices.
-    pub fn init(&self) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn init(&self) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         // Enable Write-Ahead Logging (WAL) for safe concurrent reads/writes
         let _: String = conn
             .query_row("PRAGMA journal_mode=WAL;", [], |row| row.get(0))
-            .map_err(|e| format!("Failed to set WAL mode: {}", e))?;
+            ?;
 
         // Enable foreign key cascading constraints
         conn.execute("PRAGMA foreign_keys = ON;", [])
-            .map_err(|e| format!("Failed to enable foreign keys: {}", e))?;
+            ?;
 
         // 1. Create Server Configurations Table
         conn.execute(
@@ -58,7 +57,7 @@ impl DbManager {
             );",
             [],
         )
-        .map_err(|e| format!("Failed to create projects table: {}", e))?;
+        ?;
 
         // Dynamic column migration for backward compatibility
         let _ = conn.execute("ALTER TABLE projects ADD COLUMN max_log_lines INTEGER;", []);
@@ -75,14 +74,14 @@ impl DbManager {
             );",
             [],
         )
-        .map_err(|e| format!("Failed to create logs table: {}", e))?;
+        ?;
 
         // Create composite index for ultra-fast historical log queries
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_logs_project_timestamp ON logs(project_id, timestamp);",
             [],
         )
-        .map_err(|e| format!("Failed to create logs index: {}", e))?;
+        ?;
 
         // 3. Create Sandbox Configurations Table
         conn.execute(
@@ -92,7 +91,7 @@ impl DbManager {
             );",
             [],
         )
-        .map_err(|e| format!("Failed to create sandbox_configs table: {}", e))?;
+        ?;
 
         // 4. Create Language Runtimes Table
         conn.execute(
@@ -105,32 +104,31 @@ impl DbManager {
             );",
             [],
         )
-        .map_err(|e| format!("Failed to create language_runtimes table: {}", e))?;
+        ?;
 
         Ok(())
     }
 
     /// Persists or updates a server/project configuration in SQLite.
-    pub fn save_project(&self, config: &ProjectConfig) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn save_project(&self, config: &ProjectConfig) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let args_json = serde_json::to_string(&config.args)
-            .map_err(|e| format!("Failed to serialize args: {}", e))?;
+            ?;
 
         let setup_args_json = config
             .setup_args
             .as_ref()
             .map(|sa| serde_json::to_string(sa))
             .transpose()
-            .map_err(|e| format!("Failed to serialize setup_args: {}", e))?;
+            ?;
 
         let env_json = config
             .env
             .as_ref()
             .map(|env| serde_json::to_string(env))
             .transpose()
-            .map_err(|e| format!("Failed to serialize env: {}", e))?;
+            ?;
 
         let auto_restart_int = config.auto_restart.map(|b| if b { 1 } else { 0 });
         let enable_tunnel_int = config.enable_tunnel.map(|b| if b { 1 } else { 0 });
@@ -162,29 +160,27 @@ impl DbManager {
                 config.max_log_lines
             ],
         )
-        .map_err(|e| format!("Failed to save project config: {}", e))?;
+        ?;
 
         Ok(())
     }
 
     /// Deregisters a server/project configuration, cascading deletion to all related logs.
-    pub fn delete_project(&self, project_id: &str) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn delete_project(&self, project_id: &str) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         conn.execute("PRAGMA foreign_keys = ON;", [])
-            .map_err(|e| format!("Failed to enforce foreign keys: {}", e))?;
+            ?;
 
         conn.execute("DELETE FROM projects WHERE id = ?1;", params![project_id])
-            .map_err(|e| format!("Failed to delete project: {}", e))?;
+            ?;
 
         Ok(())
     }
 
     /// Loads all saved server/project configurations from SQLite.
-    pub fn load_projects(&self) -> Result<Vec<ProjectConfig>, String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn load_projects(&self) -> crate::error::Result<Vec<ProjectConfig>> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare(
@@ -193,7 +189,7 @@ impl DbManager {
                         source, terminal_mode, toolchain, toolchain_version, enable_tunnel, max_log_lines
                  FROM projects;",
             )
-            .map_err(|e| format!("Failed to prepare select query: {}", e))?;
+            ?;
 
         let project_iter = stmt
             .query_map([], |row| {
@@ -271,11 +267,11 @@ impl DbManager {
                     max_log_lines,
                 })
             })
-            .map_err(|e| format!("Failed to query projects: {}", e))?;
+            ?;
 
         let mut projects = Vec::new();
         for proj in project_iter {
-            projects.push(proj.map_err(|e| format!("Failed to read project row: {}", e))?);
+            projects.push(proj?);
         }
 
         Ok(projects)
@@ -288,34 +284,32 @@ impl DbManager {
         stream: &str,
         text: &str,
         timestamp: u64,
-    ) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    ) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         conn.execute(
             "INSERT INTO logs (project_id, stream, text, timestamp) VALUES (?1, ?2, ?3, ?4);",
             params![project_id, stream, text, timestamp as i64],
         )
-        .map_err(|e| format!("Failed to insert log: {}", e))?;
+        ?;
 
         Ok(())
     }
 
     /// Fetches the configured max log lines retention limit for a project.
-    pub fn get_project_max_log_lines(&self, project_id: &str) -> Result<Option<u32>, String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn get_project_max_log_lines(&self, project_id: &str) -> crate::error::Result<Option<u32>> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare("SELECT max_log_lines FROM projects WHERE id = ?1;")
-            .map_err(|e| format!("Failed to prepare select query: {}", e))?;
+            ?;
 
         let mut rows = stmt
             .query(params![project_id])
-            .map_err(|e| format!("Failed to query project max_log_lines: {}", e))?;
+            ?;
 
-        if let Some(row) = rows.next().map_err(|e| format!("Failed to read next row: {}", e))? {
-            let max_lines: Option<u32> = row.get(0).map_err(|e| format!("Failed to convert field: {}", e))?;
+        if let Some(row) = rows.next()? {
+            let max_lines: Option<u32> = row.get(0)?;
             Ok(max_lines)
         } else {
             Ok(None)
@@ -323,9 +317,8 @@ impl DbManager {
     }
 
     /// Prunes database logs, preserving only the most recent N lines for a specific project.
-    pub fn prune_logs(&self, project_id: &str, keep_limit: usize) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn prune_logs(&self, project_id: &str, keep_limit: usize) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         conn.execute(
             "DELETE FROM logs
@@ -338,7 +331,7 @@ impl DbManager {
                );",
             params![project_id, keep_limit as i64],
         )
-        .map_err(|e| format!("Failed to prune logs: {}", e))?;
+        ?;
 
         Ok(())
     }
@@ -348,39 +341,37 @@ impl DbManager {
     // ═══════════════════════════════════════════════════════════════
 
     /// Save a sandbox configuration for a project.
-    pub fn save_sandbox_config(&self, config: &SandboxConfig) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn save_sandbox_config(&self, config: &SandboxConfig) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let config_json = serde_json::to_string(config)
-            .map_err(|e| format!("Failed to serialize sandbox config: {}", e))?;
+            ?;
 
         conn.execute(
             "INSERT OR REPLACE INTO sandbox_configs (project_id, config) VALUES (?1, ?2);",
             params![config.project_id, config_json],
         )
-        .map_err(|e| format!("Failed to save sandbox config: {}", e))?;
+        ?;
 
         Ok(())
     }
 
     /// Load a sandbox config for a specific project.
-    pub fn load_sandbox_config(&self, project_id: &str) -> Result<Option<SandboxConfig>, String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn load_sandbox_config(&self, project_id: &str) -> crate::error::Result<Option<SandboxConfig>> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare("SELECT config FROM sandbox_configs WHERE project_id = ?1;")
-            .map_err(|e| format!("Failed to prepare select: {}", e))?;
+            ?;
 
         let mut rows = stmt
             .query(params![project_id])
-            .map_err(|e| format!("Failed to query sandbox config: {}", e))?;
+            ?;
 
-        if let Some(row) = rows.next().map_err(|e| format!("Failed to read row: {}", e))? {
-            let config_json: String = row.get(0).map_err(|e| format!("Failed to get config: {}", e))?;
+        if let Some(row) = rows.next()? {
+            let config_json: String = row.get(0)?;
             let config: SandboxConfig = serde_json::from_str(&config_json)
-                .map_err(|e| format!("Failed to parse sandbox config: {}", e))?;
+                ?;
             Ok(Some(config))
         } else {
             Ok(None)
@@ -388,26 +379,25 @@ impl DbManager {
     }
 
     /// Load all sandbox configs.
-    pub fn load_all_sandbox_configs(&self) -> Result<Vec<SandboxConfig>, String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn load_all_sandbox_configs(&self) -> crate::error::Result<Vec<SandboxConfig>> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare("SELECT config FROM sandbox_configs;")
-            .map_err(|e| format!("Failed to prepare select all: {}", e))?;
+            ?;
 
         let rows = stmt
             .query_map([], |row| {
                 let config_json: String = row.get(0)?;
                 Ok(config_json)
             })
-            .map_err(|e| format!("Failed to query all sandbox configs: {}", e))?;
+            ?;
 
         let mut configs = Vec::new();
         for row in rows {
-            let json = row.map_err(|e| format!("Failed to read row: {}", e))?;
+            let json = row?;
             let config: SandboxConfig = serde_json::from_str(&json)
-                .map_err(|e| format!("Failed to parse sandbox config: {}", e))?;
+                ?;
             configs.push(config);
         }
 
@@ -415,15 +405,14 @@ impl DbManager {
     }
 
     /// Delete a sandbox configuration for a project.
-    pub fn delete_sandbox_config(&self, project_id: &str) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn delete_sandbox_config(&self, project_id: &str) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         conn.execute(
             "DELETE FROM sandbox_configs WHERE project_id = ?1;",
             params![project_id],
         )
-        .map_err(|e| format!("Failed to delete sandbox config: {}", e))?;
+        ?;
 
         Ok(())
     }
@@ -432,31 +421,29 @@ impl DbManager {
     // Language Runtime CRUD
     // ═══════════════════════════════════════════════════════════════
 
-    pub fn save_language_runtime(&self, runtime: &LanguageRuntime) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn save_language_runtime(&self, runtime: &LanguageRuntime) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let versions_json = serde_json::to_string(&runtime.versions)
-            .map_err(|e| format!("Failed to serialize versions: {}", e))?;
+            ?;
         let tools_json = serde_json::to_string(&runtime.tools)
-            .map_err(|e| format!("Failed to serialize tools: {}", e))?;
+            ?;
 
         conn.execute(
             "INSERT OR REPLACE INTO language_runtimes (id, name, install_command, versions, tools) VALUES (?1, ?2, ?3, ?4, ?5);",
             rusqlite::params![runtime.id, runtime.name, runtime.install_command, versions_json, tools_json],
         )
-        .map_err(|e| format!("Failed to save language runtime: {}", e))?;
+        ?;
 
         Ok(())
     }
 
-    pub fn load_all_language_runtimes(&self) -> Result<Vec<LanguageRuntime>, String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn load_all_language_runtimes(&self) -> crate::error::Result<Vec<LanguageRuntime>> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare("SELECT id, name, install_command, versions, tools FROM language_runtimes;")
-            .map_err(|e| format!("Failed to prepare select: {}", e))?;
+            ?;
 
         let rows = stmt
             .query_map([], |row| {
@@ -467,36 +454,34 @@ impl DbManager {
                 let tools_json: String = row.get(4)?;
                 Ok((id, name, install_command, versions_json, tools_json))
             })
-            .map_err(|e| format!("Failed to query: {}", e))?;
+            ?;
 
         let mut runtimes = Vec::new();
         for row in rows {
             let (id, name, install_command, versions_json, tools_json) = row
-                .map_err(|e| format!("Failed to read row: {}", e))?;
+                ?;
             let versions: Vec<String> = serde_json::from_str(&versions_json)
-                .map_err(|e| format!("Failed to parse versions: {}", e))?;
+                ?;
             let tools: Vec<LanguageTool> = serde_json::from_str(&tools_json)
-                .map_err(|e| format!("Failed to parse tools: {}", e))?;
+                ?;
             runtimes.push(LanguageRuntime { id, name, install_command, versions, tools });
         }
         Ok(runtimes)
     }
 
-    pub fn delete_language_runtime(&self, runtime_id: &str) -> Result<(), String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn delete_language_runtime(&self, runtime_id: &str) -> crate::error::Result<()> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
         conn.execute(
             "DELETE FROM language_runtimes WHERE id = ?1;",
             rusqlite::params![runtime_id],
         )
-        .map_err(|e| format!("Failed to delete language runtime: {}", e))?;
+        ?;
         Ok(())
     }
 
     /// Retrieves the last N logs chronologically for a project.
-    pub fn get_logs(&self, project_id: &str, limit: usize) -> Result<Vec<ProcessLog>, String> {
-        let conn = Connection::open(&self.db_path)
-            .map_err(|e| format!("Failed to open database: {}", e))?;
+    pub fn get_logs(&self, project_id: &str, limit: usize) -> crate::error::Result<Vec<ProcessLog>> {
+        let conn = self.pool.get().map_err(|e| crate::error::CoreError::Internal(format!("Failed to get DB connection: {}", e)))?;
 
         let mut stmt = conn
             .prepare(
@@ -506,7 +491,7 @@ impl DbManager {
                  ORDER BY timestamp DESC, id DESC
                  LIMIT ?2;",
             )
-            .map_err(|e| format!("Failed to prepare logs query: {}", e))?;
+            ?;
 
         let log_iter = stmt
             .query_map(params![project_id, limit as i64], |row| {
@@ -522,11 +507,11 @@ impl DbManager {
                     timestamp: timestamp_i64 as u64,
                 })
             })
-            .map_err(|e| format!("Failed to query logs: {}", e))?;
+            ?;
 
         let mut logs = Vec::new();
         for log in log_iter {
-            logs.push(log.map_err(|e| format!("Failed to read log: {}", e))?);
+            logs.push(log?);
         }
 
         // Since we queried with DESC to get latest, reverse it to return chronologically

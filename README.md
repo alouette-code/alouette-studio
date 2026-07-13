@@ -121,9 +121,13 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 - **Watchdog Enforcement:** Tracks real-time CPU/RAM usage per process tree and displays live canvas-based performance charts ([ProjectResources.tsx](file:///home/nhatanh/projet/alouette_studio/tauri_app/ui/src/components/ProjectResources.tsx)).
 - **Limit Throttling:** Configures CPU % and RAM MB limits at project or global level. The watchdog automatically terminates processes exceeding limits for more than 30 seconds.
 
-### 15. SQLite Browser & Caching
-- **R2D2 Connection Pooling:** High-performance concurrent SQLite operations using `r2d2` pool with WAL (Write-Ahead Logging) mode ([db.rs](file:///home/nhatanh/projet/alouette_studio/core_engine/src/db.rs)).
-- **Database Browser:** View all tables, inspect schemas, add columns, insert/delete rows, and edit individual cells directly ([SqliteEditor.tsx](file:///home/nhatanh/projet/alouette_studio/tauri_app/ui/src/components/SqliteEditor.tsx)).
+### 15. Universal Database Browser & Multi-Auth Security
+- **Multi-Database Architecture:** Extensible driver ecosystem supporting SQLite, PostgreSQL, MySQL, MongoDB, Redis, SQL Server, Firebase, and Supabase.
+- **Dual-Mode Connection Interface:** A professional dual-tab setup offering a "Standard Mode" for simple local connections (Host/Port/User) and an "Advanced Mode" for Cloud database URIs (e.g., MongoDB Atlas, AWS RDS).
+- **Multi-Auth & X.509 Certificates:** Supports dynamic authentication passing (Basic, X.509) wrapped in a secure `DbAuthOptions` struct, integrating seamlessly with `rustls` for encrypted TLS connections.
+- **Robust Connection Pooling:** High-performance concurrent operations using `r2d2` pool with WAL (Write-Ahead Logging) mode for relational SQL databases ([db.rs](file:///home/nhatanh/projet/alouette_studio/core_engine/src/db.rs)).
+- **Database Explorer:** View all tables, inspect schemas, add columns, insert/delete rows, and edit individual cells directly ([SqliteEditor.tsx](file:///home/nhatanh/projet/alouette_studio/tauri_app/ui/src/components/SqliteEditor.tsx)).
+- **Fail-Safe Stability:** Built-in Panic Handlers, Circuit Breakers, automated query timeouts, and Watchdog integration to ensure the core engine never crashes due to unstable database drivers.
 - **Log Pruning:** Automatic system log truncation, keeping a clean history of the last N lines per project.
 
 ### 16. Cloudflared Tunnel Integration

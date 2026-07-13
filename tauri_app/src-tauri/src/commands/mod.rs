@@ -13,6 +13,7 @@ pub mod process;
 pub mod rig_bridge;
 pub mod sandbox;
 pub mod database;
+pub mod db_mongo;
 pub mod settings;
 pub mod sqlite;
 pub mod terminal;

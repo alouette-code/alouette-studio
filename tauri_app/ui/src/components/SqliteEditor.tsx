@@ -88,7 +88,7 @@ export default function SqliteEditor({
     setError(null);
     try {
       const res = await invoke<string[]>("get_db_tables", {
-        uri: filePath,
+        options: { uri: filePath, auth_type: 'basic' },
       });
       setTables(res);
       if (res.length > 0) {
@@ -114,7 +114,7 @@ export default function SqliteEditor({
     setError(null);
     try {
       const res = await invoke<SqliteTableData>("get_db_table_data", {
-        uri: filePath,
+        options: { uri: filePath, auth_type: 'basic' },
         table: tableName,
         limit: limit,
         offset: offset,
@@ -306,7 +306,7 @@ export default function SqliteEditor({
     triggerStatus("saving", "Running query...");
     try {
       const res = await invoke<any>("run_db_query", {
-        uri: filePath,
+        options: { uri: filePath, auth_type: 'basic' },
         query: rawQuery,
       });
       setQueryResult(res);
