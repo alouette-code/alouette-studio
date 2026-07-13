@@ -17,6 +17,8 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import Editor from "@monaco-editor/react";
+import "./SqliteEditor.css";
 
 interface SqliteColumn {
   name: string;
@@ -437,24 +439,23 @@ export default function SqliteEditor({
                     Run Query
                   </button>
                 </div>
-                <textarea
-                  value={rawQuery}
-                  onChange={e => setRawQuery(e.target.value)}
-                  placeholder="SELECT * FROM table_name WHERE id = 1; \nINSERT INTO table_name (col) VALUES ('val');"
-                  style={{
-                    flex: 1,
-                    width: '100%',
-                    backgroundColor: 'var(--bg-primary)',
-                    color: 'var(--text-primary)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '4px',
-                    padding: '12px',
-                    fontFamily: 'monospace',
-                    fontSize: '13px',
-                    resize: 'none',
-                    outline: 'none'
-                  }}
-                />
+                <div style={{ flex: 1, border: '1px solid var(--border-primary)', borderRadius: '4px', overflow: 'hidden', paddingTop: '4px' }}>
+                  <Editor
+                    height="100%"
+                    language="sql"
+                    theme="vs-dark"
+                    value={rawQuery}
+                    onChange={(value) => setRawQuery(value || "")}
+                    options={{
+                      minimap: { enabled: false },
+                      fontSize: 14,
+                      fontFamily: 'Ubuntu Mono, monospace',
+                      padding: { top: 8, bottom: 8 },
+                      scrollBeyondLastLine: false,
+                      wordWrap: 'on',
+                    }}
+                  />
+                </div>
               </div>
 
               <div className="query-results-container" style={{ flex: '1', display: 'flex', flexDirection: 'column', gap: '8px', overflow: 'hidden' }}>
@@ -470,14 +471,14 @@ export default function SqliteEditor({
                       Run a query to see results here.
                     </div>
                   ) : !queryResult.success ? (
-                    <div style={{ padding: '16px', color: 'var(--text-danger)' }}>
-                      <AlertCircle size={16} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
-                      {queryResult.error}
+                    <div className="query-log query-error">
+                      <AlertCircle size={16} className="log-icon" style={{ marginRight: '8px', flexShrink: 0 }} />
+                      <span>{queryResult.error}</span>
                     </div>
                   ) : queryResult.rows_affected !== null ? (
-                    <div style={{ padding: '16px', color: 'var(--text-success)' }}>
-                      <Check size={16} style={{ verticalAlign: 'middle', marginRight: '8px' }} />
-                      Query executed successfully. {queryResult.rows_affected} row(s) affected.
+                    <div className="query-log query-success">
+                      <Check size={16} className="log-icon" style={{ marginRight: '8px', flexShrink: 0 }} />
+                      <span>Query executed successfully. {queryResult.rows_affected} row(s) affected.</span>
                     </div>
                   ) : queryResult.columns && queryResult.rows ? (
                     <div className="table-viewport" style={{ height: '100%' }}>
@@ -740,8 +741,8 @@ export default function SqliteEditor({
                 </div>
                 
                 {/* Pagination Toolbar */}
-                <div className="flex items-center justify-between p-2 border-t border-[#333] bg-[#1a1a1a] text-xs text-gray-400">
-                  <div className="flex items-center gap-2">
+                <div className="sqlite-pagination">
+                  <div className="pagination-group">
                     <span>Rows per page:</span>
                     <select 
                       value={limit} 
@@ -749,7 +750,7 @@ export default function SqliteEditor({
                         setLimit(Number(e.target.value));
                         setOffset(0);
                       }}
-                      className="bg-[#222] border border-[#333] rounded px-2 py-1 outline-none focus:border-blue-500"
+                      className="pagination-select"
                     >
                       <option value="50">50</option>
                       <option value="100">100</option>
@@ -757,20 +758,20 @@ export default function SqliteEditor({
                     </select>
                   </div>
                   
-                  <div className="flex items-center gap-4">
+                  <div className="pagination-group gap-4">
                     <span>Showing {offset + 1} - {offset + (data?.rows.length || 0)}</span>
-                    <div className="flex items-center gap-1">
+                    <div className="pagination-group">
                       <button 
                         onClick={() => setOffset(Math.max(0, offset - limit))}
                         disabled={offset === 0}
-                        className="p-1 hover:bg-[#333] rounded disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                        className="pagination-btn"
                       >
                         <ChevronLeft size={16} />
                       </button>
                       <button 
                         onClick={() => setOffset(offset + limit)}
                         disabled={!data || data.rows.length < limit}
-                        className="p-1 hover:bg-[#333] rounded disabled:opacity-50 disabled:hover:bg-transparent transition-colors"
+                        className="pagination-btn"
                       >
                         <ChevronRight size={16} />
                       </button>
