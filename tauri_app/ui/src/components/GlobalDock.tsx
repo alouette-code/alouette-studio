@@ -28,8 +28,9 @@ interface GlobalDockProps {
   onOpenDocker?: () => void;
   onOpenExtensions?: () => void;
   onOpenExplorer?: () => void;
+  onOpenAuth?: () => void;
 }
-export default function GlobalDock({ activeMode = "explorer", onOpenVmManager, onOpenMemoryInspector, onOpenDocker, onOpenExtensions, onOpenExplorer }: GlobalDockProps) {
+export default function GlobalDock({ activeMode = "explorer", onOpenVmManager, onOpenMemoryInspector, onOpenDocker, onOpenExtensions, onOpenExplorer, onOpenAuth }: GlobalDockProps) {
   return (
     <div className="global-dock">
       <div className="dock-top">
@@ -58,7 +59,7 @@ export default function GlobalDock({ activeMode = "explorer", onOpenVmManager, o
         </button>
       </div>
       <div className="dock-bottom">
-        <button className="dock-btn" title="User Profile">
+        <button className="dock-btn" title="User Profile" onClick={onOpenAuth}>
           <UserRoundKey size={20} />
         </button>
       </div>
