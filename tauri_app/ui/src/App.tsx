@@ -31,6 +31,9 @@ import TerminalPanel from "./components/TerminalPanel";
 import ProcessManager from "./components/ProcessManager";
 import AdminPanel from "./components/AdminPanel";
 import FileExplorer from "./components/FileExplorer";
+import ExtensionPanel from "./components/ExtensionPanel";
+import ExtensionDetailsTab from "./components/ExtensionDetailsTab";
+import PublishExtensionTab from "./components/PublishExtensionTab";
 import SqliteEditor from "./components/SqliteEditor";
 import DatabaseConnectionTab from "./components/DatabaseConnectionTab";
 import PingZero from "./components/PingZero";
@@ -290,6 +293,7 @@ export default function App() {
 
   // Layout toggle states
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
+  const [leftPanelMode, setLeftPanelMode] = useState<"explorer" | "extensions">("explorer");
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true);
 
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
@@ -1256,6 +1260,9 @@ export default function App() {
 
       <div className="middle-content-wrapper" style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         <GlobalDock 
+          activeMode={leftPanelMode}
+          onOpenExplorer={() => setLeftPanelMode("explorer")}
+          onOpenExtensions={() => setLeftPanelMode("extensions")}
           onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")}
           onOpenVmManager={() => handleFileAction("open-vm-window")}
           onOpenDocker={() => handleFileAction("open-docker-window")}
@@ -1336,15 +1343,19 @@ export default function App() {
             />
           </div>
 
-          {/* Zone 3: Project File Explorer */}
+          {/* Zone 3: Project File Explorer or Extensions */}
           <div
             className="zone zone-file-explorer"
             style={{ flex: 1, overflow: "hidden" }}
           >
-            <FileExplorer
-              activeCwd={activeProject?.cwd}
-              onFileSelect={handleFileOpenCustom}
-            />
+            {leftPanelMode === "explorer" ? (
+              <FileExplorer
+                activeCwd={activeProject?.cwd}
+                onFileSelect={handleFileOpenCustom}
+              />
+            ) : (
+              <ExtensionPanel onFileSelect={handleFileOpenCustom} />
+            )}
           </div>
 
 
@@ -1664,6 +1675,12 @@ export default function App() {
                                 handleFileOpenCustom(path);
                               }}
                             />
+                          ) : paneOpenFilePath?.startsWith("__extension__:") ? (
+                            <ExtensionDetailsTab 
+                              extensionId={paneOpenFilePath.replace("__extension__:", "")} 
+                            />
+                          ) : paneOpenFilePath === "__publish_extension__" ? (
+                            <PublishExtensionTab />
                           ) : paneIsSqliteFile ? (
                             <SqliteEditor
                               filePath={paneOpenFilePath}

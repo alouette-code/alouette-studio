@@ -23,3 +23,5 @@ pub mod vm;
 pub mod memory_inspector;
 pub mod docker;
 pub mod langchain_rig_bridge;
+pub mod extension;
+pub mod marketplace_cmds;
