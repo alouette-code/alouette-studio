@@ -797,7 +797,7 @@ export default React.memo(function CodeEditor({
       if (domNode) {
         const textArea = domNode.querySelector('textarea');
         if (textArea) {
-          textArea.addEventListener('compositionstart', (e: Event) => {
+          textArea.addEventListener('compositionstart', (_e: Event) => {
             // Ép huỷ quá trình gõ tiếng Việt của bộ gõ
             textArea.blur();
             textArea.focus();

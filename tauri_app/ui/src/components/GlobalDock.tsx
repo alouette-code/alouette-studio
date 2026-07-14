@@ -2,7 +2,8 @@ import {
   FolderPen,
   Droplets,
   Proportions,
-  UserRoundKey
+  UserRoundKey,
+  Blocks
 } from "lucide-react";
 
 const DockerIcon = ({ size = 20, className = "" }) => (
@@ -19,17 +20,32 @@ const DockerIcon = ({ size = 20, className = "" }) => (
 );
 
 interface GlobalDockProps {
+  activeMode?: "explorer" | "extensions";
   onOpenLocalAi?: () => void;
   onOpenVmManager?: () => void;
+
   onOpenMemoryInspector?: () => void;
   onOpenDocker?: () => void;
+  onOpenExtensions?: () => void;
+  onOpenExplorer?: () => void;
 }
-export default function GlobalDock({ onOpenVmManager, onOpenMemoryInspector, onOpenDocker }: GlobalDockProps) {
+export default function GlobalDock({ activeMode = "explorer", onOpenVmManager, onOpenMemoryInspector, onOpenDocker, onOpenExtensions, onOpenExplorer }: GlobalDockProps) {
   return (
     <div className="global-dock">
       <div className="dock-top">
-        <button className="dock-btn active" title="Explorer">
+        <button 
+          className={`dock-btn ${activeMode === "explorer" ? "active" : ""}`} 
+          title="Explorer"
+          onClick={onOpenExplorer}
+        >
           <FolderPen size={20} />
+        </button>
+        <button 
+          className={`dock-btn ${activeMode === "extensions" ? "active" : ""}`} 
+          title="Extensions" 
+          onClick={onOpenExtensions}
+        >
+          <Blocks size={20} />
         </button>
         <button className="dock-btn" title="Docker Container" onClick={onOpenDocker}>
           <DockerIcon size={20} />
