@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <textarea id="ta1" placeholder="Normal"></textarea>
+  <textarea id="ta2" inputmode="url" placeholder="inputmode url"></textarea>
+  <textarea id="ta3" placeholder="Hack blur"></textarea>
+  <script>
+    document.getElementById('ta3').addEventListener('compositionstart', (e) => {
+      // try to cancel
+      const ta = e.target;
+      ta.dispatchEvent(new CompositionEvent('compositionend', { data: '' }));
+    });
+  </script>
+</body>
+</html>

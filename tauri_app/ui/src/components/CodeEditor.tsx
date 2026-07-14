@@ -100,49 +100,34 @@ function computeUnsavedDiff(
   const currLines = current.split("\n");
   const changes: UnsavedChange[] = [];
 
-  // Track added/deleted lines using a simple approach
-  // We use line-by-line comparison
-  const maxLen = Math.max(origLines.length, currLines.length);
-  let deletionBuffer = 0;
-
-  for (let i = 0; i < maxLen; i++) {
-    const origLine = i < origLines.length ? origLines[i] : undefined;
-    const currLine = i < currLines.length ? currLines[i] : undefined;
-
-    if (origLine === undefined && currLine !== undefined) {
-      // Line added at end
-      changes.push({ line: i + 1, type: "added", count: 0 });
-    } else if (origLine !== undefined && currLine === undefined) {
-      // Line deleted at end
-      deletionBuffer++;
-    } else if (
-      origLine !== undefined &&
-      currLine !== undefined &&
-      origLine !== currLine
-    ) {
-      if (deletionBuffer > 0) {
-        changes.push({ line: i + 1, type: "modified", count: deletionBuffer });
-        deletionBuffer = 0;
-      } else {
-        changes.push({ line: i + 1, type: "modified", count: 0 });
-      }
-    } else if (currLine !== undefined && deletionBuffer > 0) {
-      // Context line after deletions
-      changes.push({
-        line: i + 1,
-        type: "deleted_context",
-        count: deletionBuffer,
-      });
-      deletionBuffer = 0;
-    }
+  let start = 0;
+  while (
+    start < origLines.length &&
+    start < currLines.length &&
+    origLines[start] === currLines[start]
+  ) {
+    start++;
   }
 
-  if (deletionBuffer > 0) {
-    changes.push({
-      line: currLines.length,
-      type: "deleted_context",
-      count: deletionBuffer,
-    });
+  let origEnd = origLines.length - 1;
+  let currEnd = currLines.length - 1;
+  while (
+    origEnd >= start &&
+    currEnd >= start &&
+    origLines[origEnd] === currLines[currEnd]
+  ) {
+    origEnd--;
+    currEnd--;
+  }
+
+  for (let i = start; i <= currEnd; i++) {
+    changes.push({ line: i + 1, type: "modified", count: 0 });
+  }
+
+  if (start > currEnd && start <= origEnd) {
+     const deletedCount = origEnd - start + 1;
+     const lineNum = Math.min(start + 1, currLines.length);
+     changes.push({ line: lineNum, type: "deleted_context", count: deletedCount });
   }
 
   return changes;
@@ -284,7 +269,6 @@ export default React.memo(function CodeEditor({
           options: {
             isWholeLine: true,
             glyphMarginClassName: "git-glyph-added",
-            linesDecorationsClassName: "git-line-added",
           },
         });
       }
@@ -306,7 +290,6 @@ export default React.memo(function CodeEditor({
               options: {
                 isWholeLine: true,
                 glyphMarginClassName: "git-glyph-added",
-                linesDecorationsClassName: "git-line-added",
               },
             });
             break;
@@ -316,7 +299,6 @@ export default React.memo(function CodeEditor({
               options: {
                 isWholeLine: true,
                 glyphMarginClassName: "git-glyph-modified",
-                linesDecorationsClassName: "git-line-modified",
               },
             });
             break;
@@ -346,7 +328,6 @@ export default React.memo(function CodeEditor({
             options: {
               isWholeLine: true,
               glyphMarginClassName: "git-glyph-unsaved-added",
-              linesDecorationsClassName: "git-line-unsaved-added",
             },
           });
           break;
@@ -356,7 +337,6 @@ export default React.memo(function CodeEditor({
             options: {
               isWholeLine: true,
               glyphMarginClassName: "git-glyph-unsaved-modified",
-              linesDecorationsClassName: "git-line-unsaved-modified",
             },
           });
           break;
@@ -426,10 +406,7 @@ export default React.memo(function CodeEditor({
 
   // Sync internal content with parent's decoded content
   useEffect(() => {
-    if (
-      filePath !== lastPathRef.current ||
-      (initialContent !== null && originalContent === "")
-    ) {
+    if (filePath !== lastPathRef.current) {
       if (initialContent !== null) {
         setContent(initialContent);
         setOriginalContent(initialContent);
@@ -785,22 +762,24 @@ export default React.memo(function CodeEditor({
     // Lưu cleanup function
     editor.onDidDispose(cleanupListener);
 
-    if (content && editor.getValue() !== content) {
-      editor.setValue(content);
+    if (initialContent !== null && editor.getValue() !== initialContent) {
+      editor.setValue(initialContent);
     }
 
     // --- HACK ĐỂ CHẶN HOÀN TOÀN BỘ GÕ (IME) THEO YÊU CẦU ---
-    // Trên Linux Tauri, Monaco bị lỗi lặp chữ với IME. Ta chặn luôn bằng cách
-    // blur và focus lại ngay lập tức khi IME bắt đầu kích hoạt (compositionstart).
+    // Trên Linux Tauri, Monaco bị lỗi lặp chữ với IME.
+    // Dùng readOnly toggle thay vì blur/focus để tránh lỗi mất dòng/nhảy con trỏ.
     setTimeout(() => {
       const domNode = editor.getDomNode();
       if (domNode) {
         const textArea = domNode.querySelector('textarea');
         if (textArea) {
           textArea.addEventListener('compositionstart', (_e: Event) => {
-            // Ép huỷ quá trình gõ tiếng Việt của bộ gõ
-            textArea.blur();
-            textArea.focus();
+            // Ép huỷ quá trình gõ tiếng Việt bằng cách chớp readOnly
+            textArea.readOnly = true;
+            setTimeout(() => {
+              textArea.readOnly = false;
+            }, 0);
           });
         }
       }

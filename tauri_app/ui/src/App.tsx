@@ -47,6 +47,7 @@ import WelcomePage from "./components/WelcomePage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
+import AuthModal from "./components/AuthModal";
 import { MemoryInspector } from "./components/MemoryInspector";
 import DockerManager from "./components/DockerManager";
 
@@ -293,8 +294,11 @@ export default function App() {
 
   // Layout toggle states
   const [isLeftSidebarOpen, setIsLeftSidebarOpen] = useState(true);
-  const [leftPanelMode, setLeftPanelMode] = useState<"explorer" | "extensions">("explorer");
+  const [leftPanelMode, setLeftPanelMode] = useState<"explorer" | "extensions">(
+    "explorer"
+  );
   const [isBottomPanelOpen, setIsBottomPanelOpen] = useState(true);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(true);
   const [isAiViewActive, setIsAiViewActive] = useState(false);
@@ -1266,6 +1270,7 @@ export default function App() {
           onOpenLocalAi={() => handleFileOpenCustom("__local_ai__")}
           onOpenVmManager={() => handleFileAction("open-vm-window")}
           onOpenDocker={() => handleFileAction("open-docker-window")}
+          onOpenAuth={() => setIsAuthModalOpen(true)}
           onOpenMemoryInspector={async () => {
             try {
               await invoke("open_memory_inspector_window");
@@ -2070,6 +2075,8 @@ export default function App() {
           </button>
         </div>
       </footer>
+
+      <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
       {/* Port Conflict Resolver Modal */}
       {portConflict && (
