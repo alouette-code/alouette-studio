@@ -15,7 +15,7 @@ pub async fn login_marketplace(
     password: String,
     state: State<'_, MarketplaceState>,
 ) -> Result<String, String> {
-    let mut client = state.0.lock().unwrap();
+    let client = state.0.lock().unwrap();
     // This is synchronous lock but we need async login, actually let's just make a new client or unlock
     // Wait, holding a std::sync::Mutex across an await is an error in Rust.
     // Let's drop the lock or use tokio::sync::Mutex.

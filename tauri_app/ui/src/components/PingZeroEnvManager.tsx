@@ -22,10 +22,6 @@ export default function PingZeroEnvManager({
   onInsertVariable,
   refreshTrigger,
 }: Props) {
-  const [environments, setEnvironments] = useState<Environment[]>(() => {
-    return loadEnvironments();
-  });
-
   const loadEnvironments = (): Environment[] => {
     const saved = localStorage.getItem("pingzero_environments");
     if (saved) {
@@ -56,6 +52,12 @@ export default function PingZeroEnvManager({
       },
     ];
   };
+
+  const [environments, setEnvironments] = useState<Environment[]>(() => {
+    return loadEnvironments();
+  });
+
+
 
   // Reload when refreshTrigger changes (e.g., pm.environment.set from scripts)
   useEffect(() => {

@@ -105,6 +105,13 @@ export interface ScriptVariable {
   type: "string" | "number" | "boolean";
 }
 
+export interface WsMessage {
+  id: string;
+  type: "sent" | "received" | "system" | "error";
+  data: string;
+  timestamp: number;
+}
+
 export type Method =
   | "GET"
   | "POST"
@@ -112,7 +119,10 @@ export type Method =
   | "DELETE"
   | "PATCH"
   | "OPTIONS"
-  | "HEAD";
+  | "HEAD"
+  | "WS"
+  | "SSE"
+  | "gRPC";
 export type BodyType =
   | "none"
   | "json"
@@ -138,7 +148,8 @@ export type ReqTab =
   | "scripts"
   | "tools"
   | "settings"
-  | "analyzer";
+  | "analyzer"
+  | "load-test";
 export type ResTab =
   | "body"
   | "preview"

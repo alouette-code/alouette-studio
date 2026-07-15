@@ -15,6 +15,8 @@ pub struct HttpRequestInput {
     pub body: Option<String>,
     pub body_type: String, // "none", "text", "json", "urlencoded"
     pub timeout_ms: Option<u64>,
+    pub cert_path: Option<String>,
+    pub cert_passphrase: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -309,6 +311,23 @@ pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutp
         .danger_accept_invalid_certs(false)
         .redirect(reqwest::redirect::Policy::limited(10))
         .dns_resolver(std::sync::Arc::new(SafeDnsResolver));
+
+    if let Some(cert_path) = &req.cert_path {
+        if !cert_path.is_empty() {
+            let cert_bytes = std::fs::read(cert_path)
+                .map_err(|e| format!("Failed to read client certificate: {}", e))?;
+            
+            
+            
+            let identity = if cert_path.ends_with(".pem") {
+                reqwest::Identity::from_pem(&cert_bytes)
+            } else {
+                return Err("Unsupported certificate format. Must be .pem".to_string());
+            }.map_err(|e| format!("Failed to parse client certificate: {}", e))?;
+
+            client_builder = client_builder.identity(identity);
+        }
+    }
 
     if let Some(timeout) = req.timeout_ms {
         client_builder = client_builder.timeout(std::time::Duration::from_millis(timeout));

@@ -244,7 +244,9 @@ export default function PingZeroCollections({ onLoadRequest }: Props) {
   );
 
   const [importText, setImportText] = useState("");
+  const [importUrl, setImportUrl] = useState("");
   const [showImportInput, setShowImportInput] = useState(false);
+  const [isFetchingUrl, setIsFetchingUrl] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
@@ -343,13 +345,27 @@ export default function PingZeroCollections({ onLoadRequest }: Props) {
   const handleImport = () => {
     const items = importCollection(importText);
     if (items.length > 0) {
-      persist([...collections, ...items]);
+      setCollections((prev) => [...prev, ...items]);
       setImportText("");
+      setImportUrl("");
       setShowImportInput(false);
+      saveCollections([...collections, ...items]);
     } else {
-      alert(
-        "Could not parse the file. Please ensure it's a valid PingZero Collection or OpenAPI spec.",
-      );
+      alert("Invalid Collection format or unsupported OpenAPI document.");
+    }
+  };
+
+  const handleFetchUrl = async () => {
+    if (!importUrl) return;
+    setIsFetchingUrl(true);
+    try {
+        const response = await fetch(importUrl);
+        const text = await response.text();
+        setImportText(text);
+    } catch (e) {
+        alert("Failed to fetch Swagger from URL. CORS error or invalid URL.");
+    } finally {
+        setIsFetchingUrl(false);
     }
   };
 
@@ -495,46 +511,86 @@ export default function PingZeroCollections({ onLoadRequest }: Props) {
       {showImportInput && (
         <div
           style={{
-            padding: "6px",
-            borderTop: "1px solid var(--border-primary)",
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
             display: "flex",
-            flexDirection: "column",
-            gap: "4px",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
           }}
         >
-          <textarea
-            className="mono"
-            rows={5}
-            placeholder="Pasted JSON content..."
-            value={importText}
-            onChange={(e) => setImportText(e.target.value)}
+          <div
             style={{
-              width: "100%",
-              fontSize: "10px",
-              backgroundColor: "var(--bg-primary)",
+              backgroundColor: "var(--bg-secondary)",
+              padding: "20px",
+              borderRadius: "8px",
+              width: "500px",
               border: "1px solid var(--border-primary)",
-              color: "var(--text-primary)",
-              borderRadius: "4px",
-              padding: "4px",
             }}
-          />
-          <div style={{ display: "flex", gap: "4px" }}>
-            <button
-              className="btn btn-primary btn-xs"
-              onClick={handleImport}
-              disabled={!importText.trim()}
-            >
-              Import
-            </button>
-            <button
-              className="btn btn-ghost btn-xs"
-              onClick={() => {
-                setShowImportInput(false);
-                setImportText("");
+          >
+            <h3 style={{ marginTop: 0, marginBottom: "15px" }}>
+              Import Collection / OpenAPI Swagger
+            </h3>
+            
+            <div style={{ display: "flex", gap: "10px", marginBottom: "10px" }}>
+                <input
+                    type="text"
+                    style={{ flex: 1, padding: "8px", borderRadius: "4px", border: "1px solid var(--border-primary)", backgroundColor: "var(--bg-primary)", color: "var(--text-primary)" }}
+                    placeholder="https://api.example.com/swagger.json"
+                    value={importUrl}
+                    onChange={(e) => setImportUrl(e.target.value)}
+                />
+                <button className="btn btn-secondary" onClick={handleFetchUrl} disabled={isFetchingUrl || !importUrl}>
+                    {isFetchingUrl ? "Fetching..." : "Fetch URL"}
+                </button>
+            </div>
+
+            <textarea
+              style={{
+                width: "100%",
+                height: "200px",
+                backgroundColor: "var(--bg-primary)",
+                border: "1px solid var(--border-primary)",
+                color: "var(--text-primary)",
+                padding: "10px",
+                fontFamily: "monospace",
+                resize: "none",
+                borderRadius: "4px",
+              }}
+              placeholder="Paste PingZero JSON or OpenAPI JSON here..."
+              value={importText}
+              onChange={(e) => setImportText(e.target.value)}
+            />
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "flex-end",
+                gap: "10px",
+                marginTop: "15px",
               }}
             >
-              Cancel
-            </button>
+              <button
+                className="btn btn-secondary"
+                onClick={() => {
+                  setShowImportInput(false);
+                  setImportText("");
+                  setImportUrl("");
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                className="btn btn-primary"
+                onClick={handleImport}
+                disabled={!importText.trim()}
+              >
+                Import
+              </button>
+            </div>
           </div>
         </div>
       )}

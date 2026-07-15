@@ -37,6 +37,10 @@ import PingZeroScripts from "./PingZeroScripts";
 import PingZeroCollections from "./PingZeroCollections";
 import PingZeroAnalyzer from "./PingZeroAnalyzer";
 import PingZeroSourceCatcher from "./PingZeroSourceCatcher";
+import PingZeroWebSocket from "./PingZeroWebSocket";
+import PingZeroSse from "./PingZeroSse";
+import PingZeroLoadTester from "./PingZeroLoadTester";
+import PingZeroGrpc from "./PingZeroGrpc";
 import type {
   HeaderItem,
   QueryParam,
@@ -69,6 +73,8 @@ export default function PingZero() {
   const [bodyType, setBodyType] = useState<BodyType>("none");
   const [body, setBody] = useState<string>("");
   const [timeoutMs, setTimeoutMs] = useState<number>(30000);
+  const [certPath, setCertPath] = useState<string>("");
+  const [certPassphrase, setCertPassphrase] = useState<string>("");
 
   /* ---- Form-Data, Binary, GraphQL states ---- */
   const [formDataFields, setFormDataFields] = useState<
@@ -103,8 +109,8 @@ export default function PingZero() {
   const [apiKeyAddto, setApiKeyAddto] = useState<"header" | "query">("header");
 
   /* ---- OAuth 2.0 & AWS Auth States ---- */
-  const [oauthGrantType, setOauthGrantType] =
-    useState<string>("authorization_code");
+  const [oauthGrantType, setOauthGrantType] = useState("authorization_code");
+  const [oauthAuthUrl, setOauthAuthUrl] = useState("");
   const [oauthAccessTokenUrl, setOauthAccessTokenUrl] = useState("");
   const [oauthClientId, setOauthClientId] = useState("");
   const [oauthClientSecret, setOauthClientSecret] = useState("");
@@ -629,6 +635,8 @@ export default function PingZero() {
           body: bodyType !== "none" ? finalBody : null,
           body_type: bodyType,
           timeout_ms: timeoutMs || null,
+          cert_path: certPath || null,
+          cert_passphrase: certPassphrase || null,
         },
       });
 
@@ -1500,6 +1508,14 @@ export default function PingZero() {
           </div>
 
           {/* ---- WORKSPACE TABS ---- */}
+          {method === "WS" ? (
+            <PingZeroWebSocket url={url} />
+          ) : method === "SSE" ? (
+            <PingZeroSse url={url} headers={headers} />
+          ) : method === "gRPC" ? (
+            <PingZeroGrpc url={url} headers={headers} body={body} />
+          ) : (
+          <>
           <div className="pingzero-workspace-tabs">
             <div className="tabs-bar">
               <button
@@ -1555,6 +1571,12 @@ export default function PingZero() {
                 onClick={() => setReqTab("settings")}
               >
                 Settings
+              </button>
+              <button
+                className={`tab-item ${reqTab === "load-test" ? "active" : ""}`}
+                onClick={() => setReqTab("load-test")}
+              >
+                Load Test
               </button>
             </div>
 
@@ -1811,19 +1833,33 @@ export default function PingZero() {
                           </option>
                         </select>
                       </div>
-                      <div className="flex flex-col gap-1">
-                        <label className="text-xxs font-bold text-muted uppercase">
-                          Access Token URL
-                        </label>
-                        <input
-                          type="text"
-                          className="url-input"
-                          placeholder="https://auth.example.com/token"
-                          value={oauthAccessTokenUrl}
-                          onChange={(e) =>
-                            setOauthAccessTokenUrl(e.target.value)
-                          }
-                        />
+                      <div className="flex gap-3">
+                        <div className="flex-1 flex flex-col gap-1">
+                          <label className="text-xxs font-bold text-muted uppercase">
+                            Auth URL
+                          </label>
+                          <input
+                            type="text"
+                            className="url-input"
+                            placeholder="https://auth.example.com/authorize"
+                            value={oauthAuthUrl}
+                            onChange={(e) => setOauthAuthUrl(e.target.value)}
+                          />
+                        </div>
+                        <div className="flex-1 flex flex-col gap-1">
+                          <label className="text-xxs font-bold text-muted uppercase">
+                            Access Token URL
+                          </label>
+                          <input
+                            type="text"
+                            className="url-input"
+                            placeholder="https://auth.example.com/token"
+                            value={oauthAccessTokenUrl}
+                            onChange={(e) =>
+                              setOauthAccessTokenUrl(e.target.value)
+                            }
+                          />
+                        </div>
                       </div>
                       <div className="flex gap-3">
                         <div className="flex-1 flex flex-col gap-1">
@@ -1867,13 +1903,26 @@ export default function PingZero() {
                         <button
                           className="btn btn-primary btn-xs"
                           onClick={async () => {
-                            // Simulate OAuth token fetch
-                            setOauthToken("fetched-oauth-token-" + Date.now());
-                            alert(
-                              "OAuth token fetched (simulated). Token: " +
-                                oauthToken.substring(0, 30) +
-                                "...",
-                            );
+                            if (!oauthAuthUrl || !oauthAccessTokenUrl || !oauthClientId) {
+                                alert("Please fill in Auth URL, Access Token URL, and Client ID");
+                                return;
+                            }
+                            try {
+                              const res = await invoke("oauth2_login", {
+                                input: {
+                                  client_id: oauthClientId,
+                                  client_secret: oauthClientSecret || null,
+                                  auth_url: oauthAuthUrl,
+                                  token_url: oauthAccessTokenUrl,
+                                  scopes: oauthScope ? oauthScope.split(" ") : [],
+                                }
+                              });
+                              const token = (res as any).access_token;
+                              setOauthToken(token);
+                              alert("OAuth token fetched successfully!");
+                            } catch (e: any) {
+                              alert("Failed to get OAuth token: " + e.toString());
+                            }
                           }}
                         >
                           <Shield size={11} /> Get New Access Token
@@ -2730,6 +2779,53 @@ export default function PingZero() {
                       30000ms.
                     </span>
                   </div>
+
+                  <div className="settings-item flex flex-col gap-1 mt-4">
+                    <label className="font-bold text-xs">
+                      mTLS Client Certificate Path (.pem)
+                    </label>
+                    <input
+                      type="text"
+                      style={{
+                        backgroundColor: "var(--bg-primary)",
+                        border: "1px solid var(--border-primary)",
+                        color: "var(--text-primary)",
+                        padding: "6px 12px",
+                        fontSize: "12px",
+                        width: "100%",
+                      }}
+                      placeholder="/absolute/path/to/cert.pem"
+                      value={certPath}
+                      onChange={(e) => setCertPath(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="settings-item flex flex-col gap-1 mt-2">
+                    <label className="font-bold text-xs">
+                      Certificate Passphrase (Optional)
+                    </label>
+                    <input
+                      type="password"
+                      style={{
+                        backgroundColor: "var(--bg-primary)",
+                        border: "1px solid var(--border-primary)",
+                        color: "var(--text-primary)",
+                        padding: "6px 12px",
+                        fontSize: "12px",
+                        width: "200px",
+                      }}
+                      placeholder="Passphrase"
+                      value={certPassphrase}
+                      onChange={(e) => setCertPassphrase(e.target.value)}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 9. LOAD TESTER */}
+              {reqTab === "load-test" && (
+                <div className="load-test-tab flex flex-col h-full">
+                  <PingZeroLoadTester url={url} method={method} headers={headers} body={body} />
                 </div>
               )}
             </div>
@@ -3565,6 +3661,8 @@ export default function PingZero() {
               </div>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
 
