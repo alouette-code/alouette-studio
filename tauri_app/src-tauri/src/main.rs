@@ -84,6 +84,8 @@ fn main() {
 
     tauri::Builder::default()
         .manage(commands::database::DbState::default())
+        .manage(commands::websocket::WsState { sender: tokio::sync::Mutex::new(None) })
+        .manage(commands::sse::SseState { cancel_tx: tokio::sync::Mutex::new(None) })
         .manage(AppState {
             process_manager,
             resource_monitor,
@@ -218,6 +220,14 @@ fn main() {
             commands::network::open_ping_window,
             commands::network::open_admin_window,
             commands::browser::open_browser_window,
+            commands::websocket::ws_connect,
+            commands::websocket::ws_send,
+            commands::websocket::ws_disconnect,
+            commands::sse::sse_connect,
+            commands::sse::sse_disconnect,
+            commands::load_test::run_load_test,
+            commands::oauth::oauth2_login,
+            commands::grpc::grpc_call,
 
             commands::network::send_http_request,
             commands::network::dns_lookup,

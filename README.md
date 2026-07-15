@@ -50,22 +50,39 @@ The Sandbox dashboard consists of 5 synchronized control modules:
 - **Binary Transfer:** Safe Base64 encoding for local binary file transfer over Tauri IPC.
 
 ### 5. PingZero Mini API Client & Network Diagnostics
-- **PingZero Mini API Client:** Fully embedded REST client (implemented as [MiniPostman.tsx](file:///home/nhatanh/projet/alouette_studio/tauri_app/ui/src/components/MiniPostman.tsx)):
-  - *Methods:* GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD.
-  - *Payloads:* Query params, custom headers, multipart/form-data, GraphQL, binary, and URL-encoded request bodies.
-  - *Auth:* Bearer, Basic, API Key, OAuth 2.0, AWS Signature.
-  - *Response Inspector:* Visual formatters, headers/cookies decoder, redirect chain viewer, timing breakdown (DNS lookup, TCP connect, TLS handshake, first byte, total).
-  - *Payload Analyzer:* Interactive Tree-View inspector that recursively parses JSON/Form-Data into structured data types (`String`, `Number`, `Array`, `Object`) with Raw HTTP preview for deep API debugging.
-  - *Anti-Malware Sandbox Guard:* Automatically intercepts and destroys binary executable payloads (MZ, ELF, Mach-O) directly at the Rust network boundary to prevent accidental malware downloads.
-  - *Memory Exhaustion Guard:* Enforces a strict 50MB chunked streaming limit to prevent server-side OOM attacks.
-  - *Post-request Scripts:* Automation script runner with testing assertions.
-  - *Pre-request Scripts:* Dynamic request modification before execution.
-  - *Collections & Environments:* Save requests in collections and manage environment variables per workspace.
-  - *cURL Generator:* One-click export of any HTTP request to a cURL command.
-  - *Response Diff:* Side-by-side comparison of two HTTP responses.
-- **Helper Toolbox:**
-  - **DNS Lookup / SSL Cert Inspector / Ping Host:** Essential network diagnostics tools.
-  - **JWT Decoder / Hash Builder / Base64 Converter / JSON Schema Validator:** Handy developer utilities.
+<div align="center">
+  <img src="readme_img/ping_zero/home ping zero.png" alt="PingZero Mini Dashboard" width="600"/>
+</div>
+
+**PingZero Mini** is a powerful API development and testing tool integrated right into Alouette Studio. Designed to rival enterprise tools, PingZero Mini handles standard REST APIs, advanced streaming protocols, and complex authentication flows.
+
+- **🌐 Comprehensive Protocol Support:** 
+  - REST / HTTP(S) (GET, POST, PUT, DELETE, PATCH).
+  - WebSocket (WS/WSS) for real-time interactive testing.
+  - Server-Sent Events (SSE) for one-way event streaming.
+  - gRPC (Dynamic) for microservices.
+- **🔐 Advanced Authentication:**
+  - OAuth 2.0 with a built-in local server for automatic token extraction.
+  - Mutual TLS (mTLS) with Client Certificates (`.pem`).
+  - Bearer & Basic Auth.
+- **📂 OpenAPI & Swagger Importer:** Fetch definitions from URLs or paste JSON to automatically generate Collections.
+- **⚡ Load Tester (Stress Testing):** Built-in concurrent Load Tester powered by `tokio` to measure RPS, Success rates, and Latency.
+- **🛠️ Network Diagnostics Tools:** DNS Lookup, Ping/TCP Check, and SSL/TLS Inspector.
+- **📜 Pre/Post Scripts:** Write custom JS logic to chain requests and validate JSON schemas.
+
+<details>
+<summary><b>Click to view more PingZero Mini Screenshots</b></summary>
+<br>
+<div align="center">
+  <img src="readme_img/ping_zero/authen 2.0.png" alt="OAuth 2.0" width="400"/>
+  <img src="readme_img/ping_zero/inport .png" alt="OpenAPI Import" width="400"/>
+</div>
+<div align="center">
+  <img src="readme_img/ping_zero/tool.png" alt="Network Tools" width="400"/>
+  <img src="readme_img/ping_zero/script.png" alt="Scripts" width="400"/>
+</div>
+</details>
+
 
 ### 6. Git Management & Native Diff Engine
 - **Native Sidebar:** Git panel toggled via the branch icon in the status bar ([GitPanel.tsx](file:///home/nhatanh/projet/alouette_studio/tauri_app/ui/src/components/GitPanel.tsx)).
