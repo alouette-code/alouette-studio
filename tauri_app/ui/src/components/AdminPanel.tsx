@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow, type Window } from "@tauri-apps/api/window";
 import WindowResizer from "./WindowResizer";
 import { WindowControls } from "./WindowControls";
+import { useTheme } from "../hooks/useTheme";
 function ChromeIcon({ size = 16, color = "currentColor" }: { size?: number, color?: string }) {
   return (
     <svg
@@ -120,7 +121,7 @@ export default function AdminPanel() {
   const appWindowRef = useRef<Window | null>(null);
   const [_winReady, _setWinReady] = useState(false);
   const [activeDock, setActiveDock] = useState("project");
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const { theme, setTheme } = useTheme();
   const [toast, setToast] = useState<ToastState | null>(null);
 
   // ── Lấy window handle an toàn ──
@@ -133,10 +134,7 @@ export default function AdminPanel() {
     }
   }, []);
 
-  // ── Theme effect ──
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+
 
   // ── Toast dismiss ──
   useEffect(() => {
@@ -178,7 +176,7 @@ export default function AdminPanel() {
 
   // ── Theme toggle ──
   const toggleTheme = () => {
-    setTheme((t) => (t === "dark" ? "light" : "dark"));
+    setTheme(theme === "dark" ? "light" : "dark");
   };
 
   // ═══════════════════════════════════════════

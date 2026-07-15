@@ -74,7 +74,20 @@ impl VmManager {
             config.id = rand::random::<u64>().to_string();
         }
 
-        let safe_name = config.name.replace(" ", "_");
+        // Sanitize name and ID to prevent Path Traversal
+        let safe_name: String = config.name.chars()
+            .map(|c| if c == ' ' { '_' } else { c })
+            .filter(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+            
+        let safe_id: String = config.id.chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-')
+            .collect();
+            
+        config.id = safe_id;
+        if safe_name.is_empty() {
+            return Err("Invalid VM name (contains only invalid characters)".to_string());
+        }
 
         // Setup vm_dir
         if config.vm_dir.is_empty() {
@@ -140,7 +153,18 @@ impl VmManager {
                     let config = VmConfig::from_vmx(&content);
                     let vm_dir = Path::new(&config.vm_dir);
                     if vm_dir.exists() && !config.vm_dir.is_empty() {
-                        let _ = fs::remove_dir_all(vm_dir); // Remove the entire VM directory including disk and ISO
+                        // Security check: Only allow deleting if vm_dir is inside storage_dir
+                        if let (Ok(canon_vm_dir), Ok(canon_storage_dir)) = (vm_dir.canonicalize(), self.storage_dir.canonicalize()) {
+                            if canon_vm_dir.starts_with(&canon_storage_dir) && canon_vm_dir != canon_storage_dir {
+                                let _ = fs::remove_dir_all(&canon_vm_dir);
+                            } else {
+                                // If outside storage_dir, only remove the config file and disk file to be safe
+                                let _ = fs::remove_file(&config_path);
+                                if let Some(disk) = config.disk_path {
+                                    let _ = fs::remove_file(Path::new(&disk));
+                                }
+                            }
+                        }
                     }
                     
                     // Clean up potential symlinks in storage_dir
@@ -160,16 +184,12 @@ impl VmManager {
     pub fn list_vms(&self) -> Result<Vec<(VmConfig, String)>, String> {
         let mut vms = Vec::new();
         let mut active = self.active_vms.lock();
+        
+        // Clean up any VMs that have stopped
+        active.retain(|_, active_vm| active_vm.qemu_instance.lock().is_running());
 
         for config in self.scan_vms() {
-            let mut is_still_running = false;
-            if let Some(active_vm) = active.get_mut(&config.id) {
-                is_still_running = active_vm.qemu_instance.lock().is_running();
-                if !is_still_running {
-                    active_vm.status = "stopped".to_string();
-                }
-            }
-
+            let is_still_running = active.contains_key(&config.id);
             let status = if is_still_running { "running".to_string() } else { "stopped".to_string() };
             vms.push((config, status));
         }
@@ -198,7 +218,15 @@ impl VmManager {
         let config = VmConfig::from_vmx(&content);
 
         // Launch QEMU KVM instance
-        let qemu_instance = QemuInstance::spawn(&config, qemu_path, qemu_img_path)?;
+        let mut qemu_instance = QemuInstance::spawn(&config, qemu_path, qemu_img_path)?;
+
+        // Wait a short bit to catch immediate crashes (e.g. invalid arguments)
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if !qemu_instance.is_running() {
+            let log_file_path = Path::new(&config.vm_dir).join("qemu_error.log");
+            let error_log = fs::read_to_string(&log_file_path).unwrap_or_else(|_| "No log available".to_string());
+            return Err(format!("QEMU process crashed immediately upon startup.\nLog:\n{}", error_log));
+        }
 
         active.insert(
             id.to_string(),
@@ -212,7 +240,7 @@ impl VmManager {
         Ok(())
     }
 
-    /// Stops a running virtual machine.
+    /// Stops a running virtual machine abruptly (kill).
     pub fn stop_vm(&self, id: &str) -> Result<(), String> {
         let mut active = self.active_vms.lock();
         if let Some(active_vm) = active.remove(id) {
@@ -223,12 +251,32 @@ impl VmManager {
         }
     }
 
+    /// Gracefully shuts down a running virtual machine using QMP system_powerdown.
+    pub fn shutdown_vm(&self, id: &str) -> Result<(), String> {
+        let mut active = self.active_vms.lock();
+        if let Some(active_vm) = active.get(id) {
+            if active_vm.qemu_instance.lock().is_running() {
+                let qmp_socket_path = Path::new("/tmp/alouette_vms").join(format!("{}_qmp.sock", id));
+                if let Ok(mut client) = crate::vm_engine::qmp_client::QmpClient::connect(qmp_socket_path) {
+                    client.system_powerdown()?;
+                    return Ok(());
+                } else {
+                    return Err("Failed to connect to QMP socket for shutdown".to_string());
+                }
+            }
+        }
+        Err("VM is not running or not found".to_string())
+    }
+
     /// Gets live logs of a running VM.
     pub fn get_vm_logs(&self, id: &str) -> Result<String, String> {
         let mut active = self.active_vms.lock();
         if let Some(active_vm) = active.get_mut(id) {
-            if active_vm.qemu_instance.lock().is_running() {
-                return Ok("[VM running under QEMU KVM with hardware GPU acceleration. Display rendered on GTK host display.]".to_string());
+            let mut qemu = active_vm.qemu_instance.lock();
+            if qemu.is_running() {
+                let vnc_port = 5900 + qemu.vnc_display;
+                let ws_port = qemu.ws_port;
+                return Ok(format!("[VM running under QEMU KVM]\nVNC Port: {}\nWebsocket Port: {}\nDisplay rendered via VNC.", vnc_port, ws_port));
             }
         }
         Ok("[VM is stopped]".to_string())
@@ -251,7 +299,7 @@ impl VmManager {
 
         if is_running {
             // Live snapshot via QMP
-            let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", id));
+            let qmp_socket_path = Path::new("/tmp/alouette_vms").join(format!("{}_qmp.sock", id));
             let mut client = crate::vm_engine::qmp_client::QmpClient::connect(qmp_socket_path)?;
             client.save_snapshot(snapshot_name)?;
         } else {
@@ -275,7 +323,7 @@ impl VmManager {
 
         if is_running {
             // Live restore via QMP
-            let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", id));
+            let qmp_socket_path = Path::new("/tmp/alouette_vms").join(format!("{}_qmp.sock", id));
             let mut client = crate::vm_engine::qmp_client::QmpClient::connect(qmp_socket_path)?;
             client.load_snapshot(snapshot_name)?;
         } else {
@@ -299,7 +347,7 @@ impl VmManager {
 
         if is_running {
             // Live delete via QMP
-            let qmp_socket_path = Path::new(&config.vm_dir).join(format!("{}_qmp.sock", id));
+            let qmp_socket_path = Path::new("/tmp/alouette_vms").join(format!("{}_qmp.sock", id));
             let mut client = crate::vm_engine::qmp_client::QmpClient::connect(qmp_socket_path)?;
             client.delete_snapshot(snapshot_name)?;
         } else {
@@ -348,6 +396,16 @@ impl VmManager {
     // --- Guest File Injection (QGA) ---
 
     pub fn inject_file(&self, id: &str, host_path: &str, guest_path: &str) -> Result<(), String> {
+        // Security Check: Verify host_path is within storage_dir
+        let h_path = Path::new(host_path);
+        if let (Ok(canon_host), Ok(canon_storage)) = (h_path.canonicalize(), self.storage_dir.canonicalize()) {
+            if !canon_host.starts_with(&canon_storage) {
+                return Err("Security Violation: host_path must be within the VM storage directory.".to_string());
+            }
+        } else {
+            return Err("Invalid host_path: file may not exist or path is invalid".to_string());
+        }
+
         let config = self.get_vm_config(id)?;
         let mut active = self.active_vms.lock();
         let is_running = active.get_mut(id).map(|vm| vm.qemu_instance.lock().is_running()).unwrap_or(false);
@@ -356,7 +414,14 @@ impl VmManager {
             return Err("VM must be running to inject files via QEMU Guest Agent.".to_string());
         }
 
-        let qga_socket_path = Path::new(&config.vm_dir).join(format!("{}_qga.sock", id));
+        // Security Check: Enforce 10MB limit to prevent RAM exhaustion
+        if let Ok(metadata) = fs::metadata(host_path) {
+            if metadata.len() > 10 * 1024 * 1024 {
+                return Err("File exceeds 10MB limit for QGA injection. Please use a secondary disk for large files.".to_string());
+            }
+        }
+
+        let qga_socket_path = Path::new("/tmp/alouette_vms").join(format!("{}_qga.sock", id));
         let mut client = crate::vm_engine::qga_client::QgaClient::connect(qga_socket_path)?;
 
         // Read file from host

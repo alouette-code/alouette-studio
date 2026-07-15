@@ -237,6 +237,84 @@ pub async fn create_folder(state: State<'_, AppState>, path: String) -> Result<(
 }
 
 #[tauri::command]
+pub async fn delete_item(state: State<'_, AppState>, path: String) -> Result<(), String> {
+    log_to_app_file(&format!("Deleting item: {}", path));
+    let validated = validate_path(&state, &path).await?;
+    if !validated.exists() {
+        return Err("Item does not exist".to_string());
+    }
+    if validated.is_dir() {
+        fs::remove_dir_all(&validated)
+            .await
+            .map_err(|e| e.to_string())?;
+    } else {
+        fs::remove_file(&validated)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn rename_item(state: State<'_, AppState>, old_path: String, new_path: String) -> Result<(), String> {
+    log_to_app_file(&format!("Renaming item: {} to {}", old_path, new_path));
+    let validated_old = validate_path(&state, &old_path).await?;
+    let validated_new = validate_path(&state, &new_path).await?;
+    
+    if !validated_old.exists() {
+        return Err("Source item does not exist".to_string());
+    }
+    if validated_new.exists() {
+        return Err("Destination item already exists".to_string());
+    }
+    
+    fs::rename(&validated_old, &validated_new)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn copy_dir_all(src: impl AsRef<std::path::Path>, dst: impl AsRef<std::path::Path>) -> std::io::Result<()> {
+    std::fs::create_dir_all(&dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        } else {
+            std::fs::copy(entry.path(), dst.as_ref().join(entry.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn copy_item(state: State<'_, AppState>, source_path: String, dest_path: String) -> Result<(), String> {
+    log_to_app_file(&format!("Copying item: {} to {}", source_path, dest_path));
+    let validated_source = validate_path(&state, &source_path).await?;
+    let validated_dest = validate_path(&state, &dest_path).await?;
+    
+    if !validated_source.exists() {
+        return Err("Source item does not exist".to_string());
+    }
+    if validated_dest.exists() {
+        return Err("Destination item already exists".to_string());
+    }
+    
+    if validated_source.is_dir() {
+        tokio::task::spawn_blocking(move || copy_dir_all(validated_source, validated_dest))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+    } else {
+        fs::copy(&validated_source, &validated_dest)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_directory_contents(
     state: State<'_, AppState>,
     dir_path: String,

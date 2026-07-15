@@ -108,4 +108,9 @@ impl QmpClient {
         self.execute("human-monitor-command", Some(json!({"command-line": format!("delvm {}", name)})))?;
         Ok(())
     }
+
+    pub fn system_powerdown(&mut self) -> Result<(), String> {
+        self.execute("system_powerdown", None)?;
+        Ok(())
+    }
 }

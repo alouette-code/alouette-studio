@@ -6,6 +6,7 @@ pub mod qemu_wrapper;
 pub mod vcpu;
 pub mod qmp_client;
 pub mod qga_client;
+pub mod advanced;
 
 pub use config::VmConfig;
 pub use device::SerialDevice;
