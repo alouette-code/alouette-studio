@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use crate::vm_engine::advanced::AdvancedConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VmConfig {
@@ -14,6 +15,8 @@ pub struct VmConfig {
     pub disk_size_gb: Option<u32>,
     pub network_mode: String,
     pub firmware: Option<String>, // "bios" or "uefi"
+    #[serde(default)]
+    pub advanced: AdvancedConfig,
 }
 
 impl Default for VmConfig {
@@ -30,6 +33,7 @@ impl Default for VmConfig {
             network_mode: "nat".to_string(),
             os_type: None,
             firmware: Some("bios".to_string()),
+            advanced: AdvancedConfig::default(),
         }
     }
 }
@@ -70,6 +74,8 @@ impl VmConfig {
         lines.push(format!("ethernet0.connectionType = \"{}\"", self.network_mode));
         lines.push(format!("ethernet0.present = \"TRUE\""));
         
+        lines.extend(self.advanced.to_vmx_lines());
+        
         lines.join("\n")
     }
 
@@ -86,7 +92,11 @@ impl VmConfig {
             if let Some((key, value)) = line.split_once('=') {
                 let key = key.trim();
                 let val = value.trim().trim_matches('"');
-                map.insert(key, val);
+                if key.starts_with("advanced.") {
+                    config.advanced.parse_vmx_line(key, val);
+                } else {
+                    map.insert(key, val);
+                }
             }
         }
 

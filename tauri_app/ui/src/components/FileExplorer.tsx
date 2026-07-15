@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -9,11 +9,11 @@ import {
   ChevronDown,
   Code,
   Braces,
+  Pencil,
+  CircleDot,
   FilePlus,
   FolderPlus,
   RotateCw,
-  CircleDot,
-  Pencil,
   Database,
 } from "lucide-react";
 
@@ -27,6 +27,7 @@ interface FileNode {
 interface FileExplorerProps {
   activeCwd: string | undefined;
   onFileSelect: (filePath: string) => void;
+  onFileSelectSide?: (filePath: string) => void;
 }
 
 // Helper to get parent path
@@ -61,6 +62,9 @@ function TreeNode({
   onNodeChildrenLoaded,
   gitFileStatuses,
   activeCwd,
+  inlineRenameTarget,
+  onRenameSubmit,
+  onRenameCancel,
 }: {
   node: FileNode;
   onFileSelect: (filePath: string) => void;
@@ -73,9 +77,29 @@ function TreeNode({
   onNodeChildrenLoaded: (path: string, children: FileNode[]) => void;
   gitFileStatuses: { [relPath: string]: string };
   activeCwd: string | undefined;
+  inlineRenameTarget: string | null;
+  onRenameSubmit: (oldPath: string, newName: string, isDir: boolean) => void;
+  onRenameCancel: () => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isLazyLoading, setIsLazyLoading] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (inlineRenameTarget === node.path && inputRef.current) {
+      inputRef.current.focus();
+      if (!node.is_dir) {
+        const lastDot = node.name.lastIndexOf(".");
+        if (lastDot > 0) {
+          inputRef.current.setSelectionRange(0, lastDot);
+        } else {
+          inputRef.current.select();
+        }
+      } else {
+        inputRef.current.select();
+      }
+    }
+  }, [inlineRenameTarget, node.path, node.name, node.is_dir]);
 
   const getFileIcon = (fileName: string, isDir: boolean) => {
     if (isDir) {
@@ -167,22 +191,63 @@ function TreeNode({
           <span style={{ width: "13px", display: "inline-block" }} />
         )}
         {getFileIcon(node.name, node.is_dir)}
-        <span
-          className="tree-node-name"
-          style={{
-            color:
-              gitStatus === "modified"
-                ? "var(--git-modified, #eab308)"
-                : gitStatus === "untracked" || gitStatus === "added"
-                  ? "var(--git-added, #10b981)"
-                  : "inherit",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {node.name}
-        </span>
+        {inlineRenameTarget === node.path ? (
+          <input
+            ref={inputRef}
+            type="text"
+            defaultValue={node.name}
+            style={{
+              background: "var(--bg-primary)",
+              border: "1px solid var(--color-primary)",
+              color: "var(--text-primary)",
+              padding: "0 2px",
+              marginLeft: "4px",
+              fontSize: "inherit",
+              outline: "none",
+              width: "100%",
+              borderRadius: "2px",
+            }}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={(e) => {
+              const val = e.target.value.trim();
+              if (val && val !== node.name) {
+                onRenameSubmit(node.path, val, node.is_dir);
+              } else {
+                onRenameCancel();
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                const target = e.target as HTMLInputElement;
+                const val = target.value.trim();
+                if (val && val !== node.name) {
+                  onRenameSubmit(node.path, val, node.is_dir);
+                } else {
+                  onRenameCancel();
+                }
+              } else if (e.key === "Escape") {
+                onRenameCancel();
+              }
+            }}
+          />
+        ) : (
+          <span
+            className="tree-node-name"
+            style={{
+              color:
+                gitStatus === "modified"
+                  ? "var(--git-modified, #eab308)"
+                  : gitStatus === "untracked" || gitStatus === "added"
+                    ? "var(--git-added, #10b981)"
+                    : "inherit",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {node.name}
+          </span>
+        )}
         {gitStatus && (
           <span
             style={{
@@ -235,6 +300,9 @@ function TreeNode({
                 onNodeChildrenLoaded={onNodeChildrenLoaded}
                 gitFileStatuses={gitFileStatuses}
                 activeCwd={activeCwd}
+                inlineRenameTarget={inlineRenameTarget}
+                onRenameSubmit={onRenameSubmit}
+                onRenameCancel={onRenameCancel}
               />
             ))}
           {!isLazyLoading && (!node.children || node.children.length === 0) && (
@@ -269,6 +337,7 @@ const mergeTrees = (newNodes: FileNode[], oldNodes: FileNode[]): FileNode[] => {
 export default function FileExplorer({
   activeCwd,
   onFileSelect,
+  onFileSelectSide,
 }: FileExplorerProps) {
   const [files, setFiles] = useState<FileNode[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -296,6 +365,10 @@ export default function FileExplorer({
   const [showPrompt, setShowPrompt] = useState(false);
   const [promptType, setPromptType] = useState<"file" | "folder">("file");
   const [newItemName, setNewItemName] = useState("");
+
+  // Rename & Clipboard State
+  const [inlineRenameTarget, setInlineRenameTarget] = useState<string | null>(null);
+  const [clipboard, setClipboard] = useState<{ action: "cut" | "copy", path: string } | null>(null);
 
   const fetchGitStatus = async () => {
     if (!activeCwd) return;
@@ -369,10 +442,16 @@ export default function FileExplorer({
     path: string,
     isDir: boolean,
   ) => {
+    const menuHeight = 360; // approximate max height of the context menu
+    let adjustedY = y;
+    if (y + menuHeight > window.innerHeight) {
+      adjustedY = Math.max(0, window.innerHeight - menuHeight - 10);
+    }
+
     setContextMenu({
       visible: true,
       x,
-      y,
+      y: adjustedY,
       targetPath: path,
       targetIsDir: isDir,
     });
@@ -380,10 +459,16 @@ export default function FileExplorer({
 
   const handleContainerContextMenu = (e: React.MouseEvent) => {
     e.preventDefault();
+    const menuHeight = 360;
+    let adjustedY = e.clientY;
+    if (adjustedY + menuHeight > window.innerHeight) {
+      adjustedY = Math.max(0, window.innerHeight - menuHeight - 10);
+    }
+
     setContextMenu({
       visible: true,
       x: e.clientX,
-      y: e.clientY,
+      y: adjustedY,
       targetPath: activeCwd || null,
       targetIsDir: true,
     });
@@ -442,6 +527,109 @@ export default function FileExplorer({
     }
   };
 
+  const handleCopyPath = () => {
+    if (contextMenu.targetPath) {
+      navigator.clipboard.writeText(contextMenu.targetPath);
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleCopyRelativePath = () => {
+    if (contextMenu.targetPath && activeCwd) {
+      navigator.clipboard.writeText(getRelativePath(contextMenu.targetPath, activeCwd));
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleCopyFile = () => {
+    if (contextMenu.targetPath) {
+      setClipboard({ action: "copy", path: contextMenu.targetPath });
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleCutFile = () => {
+    if (contextMenu.targetPath) {
+      setClipboard({ action: "cut", path: contextMenu.targetPath });
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handlePasteFile = async () => {
+    if (!clipboard || !contextMenu.targetPath) return;
+    
+    let targetDir = contextMenu.targetPath;
+    if (!contextMenu.targetIsDir) {
+      targetDir = getParentPath(contextMenu.targetPath, false);
+    }
+    
+    const sep = clipboard.path.includes("\\") ? "\\" : "/";
+    const fileName = clipboard.path.split(sep).pop();
+    const destPath = targetDir + sep + fileName;
+
+    try {
+      if (clipboard.action === "copy") {
+        await invoke("copy_item", { source_path: clipboard.path, dest_path: destPath });
+      } else {
+        await invoke("rename_item", { old_path: clipboard.path, new_path: destPath });
+        setClipboard(null);
+      }
+      fetchFiles(true);
+    } catch (err: any) {
+      alert(`Error pasting: ${err.toString()}`);
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const triggerRename = () => {
+    if (contextMenu.targetPath) {
+      setInlineRenameTarget(contextMenu.targetPath);
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
+
+  const handleRenameSubmit = async (oldPath: string, newName: string, isDir: boolean) => {
+    let targetDir = getParentPath(oldPath, isDir);
+    if (isDir) {
+      const lastSlash = Math.max(oldPath.lastIndexOf("/"), oldPath.lastIndexOf("\\"));
+      targetDir = lastSlash !== -1 ? oldPath.substring(0, lastSlash) : "";
+    }
+    const sep = oldPath.includes("\\") ? "\\" : "/";
+    const newPath = targetDir ? `${targetDir}${sep}${newName}` : newName;
+
+    try {
+      await invoke("rename_item", { old_path: oldPath, new_path: newPath });
+      setInlineRenameTarget(null);
+      fetchFiles(true);
+    } catch (err: any) {
+      alert(`Error renaming: ${err.toString()}`);
+      setInlineRenameTarget(null);
+    }
+  };
+
+  const handleRenameCancel = () => {
+    setInlineRenameTarget(null);
+  };
+  
+  const deleteItem = async () => {
+    if (!contextMenu.targetPath) return;
+    const confirmMsg = `Are you sure you want to delete ${
+      contextMenu.targetIsDir ? "folder" : "file"
+    } '${contextMenu.targetPath}'?`;
+    if (!confirm(confirmMsg)) {
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+      return;
+    }
+
+    try {
+      await invoke("delete_item", { path: contextMenu.targetPath });
+      setContextMenu((prev) => ({ ...prev, visible: false }));
+      fetchFiles(true);
+    } catch (err: any) {
+      alert(`Error deleting item: ${err.toString()}`);
+    }
+  };
+
   return (
     <div
       className="explorer-container"
@@ -487,6 +675,26 @@ export default function FileExplorer({
         .context-menu-item:hover {
           background-color: var(--bg-tertiary);
           color: var(--text-primary);
+        }
+        .context-menu-separator {
+          height: 1px;
+          background-color: var(--border-primary);
+          margin: 4px 0;
+        }
+        .context-menu-item-content {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          width: 100%;
+        }
+        .context-menu-item-left {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .context-menu-item-right {
+          font-size: 10px;
+          color: var(--text-muted);
         }
       `}</style>
 
@@ -578,6 +786,9 @@ export default function FileExplorer({
                 onNodeChildrenLoaded={handleNodeChildrenLoaded}
                 gitFileStatuses={gitFileStatuses}
                 activeCwd={activeCwd}
+                inlineRenameTarget={inlineRenameTarget}
+                onRenameSubmit={handleRenameSubmit}
+                onRenameCancel={handleRenameCancel}
               />
             ))}
           </div>
@@ -593,23 +804,124 @@ export default function FileExplorer({
             top: contextMenu.y,
             left: contextMenu.x,
             zIndex: 1000,
+            minWidth: "220px",
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          <div
-            className="context-menu-item"
-            onClick={() => triggerCreateItem("file")}
-          >
-            <FilePlus size={12} />
-            <span>New File</span>
+          {/* Create Items */}
+          <div className="context-menu-item" onClick={() => triggerCreateItem("file")}>
+            <div className="context-menu-item-content">
+              <div className="context-menu-item-left"><span>New File</span></div>
+            </div>
           </div>
-          <div
-            className="context-menu-item"
-            onClick={() => triggerCreateItem("folder")}
-          >
-            <FolderPlus size={12} />
-            <span>New Folder</span>
+          <div className="context-menu-item" onClick={() => triggerCreateItem("folder")}>
+            <div className="context-menu-item-content">
+              <div className="context-menu-item-left"><span>New Folder</span></div>
+            </div>
           </div>
+          <div className="context-menu-separator"></div>
+
+          {/* Open Items */}
+          {contextMenu.targetPath && !contextMenu.targetIsDir && (
+            <div className="context-menu-item" onClick={() => {
+              // Open to side if supported, fallback to open
+              if (onFileSelectSide) onFileSelectSide(contextMenu.targetPath!);
+              else onFileSelect(contextMenu.targetPath!);
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}>
+              <div className="context-menu-item-content">
+                <div className="context-menu-item-left"><span>Open to the Side</span></div>
+                <span className="context-menu-item-right">Ctrl+Enter</span>
+              </div>
+            </div>
+          )}
+          {contextMenu.targetPath && (
+            <div className="context-menu-item" onClick={() => {
+              // Open Containing Folder could use shell
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}>
+              <div className="context-menu-item-content">
+                <div className="context-menu-item-left"><span>Open Containing Folder</span></div>
+              </div>
+            </div>
+          )}
+          {contextMenu.targetPath && (
+            <div className="context-menu-item" onClick={() => {
+              setContextMenu((prev) => ({ ...prev, visible: false }));
+            }}>
+              <div className="context-menu-item-content">
+                <div className="context-menu-item-left"><span>Open in Integrated Terminal</span></div>
+              </div>
+            </div>
+          )}
+          
+          <div className="context-menu-separator"></div>
+
+          {/* Clipboard Ops */}
+          {contextMenu.targetPath && (
+            <>
+              <div className="context-menu-item" onClick={handleCutFile}>
+                <div className="context-menu-item-content">
+                  <div className="context-menu-item-left"><span>Cut</span></div>
+                  <span className="context-menu-item-right">Ctrl+X</span>
+                </div>
+              </div>
+              <div className="context-menu-item" onClick={handleCopyFile}>
+                <div className="context-menu-item-content">
+                  <div className="context-menu-item-left"><span>Copy</span></div>
+                  <span className="context-menu-item-right">Ctrl+C</span>
+                </div>
+              </div>
+            </>
+          )}
+          {clipboard && contextMenu.targetIsDir && (
+             <div className="context-menu-item" onClick={handlePasteFile}>
+               <div className="context-menu-item-content">
+                 <div className="context-menu-item-left"><span>Paste</span></div>
+                 <span className="context-menu-item-right">Ctrl+V</span>
+               </div>
+             </div>
+          )}
+
+          <div className="context-menu-separator"></div>
+
+          {/* Path Ops */}
+          {contextMenu.targetPath && (
+            <>
+              <div className="context-menu-item" onClick={handleCopyPath}>
+                <div className="context-menu-item-content">
+                  <div className="context-menu-item-left"><span>Copy Path</span></div>
+                  <span className="context-menu-item-right">Shift+Alt+C</span>
+                </div>
+              </div>
+              <div className="context-menu-item" onClick={handleCopyRelativePath}>
+                <div className="context-menu-item-content">
+                  <div className="context-menu-item-left"><span>Copy Relative Path</span></div>
+                  <span className="context-menu-item-right">Ctrl+Shift+C</span>
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="context-menu-separator"></div>
+
+          {/* Destructive Ops */}
+          {contextMenu.targetPath && contextMenu.targetPath !== activeCwd && (
+            <>
+              <div className="context-menu-item" onClick={triggerRename}>
+                <div className="context-menu-item-content">
+                  <div className="context-menu-item-left"><span>Rename...</span></div>
+                  <span className="context-menu-item-right">F2</span>
+                </div>
+              </div>
+              <div className="context-menu-item" onClick={deleteItem}>
+                <div className="context-menu-item-content">
+                  <div className="context-menu-item-left"><span>Delete</span></div>
+                  <span className="context-menu-item-right">Del</span>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 

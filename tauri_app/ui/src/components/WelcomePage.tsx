@@ -6,14 +6,17 @@ import {
   Play,
   Square,
   ExternalLink,
-  Database,
-  Server,
-  Activity,
-  Clock,
   Terminal,
   Settings,
   LayoutGrid,
   ArrowRight,
+  ArrowLeftRight,
+  MonitorCog,
+  Bolt,
+  Package,
+  Wrench,
+  Database,
+  Clock,
 } from "lucide-react";
 import { Project, ProcessState } from "../types";
 import { listen } from "@tauri-apps/api/event";
@@ -507,7 +510,7 @@ export default function WelcomePage({
             <div className="welcome-subsection" style={{ marginTop: "16px" }}>
               <div className="welcome-section-header">
                 <div className="title-group">
-                  <Server size={14} />
+                  <Bolt size={14} />
                   <h2>Công cụ khác</h2>
                 </div>
               </div>
@@ -537,7 +540,7 @@ export default function WelcomePage({
                     }
                   }}
                 >
-                  <Activity size={12} />
+                  <ArrowLeftRight size={12} />
                   <span>PingZero API</span>
                 </button>
                 <button
@@ -551,7 +554,7 @@ export default function WelcomePage({
                     }
                   }}
                 >
-                  <Server size={12} />
+                  <MonitorCog size={12} />
                   <span>Alouette VMM</span>
                 </button>
               </div>

@@ -10,19 +10,19 @@ import brandIcon from "./logo_alouette.png";
 import { WindowControls } from "./WindowControls";
 
 const THEME = {
-  bgApp: "#1e1e1e",
-  bgPanel: "#252526",
-  bgInput: "#3c3c3c",
-  bgHover: "#2a2d2e",
-  border: "#3c3c3c",
-  borderFocus: "#007acc",
-  textMain: "#cccccc",
-  textMuted: "#858585",
-  accent: "#007acc",
-  accentHover: "#005a9e",
-  success: "#89d185",
-  error: "#f48771",
-  warning: "#cca700"
+  bgApp: "var(--bg-primary)",
+  bgPanel: "var(--bg-secondary)",
+  bgInput: "var(--bg-tertiary)",
+  bgHover: "var(--bg-tertiary)",
+  border: "var(--border-primary)",
+  borderFocus: "var(--border-focus)",
+  textMain: "var(--text-primary)",
+  textMuted: "var(--text-muted)",
+  accent: "var(--color-accent)",
+  accentHover: "var(--color-accent-hover)",
+  success: "var(--color-success)",
+  error: "var(--color-danger)",
+  warning: "var(--color-warning)"
 };
 
 const inputStyle: React.CSSProperties = {

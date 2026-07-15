@@ -136,7 +136,7 @@ function computeUnsavedDiff(
 const editorOptions = {
   fontSize: 12,
   fontFamily: "'JetBrains Mono', Consolas, 'Courier New', monospace",
-  minimap: { enabled: false },
+  minimap: { enabled: true, renderCharacters: false, scale: 0.5, maxColumn: 80, showSlider: "mouseover" as const },
   automaticLayout: true,
   scrollBeyondLastLine: false,
   cursorBlinking: "smooth" as const,
@@ -194,6 +194,9 @@ export default React.memo(function CodeEditor({
   const lastPathRef = useRef<string | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Ref cho content mới nhất từ parent
+  const initialContentRef = useRef<string | null>(initialContent);
+  initialContentRef.current = initialContent;
   // Ref cho content mới nhất — tránh closure stale trong save handler
   const latestContentRef = useRef<string>("");
   // RAF ref cho batching onChange — giảm re-render khi gõ nhanh
@@ -762,8 +765,9 @@ export default React.memo(function CodeEditor({
     // Lưu cleanup function
     editor.onDidDispose(cleanupListener);
 
-    if (initialContent !== null && editor.getValue() !== initialContent) {
-      editor.setValue(initialContent);
+    const currentInitialContent = initialContentRef.current;
+    if (currentInitialContent !== null && editor.getValue() !== currentInitialContent) {
+      editor.setValue(currentInitialContent);
     }
 
     // --- HACK ĐỂ CHẶN HOÀN TOÀN BỘ GÕ (IME) THEO YÊU CẦU ---

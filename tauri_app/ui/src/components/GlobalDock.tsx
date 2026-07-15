@@ -1,9 +1,9 @@
 import {
   FolderPen,
   Droplets,
-  Proportions,
   UserRoundKey,
-  Blocks
+  Blocks,
+  MonitorCog
 } from "lucide-react";
 
 const DockerIcon = ({ size = 20, className = "" }) => (
@@ -55,7 +55,7 @@ export default function GlobalDock({ activeMode = "explorer", onOpenVmManager, o
           <Droplets size={20} />
         </button>
         <button className="dock-btn" title="VM (Virtual Machine)" onClick={onOpenVmManager}>
-          <Proportions size={20} />
+          <MonitorCog size={20} />
         </button>
       </div>
       <div className="dock-bottom">

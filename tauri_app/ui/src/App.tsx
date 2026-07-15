@@ -50,7 +50,10 @@ import GlobalDock from "./components/GlobalDock";
 import AuthModal from "./components/AuthModal";
 import { MemoryInspector } from "./components/MemoryInspector";
 import DockerManager from "./components/DockerManager";
+import { loader } from "@monaco-editor/react";
 
+// Preload Monaco Editor in the background to speed up first file opening
+loader.init().catch(console.error);
 
 // Search Engine
 import { searchAgentHistoryFull, detectSearchIntent } from "./lib/search";
@@ -197,11 +200,15 @@ function LayoutRightIcon({
 import { ResourceHistory, TerminalSessionItem, ProcessState } from "./types";
 
 // Hooks
+import { useTheme } from "./hooks/useTheme";
 import { useProjects } from "./hooks/useProjects";
 import { useResources } from "./hooks/useResources";
 import { useTerminal } from "./hooks/useTerminal";
 
 export default function App() {
+  // Theme State (global sync)
+  const { theme, setTheme } = useTheme();
+
   // Early return for sub-windows
   if (window.location.search.includes("window=vm-manager")) {
     return <VmManager />;
@@ -216,8 +223,7 @@ export default function App() {
   }
 
 
-  // Theme State
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
+
 
   // Window label state to detect multi-window views (e.g. PingZero ping window)
   const [windowLabel, setWindowLabel] = useState<string>(() => {
@@ -456,10 +462,7 @@ export default function App() {
   setProjectTerminalsRef.current = setProjectTerminalsState;
   setActiveTerminalIdsRef.current = setActiveTerminalIdsState;
 
-  // ── Theme effect ──
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-  }, [theme]);
+
 
   // Split Editor Pane structures
   interface EditorPane {
@@ -509,6 +512,7 @@ export default function App() {
       return copy;
     });
     setOpenFilePath(normalizedPath);
+
     // Scroll to line nếu được chỉ định (Monaco sẽ xử lý)
     if (line && line > 0) {
       setTimeout(() => {
@@ -521,6 +525,29 @@ export default function App() {
         }
       }, 300);
     }
+  };
+
+  const handleFileOpenSide = (path: string) => {
+    const normalizedPath = path.replace(/\\/g, "/");
+    setPanes((prevPanes) => {
+      if (prevPanes.length >= 3) {
+        // If max panes reached, just open in current
+        const copy = [...prevPanes];
+        const pane = { ...copy[activePaneIndex] };
+        if (!pane.openFiles.includes(normalizedPath)) {
+          pane.openFiles = [...pane.openFiles, normalizedPath];
+        }
+        pane.openFilePath = normalizedPath;
+        copy[activePaneIndex] = pane;
+        return copy;
+      }
+      const newPane = {
+        openFiles: [normalizedPath],
+        openFilePath: normalizedPath,
+      };
+      return [...prevPanes, newPane];
+    });
+    setActivePaneIndex((prev) => (panes.length >= 3 ? prev : panes.length));
   };
 
   // Close tab in a specific pane
@@ -1257,7 +1284,7 @@ export default function App() {
         triggerConfirm={triggerConfirm}
         triggerToast={triggerToast}
         onOpenResources={() => handleFileOpenCustom("__resources__")}
-        onToggleTunnel={() => handleFileOpenCustom("__cloudflare_tunnel__")}
+
         agentHistoryList={agentHistoryList}
         onLoadAgentSession={handleLoadSessionFromSearch}
       />
@@ -1357,6 +1384,7 @@ export default function App() {
               <FileExplorer
                 activeCwd={activeProject?.cwd}
                 onFileSelect={handleFileOpenCustom}
+                onFileSelectSide={handleFileOpenSide}
               />
             ) : (
               <ExtensionPanel onFileSelect={handleFileOpenCustom} />

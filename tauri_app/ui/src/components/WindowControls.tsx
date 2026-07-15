@@ -69,7 +69,7 @@ export function WindowControls() {
         className="window-control-btn"
         title="Minimize"
       >
-        <Minus size={12} strokeWidth={1.5} color="white" />
+        <Minus size={12} strokeWidth={1.5} color="currentColor" />
       </button>
 
       {/* Nút Phóng to / Thu nhỏ (Restore) */}
@@ -79,9 +79,9 @@ export function WindowControls() {
         title={isMaximized ? "Restore" : "Maximize"}
       >
         {isMaximized ? (
-          <Copy size={10} strokeWidth={1.5} color="white" className="rotate-90" />
+          <Copy size={10} strokeWidth={1.5} color="currentColor" className="rotate-90" />
         ) : (
-          <Square size={10} strokeWidth={1.5} color="white" />
+          <Square size={10} strokeWidth={1.5} color="currentColor" />
         )}
       </button>
 
@@ -91,7 +91,7 @@ export function WindowControls() {
         className="window-control-btn close-btn"
         title="Close"
       >
-        <X size={12} strokeWidth={1.5} color="white" />
+        <X size={12} strokeWidth={1.5} color="currentColor" />
       </button>
     </div>
   );
