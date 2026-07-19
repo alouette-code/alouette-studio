@@ -13,8 +13,6 @@ import {
   ArrowLeftRight,
   MonitorCog,
   Bolt,
-  Package,
-  Wrench,
   Database,
   Clock,
 } from "lucide-react";

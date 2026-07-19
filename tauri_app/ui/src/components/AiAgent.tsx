@@ -1180,7 +1180,8 @@ export default function AiAgent({
           );
           if (!isActiveSender.current) return;
           if (watchdogTimer) clearTimeout(watchdogTimer);
-          setIsTyping(false);
+          // Do NOT set isTyping(false) here, because the agent might still be executing tools!
+          // isTyping will be set to false when agent_send_message completely resolves.
         },
       );
     };
@@ -1189,10 +1190,10 @@ export default function AiAgent({
 
     return () => {
       if (watchdogTimer) clearTimeout(watchdogTimer);
-      if (unlistenText) unlistenText();
-      if (unlistenThought) unlistenThought();
-      if (unlistenThoughtFinal) unlistenThoughtFinal();
-      if (unlistenStreamComplete) unlistenStreamComplete();
+      Promise.resolve(unlistenText).then(fn => fn && fn());
+      Promise.resolve(unlistenThought).then(fn => fn && fn());
+      Promise.resolve(unlistenThoughtFinal).then(fn => fn && fn());
+      Promise.resolve(unlistenStreamComplete).then(fn => fn && fn());
     };
   }, []);
 
@@ -1323,12 +1324,12 @@ export default function AiAgent({
         if (!isActiveSender.current) return;
         const data = event.payload;
 
-        const iterKey = `iter_${data.iteration}_${!!data.tool_result}`;
-        if (processedIters.current.has(iterKey)) return;
-        processedIters.current.add(iterKey);
+        const iterKey = `iter_${data.iteration}`;
+        if (processedIters.current.has(iterKey + "_" + !!data.tool_result)) return;
+        processedIters.current.add(iterKey + "_" + !!data.tool_result);
         
         // Clear stream placeholder so the next iteration starts fresh
-        activeStreamMessageIdRef.current = null;
+        removeStreamPlaceholder();
 
         setActiveThought(data.thought || null);
         setLoopIterations(data.iteration || 0);
@@ -2154,77 +2155,6 @@ export default function AiAgent({
     { key: "git", label: "Git", icon: GitBranch, isActive: capabilities.git },
   ];
 
-  const getToolStatusIcon = (status?: string) => {
-    switch (status) {
-      case "running":
-        return <RefreshCw size={11} className="agent-spin" />;
-      case "success":
-        return <Check size={11} style={{ color: "#22c55e" }} />;
-      case "failed":
-        return <X size={11} style={{ color: "#ef4444" }} />;
-      case "waiting":
-        return <AlertCircle size={11} style={{ color: "#f59e0b" }} />;
-      default:
-        return null;
-    }
-  };
-
-  const getToolStatusText = (status?: string) => {
-    switch (status) {
-      case "running":
-        return "Đang chạy";
-      case "success":
-        return "Hoàn thành";
-      case "failed":
-        return "Thất bại";
-      case "waiting":
-        return "Chờ duyệt";
-      case "approved":
-        return "Đã duyệt";
-      case "rejected":
-        return "Đã từ chối";
-      default:
-        return "";
-    }
-  };
-
-  const getFriendlyToolName = (name: string, argsStr?: string) => {
-    if (name === "execute_command" && argsStr) {
-      try {
-        const parsed = JSON.parse(argsStr);
-        if (parsed.command) {
-          return `Chạy lệnh: ${parsed.command}`;
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-    switch (name) {
-      case "read_file":
-      case "read_file_range":
-        return "Đọc tệp tin";
-      case "write_file":
-        return "Ghi tệp tin";
-      case "execute_command":
-        return "Chạy lệnh terminal";
-      case "search_files":
-        return "Tìm kiếm tệp";
-      case "scan_directory_tree":
-      case "scan_subdirectory":
-        return "Quét thư mục";
-      case "extract_symbol":
-      case "search_symbol":
-        return "Truy xuất mã nguồn";
-      case "save_memory":
-        return "Lưu ký ức";
-      case "search_memory":
-        return "Tìm kiếm ký ức";
-      case "check_port":
-        return "Kiểm tra cổng mạng";
-      default:
-        return `Công cụ: ${name}`;
-    }
-  };
 
   return (
     <div
@@ -2600,84 +2530,22 @@ export default function AiAgent({
         {chatHistory.map((item) => {
           const isUser = item.sender === "user";
           if (item.type === "agent_activity") {
-            return (
-              <div
-                key={item.id}
-                className="message-container agent-fade-in"
-                style={{
-                  padding: "8px 12px",
-                  background: "var(--bg-secondary)",
-                  border: "1px solid var(--border-primary)",
-                  borderRadius: "6px",
-                  fontSize: "11px",
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--text-secondary)",
-                  lineHeight: "1.5",
-                  whiteSpace: "pre-wrap",
-                  position: "relative",
-                  flexShrink: 0,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "6px",
-                    marginBottom: "4px",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "9px",
-                      fontWeight: 600,
-                      color: "var(--text-secondary)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.05em",
-                    }}
-                  >
-                    Hoạt động
-                  </span>
-                  <span
-                    style={{
-                      fontSize: "9px",
-                      color: "var(--text-muted)",
-                      marginLeft: "auto",
-                    }}
-                  >
-                    {item.timestamp}
-                  </span>
-                </div>
-                <div style={{ color: "var(--text-primary)", fontSize: "11px" }}>
-                  {item.text}
-                </div>
-              </div>
-            );
-          }
-
-          if (item.type === "skill_call") {
             const isExpanded = !!expandedSkills[item.id];
-            const statusColor =
-              item.toolStatus === "success"
-                ? "#22c55e"
-                : item.toolStatus === "failed"
-                  ? "#ef4444"
-                  : item.toolStatus === "running"
-                    ? "#6366f1"
-                    : "var(--text-muted)";
-
             return (
               <div
                 key={item.id}
                 className="message-container agent-fade-in"
                 style={{
-                  border: "1px solid var(--border-primary)",
-                  borderRadius: "8px",
-                  background: "var(--bg-primary)",
-                  overflow: "hidden",
-                  flexShrink: 0,
+                  display: "flex",
+                  flexDirection: "column",
+                  fontSize: "12px",
+                  color: "var(--text-muted)",
+                  fontFamily: "var(--font-mono)",
+                  lineHeight: "1.6",
+                  marginBottom: "2px",
+                  paddingLeft: "8px",
                 }}
               >
-                {/* Header */}
                 <div
                   onClick={() => {
                     setExpandedSkills((prev) => ({
@@ -2686,160 +2554,165 @@ export default function AiAgent({
                     }));
                   }}
                   style={{
-                    display: "flex",
+                    display: "inline-flex",
                     alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "8px 12px",
+                    gap: "6px",
                     cursor: "pointer",
                     userSelect: "none",
-                    background: isExpanded
-                      ? "rgba(255,255,255,0.015)"
-                      : "transparent",
-                    transition: "background 0.15s",
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isExpanded)
-                      e.currentTarget.style.background =
-                        "rgba(255,255,255,0.02)";
-                  }}
-                  onMouseLeave={(e) => {
-                    if (!isExpanded)
-                      e.currentTarget.style.background = "transparent";
+                    width: "max-content",
                   }}
                 >
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    {isExpanded ? (
-                      <ChevronDown
-                        size={11}
-                        style={{ color: "var(--text-muted)", flexShrink: 0 }}
-                      />
-                    ) : (
-                      <ChevronRight
-                        size={11}
-                        style={{ color: "var(--text-muted)", flexShrink: 0 }}
-                      />
-                    )}
-                    {getToolIconComponent(item.toolName || "")}
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        fontWeight: 600,
-                        color: "var(--text-primary)",
-                      }}
-                    >
-                      {getFriendlyToolName(item.toolName || "", item.args)}
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: "9px",
-                        color: statusColor,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "3px",
-                        fontWeight: 500,
-                      }}
-                    >
-                      {getToolStatusIcon(item.toolStatus)}
-                      {getToolStatusText(item.toolStatus)}
-                    </span>
-                    <span
-                      style={{ fontSize: "9px", color: "var(--text-muted)" }}
-                    >
-                      {item.timestamp}
-                    </span>
-                  </div>
+                  <span>Thought</span>
+                  {isExpanded ? <ChevronDown size={12} style={{ opacity: 0.6 }} /> : <ChevronRight size={12} style={{ opacity: 0.6 }} />}
                 </div>
-
-                {/* Expanded Details */}
                 {isExpanded && (
                   <div
                     style={{
-                      borderTop: "1px solid var(--border-primary)",
-                      background: "var(--bg-secondary)",
-                      padding: "10px 12px",
+                      paddingLeft: "12px",
+                      marginTop: "4px",
+                      whiteSpace: "pre-wrap",
+                      color: "var(--text-secondary)",
+                      borderLeft: "1px solid var(--border-primary)",
+                      marginLeft: "4px",
+                      fontSize: "11px",
+                    }}
+                  >
+                    {item.text}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          if (item.type === "skill_call") {
+            const isExpanded = !!expandedSkills[item.id];
+            
+            let compactNode: React.ReactNode = null;
+            let argsObj: any = {};
+            try {
+              if (item.args) {
+                if (typeof item.args === "string") {
+                  argsObj = JSON.parse(item.args);
+                } else if (typeof item.args === "object") {
+                  argsObj = item.args;
+                }
+              }
+            } catch(e) {}
+            
+            const tName = item.toolName || "";
+            const iconStyle = { marginRight: "4px", flexShrink: 0 };
+            
+            // Tìm giá trị đầu tiên là chuỗi (string) trong params để làm fallback nếu không khớp key
+            const fallbackPath = Object.values(argsObj).find(v => typeof v === "string") || "";
+            
+            if (tName === "scan_directory_tree") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Analyzed</span><Folder size={12} style={iconStyle} /><span>Workspace</span></span>;
+            } else if (tName === "scan_subdirectory") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Analyzed</span><Folder size={12} style={iconStyle} /><span>{argsObj.path || argsObj.dirPath || fallbackPath}</span></span>;
+            } else if (tName === "read_file") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Analyzed</span><FileText size={12} style={iconStyle} /><span>{argsObj.path || argsObj.filePath || fallbackPath}</span></span>;
+            } else if (tName === "read_file_range") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Analyzed</span><FileText size={12} style={iconStyle} /><span>{argsObj.file || argsObj.path || fallbackPath} (Lines {argsObj.start_line}-{argsObj.end_line})</span></span>;
+            } else if (tName === "write_file") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Edited</span><FileText size={12} style={iconStyle} /><span>{argsObj.path || argsObj.targetFile || fallbackPath}</span></span>;
+            } else if (tName === "replace_in_file") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Edited</span><FileText size={12} style={iconStyle} /><span>{argsObj.path || fallbackPath} (Lines {argsObj.start_line}-{argsObj.end_line})</span></span>;
+            } else if (tName === "execute_command") {
+              compactNode = <span>{item.toolStatus === "failed" ? "Failed Task" : item.toolStatus === "success" ? "Checked Task" : "Running Task"}: {argsObj.command || fallbackPath}</span>;
+            } else if (tName === "search_files") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Searched</span><Folder size={12} style={iconStyle} /><span>{argsObj.pattern || argsObj.query || fallbackPath}</span></span>;
+            } else if (tName === "extract_symbol") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Analyzed</span><FileText size={12} style={iconStyle} /><span>{argsObj.file || fallbackPath} (Symbol: {argsObj.symbol || ""})</span></span>;
+            } else if (tName === "search_symbol") {
+              compactNode = <span style={{display: "inline-flex", alignItems: "center"}}><span style={{marginRight: "4px"}}>Searched</span><Search size={12} style={iconStyle} /><span>Symbol: {argsObj.symbol || fallbackPath}</span></span>;
+            } else {
+              compactNode = <span>Used tool: {tName}</span>;
+            }
+
+            return (
+              <div
+                key={item.id}
+                className="message-container agent-fade-in"
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  fontSize: "12px",
+                  color: "var(--text-muted)",
+                  fontFamily: "var(--font-mono)",
+                  lineHeight: "1.6",
+                  marginBottom: "2px",
+                  paddingLeft: "8px",
+                }}
+              >
+                <div
+                  onClick={() => {
+                    setExpandedSkills((prev) => ({
+                      ...prev,
+                      [item.id]: !prev[item.id],
+                    }));
+                  }}
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    cursor: "pointer",
+                    userSelect: "none",
+                    width: "max-content",
+                  }}
+                >
+                  <span>{compactNode}</span>
+                  {isExpanded ? <ChevronDown size={12} style={{ opacity: 0.6 }} /> : <ChevronRight size={12} style={{ opacity: 0.6 }} />}
+                  {item.toolStatus === "running" && <RefreshCw size={10} className="agent-spin" style={{ marginLeft: "4px" }} />}
+                </div>
+
+                {isExpanded && (
+                  <div
+                    style={{
+                      paddingLeft: "12px",
+                      marginTop: "4px",
                       display: "flex",
                       flexDirection: "column",
-                      gap: "8px",
+                      gap: "6px",
+                      borderLeft: "1px solid var(--border-primary)",
+                      marginLeft: "4px",
                     }}
                   >
                     {item.args && (
                       <div>
-                        <div
-                          style={{
-                            fontSize: "9px",
-                            color: "var(--text-muted)",
-                            textTransform: "uppercase",
-                            fontWeight: 700,
-                            marginBottom: "4px",
-                            letterSpacing: "0.04em",
-                          }}
-                        >
-                          Tham số đầu vào
-                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)", marginBottom: "2px" }}>Tham số đầu vào:</div>
                         <pre
                           style={{
                             margin: 0,
-                            padding: "6px 8px",
-                            background: "var(--bg-primary)",
-                            border: "1px solid var(--border-primary)",
-                            borderRadius: "6px",
+                            padding: "4px 8px",
+                            background: "transparent",
+                            borderLeft: "1px solid var(--border-primary)",
                             fontFamily: "var(--font-mono)",
                             fontSize: "10px",
-                            color: "var(--text-primary)",
+                            color: "var(--text-secondary)",
                             whiteSpace: "pre-wrap",
                             wordBreak: "break-all",
-                            lineHeight: "1.4",
                           }}
                         >
                           {item.args}
                         </pre>
                       </div>
                     )}
-
                     {item.toolResult && (
                       <div>
-                        <div
-                          style={{
-                            fontSize: "9px",
-                            color: "var(--text-muted)",
-                            textTransform: "uppercase",
-                            fontWeight: 700,
-                            marginBottom: "4px",
-                            letterSpacing: "0.04em",
-                          }}
-                        >
-                          Kết quả trả về
-                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)", marginBottom: "2px" }}>Kết quả trả về:</div>
                         <pre
                           style={{
                             margin: 0,
-                            padding: "6px 8px",
-                            background: "var(--bg-primary)",
-                            border: "1px solid var(--border-primary)",
-                            borderRadius: "6px",
+                            padding: "4px 8px",
+                            background: "transparent",
+                            borderLeft: "1px solid var(--border-primary)",
                             fontFamily: "var(--font-mono)",
                             fontSize: "10px",
                             color: "var(--text-secondary)",
                             whiteSpace: "pre-wrap",
                             wordBreak: "break-all",
-                            maxHeight: "180px",
+                            maxHeight: "150px",
                             overflowY: "auto",
-                            lineHeight: "1.4",
                           }}
                         >
                           {item.toolResult}
@@ -2962,6 +2835,10 @@ export default function AiAgent({
           }
 
           // Text messages
+          if (item.sender === "agent" && item.text === "" && item.id.startsWith("stream_")) {
+            return null;
+          }
+
           return (
             <div
               key={item.id}
@@ -2976,28 +2853,30 @@ export default function AiAgent({
               }}
             >
               {/* Sender label */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: "4px",
-                  marginBottom: "3px",
-                  padding: isUser ? "0 4px" : "0 2px",
-                  fontSize: "10px",
-                  color: "var(--text-muted)",
-                }}
-              >
-                <span
+              {!(item.sender === "agent" && item.text === "" && item.id.startsWith("stream_")) && (
+                <div
                   style={{
-                    fontWeight: 500,
-                    color: "var(--text-secondary)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    marginBottom: "3px",
+                    padding: isUser ? "0 4px" : "0 2px",
+                    fontSize: "10px",
+                    color: "var(--text-muted)",
                   }}
                 >
-                  {isUser ? "Bạn" : "Agent"}
-                </span>
-                <span style={{ fontSize: "9px", opacity: 0.5 }}>•</span>
-                <span style={{ fontSize: "9px" }}>{item.timestamp}</span>
-              </div>
+                  <span
+                    style={{
+                      fontWeight: 500,
+                      color: "var(--text-secondary)",
+                    }}
+                  >
+                    {isUser ? "Bạn" : "Agent"}
+                  </span>
+                  <span style={{ fontSize: "9px", opacity: 0.5 }}>•</span>
+                  <span style={{ fontSize: "9px" }}>{item.timestamp}</span>
+                </div>
+              )}
 
               {/* Message bubble */}
               <div
