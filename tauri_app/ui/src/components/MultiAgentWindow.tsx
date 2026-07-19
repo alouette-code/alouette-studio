@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, History, Clock, FolderOpen, FolderPlus, MessageSquarePlus, MessageSquare } from 'lucide-react';
+import { Plus, History, Clock, FolderOpen, FolderPlus, MessageSquare } from 'lucide-react';
 import { invoke } from "@tauri-apps/api/core";
 import { Project } from "../types";
 
@@ -21,7 +21,7 @@ interface MultiAgentWindowProps {
   setTheme: (t: "dark" | "light") => void;
 }
 
-export default function MultiAgentWindow({ theme, setTheme }: MultiAgentWindowProps) {
+export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>("");
   const [activeProjectCwd, setActiveProjectCwd] = useState<string>("");
