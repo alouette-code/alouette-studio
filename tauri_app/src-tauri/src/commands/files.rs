@@ -525,3 +525,22 @@ pub async fn open_docker_window(app_handle: tauri::AppHandle) -> Result<(), Stri
 
     Ok(())
 }
+
+#[tauri::command]
+pub async fn open_empty_window(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let label = format!("empty_window_{}", chrono::Utc::now().timestamp_millis());
+    let _window = tauri::WebviewWindowBuilder::new(
+        &app_handle,
+        &label,
+        tauri::WebviewUrl::App("index.html?window=empty".into()),
+    )
+    .title("Alouette Studio - Empty")
+    .inner_size(800.0, 600.0)
+    .resizable(true)
+    .decorations(false) // No OS title bar
+    .transparent(true)
+    .build()
+    .map_err(|e: tauri::Error| e.to_string())?;
+
+    Ok(())
+}
