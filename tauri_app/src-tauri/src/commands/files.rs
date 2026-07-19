@@ -29,15 +29,13 @@ fn cached_canonicalize(path: &Path) -> Result<PathBuf, String> {
     Ok(canonical)
 }
 
-/// Resolve workspace root một lần và cache lại.
-fn workspace_root() -> PathBuf {
-    static ROOT: LazyLock<PathBuf> =
-        LazyLock::new(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
-    ROOT.clone()
+async fn get_active_workspace(state: &AppState) -> PathBuf {
+    let harness = state.agent_harness.lock().await;
+    harness.get_workspace_root()
 }
 
 async fn validate_path(state: &AppState, path_str: &str) -> Result<PathBuf, String> {
-    let workspace_root = workspace_root();
+    let workspace_root = get_active_workspace(state).await;
     let canonical_root = cached_canonicalize(&workspace_root)?;
 
     let path = Path::new(path_str);
@@ -121,7 +119,8 @@ pub async fn get_project_files(
     state: State<'_, AppState>,
     dir_path: Option<String>,
 ) -> Result<Vec<FileNode>, String> {
-    let path_str = dir_path.unwrap_or_else(|| workspace_root().to_string_lossy().to_string());
+    let workspace_root = get_active_workspace(&state).await;
+    let path_str = dir_path.unwrap_or_else(|| workspace_root.to_string_lossy().to_string());
 
     let validated = validate_path(&state, &path_str).await?;
     get_directory_contents(state, validated.to_string_lossy().to_string()).await
@@ -365,7 +364,8 @@ pub async fn get_all_files_and_folders(
     state: State<'_, AppState>,
     dir_path: Option<String>,
 ) -> Result<Vec<SearchFileItem>, String> {
-    let path_str = dir_path.unwrap_or_else(|| workspace_root().to_string_lossy().to_string());
+    let workspace_root = get_active_workspace(&state).await;
+    let path_str = dir_path.unwrap_or_else(|| workspace_root.to_string_lossy().to_string());
 
     let validated = validate_path(&state, &path_str).await?;
     let mut items = Vec::new();

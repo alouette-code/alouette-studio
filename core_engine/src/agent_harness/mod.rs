@@ -296,6 +296,10 @@ impl AgentHarness {
     }
 
     /// Dynamically update the workspace root without dropping running commands
+    pub fn get_workspace_root(&self) -> PathBuf {
+        self.workspace_root.clone()
+    }
+
     pub fn set_workspace_root<P: AsRef<Path>>(&mut self, workspace_root: P) {
         let canonical_root = fs::canonicalize(&workspace_root)
             .unwrap_or_else(|_| workspace_root.as_ref().to_path_buf());
@@ -1356,6 +1360,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                 "-Command",
             ]);
             c.arg(&cmd_str);
+            c.current_dir(&self.workspace_root);
             c
         } else {
             let mut c = tokio::process::Command::new("sh");
@@ -1365,6 +1370,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             }
             c.arg("-c");
             c.arg(&cmd_str);
+            c.current_dir(&self.workspace_root);
             c
         };
 
