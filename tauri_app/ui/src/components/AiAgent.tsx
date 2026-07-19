@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
 import DOMPurify from "dompurify";
+import Fuse from "fuse.js";
 import {
   Plus,
   RefreshCw,
@@ -628,38 +629,18 @@ export default function AiAgent({
     loadFiles();
   }, [activeProjectCwd]);
 
-  // Fuzzy match scoring function
-  const getFuzzyScore = (text: string, query: string): number => {
-    const t = text.toLowerCase();
-    const q = query.toLowerCase();
-    if (t === q) return 1000;
-    if (t.includes(q)) {
-      return 500 - t.indexOf(q);
-    }
-
-    let qIdx = 0;
-    let tIdx = 0;
-    let score = 0;
-    let lastMatchIdx = -1;
-
-    while (tIdx < t.length && qIdx < q.length) {
-      if (t[tIdx] === q[qIdx]) {
-        if (lastMatchIdx !== -1) {
-          const gap = tIdx - lastMatchIdx;
-          if (gap === 1) score += 10;
-          else if (gap <= 3) score += 5;
-          else score += 1;
-        } else {
-          score += 5;
-        }
-        lastMatchIdx = tIdx;
-        qIdx++;
-      }
-      tIdx++;
-    }
-
-    return qIdx === q.length ? score : 0;
-  };
+  // Memoize the Fuse instance for better performance
+  const fuse = useMemo(() => {
+    return new Fuse(allWorkspaceFiles, {
+      keys: [
+        { name: "name", weight: 2 },
+        { name: "path", weight: 1 }
+      ],
+      threshold: 0.4, // Strict matching to avoid showing unrelated files
+      ignoreLocation: true, // Allow match anywhere in string
+      distance: 1000 // Ensure we can match paths regardless of string length
+    });
+  }, [allWorkspaceFiles]);
 
   // Memoized filter list of matching files and folders
   const filteredMentions = useMemo(() => {
@@ -667,19 +648,11 @@ export default function AiAgent({
     if (!mentionQuery) {
       return allWorkspaceFiles.slice(0, 30);
     }
-    return allWorkspaceFiles
-      .map((item) => ({
-        item,
-        score: Math.max(
-          getFuzzyScore(item.name, mentionQuery) * 1.5,
-          getFuzzyScore(item.path, mentionQuery),
-        ),
-      }))
-      .filter((x) => x.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .map((x) => x.item)
+    
+    return fuse.search(mentionQuery)
+      .map((result) => result.item)
       .slice(0, 30);
-  }, [showMentions, mentionQuery, allWorkspaceFiles]);
+  }, [showMentions, mentionQuery, allWorkspaceFiles, fuse]);
 
   const checkMentionTrigger = (text: string, selectionStart: number) => {
     let atIndex = -1;
@@ -3054,7 +3027,7 @@ export default function AiAgent({
           flexDirection: "column",
           gap: "8px",
           flexShrink: 0,
-          overflow: "hidden",
+          overflow: "visible",
           boxShadow: variant === "full" ? "0 -4px 12px rgba(0,0,0,0.05)" : "none",
         }}
       >
@@ -3384,93 +3357,6 @@ export default function AiAgent({
             </div>
           )}
 
-          {/* Mentions Autocomplete Dropdown */}
-          {showMentions && filteredMentions.length > 0 && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: "100%",
-                left: "18px",
-                right: "18px",
-                marginBottom: "8px",
-                background: "var(--bg-primary)",
-                border: "1px solid var(--border-primary)",
-                borderRadius: "8px",
-                boxShadow:
-                  "0 -8px 24px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5)",
-                zIndex: 1000,
-                maxHeight: "220px",
-                overflowY: "auto",
-                padding: "6px",
-                display: "flex",
-                flexDirection: "column",
-                gap: "2px",
-              }}
-            >
-              {filteredMentions.map((item, idx) => {
-                const isSelected = idx === mentionSelectedIndex;
-                return (
-                  <button
-                    key={item.path}
-                    type="button"
-                    onClick={() => handleSelectMention(item)}
-                    onMouseEnter={() => setMentionSelectedIndex(idx)}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "8px",
-                      width: "100%",
-                      padding: "6px 10px",
-                      background: isSelected
-                        ? "var(--bg-secondary)"
-                        : "transparent",
-                      border: "none",
-                      borderRadius: "6px",
-                      color: isSelected ? "var(--text-primary)" : "var(--text-secondary)",
-                      fontSize: "12px",
-                      cursor: "pointer",
-                      textAlign: "left",
-                      outline: "none",
-                      transition: "background 0.15s, color 0.15s",
-                    }}
-                  >
-                    {item.is_dir ? (
-                      <Folder
-                        size={13}
-                        style={{
-                          color: "var(--text-secondary)",
-                          flexShrink: 0,
-                        }}
-                      />
-                    ) : (
-                      <File
-                        size={13}
-                        style={{
-                          color: "var(--text-secondary)",
-                          flexShrink: 0,
-                        }}
-                      />
-                    )}
-                    <span style={{ fontWeight: 500, flexShrink: 0 }}>
-                      {item.name}
-                    </span>
-                    <span
-                      style={{
-                        color: "var(--text-muted)",
-                        fontSize: "10.5px",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        marginLeft: "4px",
-                      }}
-                    >
-                      {item.path}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          )}
 
           {/* Selected Mentions Pills */}
           {selectedContextItems.length > 0 && (
@@ -3549,38 +3435,127 @@ export default function AiAgent({
             </div>
           )}
 
-          {/* Text Area */}
-          <textarea
-            ref={textareaRef}
-            rows={1}
-            placeholder="Ask anything, '@' to add context"
-            value={inputVal}
-            onChange={(e) => {
-              setInputVal(e.target.value);
-              checkMentionTrigger(e.target.value, e.target.selectionStart);
-            }}
-            onSelect={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              checkMentionTrigger(target.value, target.selectionStart);
-            }}
-            onKeyDown={handleKeyDown}
-            disabled={isTyping}
-            style={{
-              width: "100%",
-              background: "transparent",
-              border: "none",
-              color: "var(--text-primary)",
-              padding: variant === "full" ? "10px 0" : "6px 0",
-              fontSize: variant === "full" ? "16px" : "15px",
-              outline: "none",
-              resize: "none",
-              fontFamily: "var(--font-sans)",
-              lineHeight: "1.5",
-              maxHeight: "200px",
-              minHeight: variant === "full" ? "48px" : "36px",
-              overflowY: "auto",
-            }}
-          />
+          {/* Text Area and Mentions Dropdown Wrapper */}
+          <div style={{ position: "relative", width: "100%" }}>
+            {/* Mentions Autocomplete Dropdown */}
+            {showMentions && filteredMentions.length > 0 && (
+              <div
+                style={{
+                  position: "absolute",
+                  bottom: "100%",
+                  left: "0",
+                  right: "0",
+                  marginBottom: "8px",
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--border-primary)",
+                  borderRadius: "8px",
+                  boxShadow: "var(--shadow-popup)",
+                  zIndex: 1000,
+                  maxHeight: "220px",
+                  overflowY: "auto",
+                  padding: "6px",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: "2px",
+                }}
+              >
+                {filteredMentions.map((item, idx) => {
+                  const isSelected = idx === mentionSelectedIndex;
+                  return (
+                    <button
+                      key={item.path}
+                      type="button"
+                      onClick={() => handleSelectMention(item)}
+                      onMouseEnter={() => setMentionSelectedIndex(idx)}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        width: "100%",
+                        padding: "6px 10px",
+                        background: isSelected
+                          ? "var(--bg-secondary)"
+                          : "transparent",
+                        border: "none",
+                        borderRadius: "6px",
+                        color: isSelected ? "var(--text-primary)" : "var(--text-secondary)",
+                        fontSize: "12px",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        outline: "none",
+                        transition: "background 0.15s, color 0.15s",
+                      }}
+                    >
+                      {item.is_dir ? (
+                        <Folder
+                          size={13}
+                          style={{
+                            color: "var(--text-secondary)",
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : (
+                        <File
+                          size={13}
+                          style={{
+                            color: "var(--text-secondary)",
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <span style={{ fontWeight: 500, flexShrink: 0 }}>
+                        {item.name}
+                      </span>
+                      <span
+                        style={{
+                          color: "var(--text-muted)",
+                          fontSize: "10.5px",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          marginLeft: "4px",
+                        }}
+                      >
+                        {item.path}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            <textarea
+              ref={textareaRef}
+              rows={1}
+              placeholder="Ask anything, '@' to add context"
+              value={inputVal}
+              onChange={(e) => {
+                setInputVal(e.target.value);
+                checkMentionTrigger(e.target.value, e.target.selectionStart);
+              }}
+              onSelect={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                checkMentionTrigger(target.value, target.selectionStart);
+              }}
+              onKeyDown={handleKeyDown}
+              disabled={isTyping}
+              style={{
+                width: "100%",
+                background: "transparent",
+                border: "none",
+                color: "var(--text-primary)",
+                padding: variant === "full" ? "10px 0" : "6px 0",
+                fontSize: variant === "full" ? "16px" : "15px",
+                outline: "none",
+                resize: "none",
+                fontFamily: "var(--font-sans)",
+                lineHeight: "1.5",
+                maxHeight: "200px",
+                minHeight: variant === "full" ? "48px" : "36px",
+                overflowY: "auto",
+              }}
+            />
+          </div>
 
           {/* Bottom Row: Custom Dropdowns (Agent, Model, @) on Left, Blue Send Button on Right */}
           <div
