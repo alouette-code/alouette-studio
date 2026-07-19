@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Square,
   Package2,
+  Snail,
 } from "lucide-react";
 
 import { WindowControls } from "./WindowControls";
@@ -616,6 +617,14 @@ export default function Header({
             )}
           </div>
         )}
+
+        <button
+          className="btn-header-logo-right"
+          onClick={() => handleFileAction("open-empty-window")}
+          title="Mở AI Agent (Cửa sổ mới)"
+        >
+          <Snail size={13} />
+        </button>
 
         <button
           className="btn-header-logo-right"

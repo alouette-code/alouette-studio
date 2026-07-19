@@ -48,6 +48,8 @@ import WelcomePage from "./components/WelcomePage";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import VmManager from "./components/VmManager";
 import GlobalDock from "./components/GlobalDock";
+import { WindowControls } from "./components/WindowControls";
+import brandIcon from "./components/logo_alouette.png";
 import AuthModal from "./components/AuthModal";
 import { MemoryInspector } from "./components/MemoryInspector";
 import DockerManager from "./components/DockerManager";
@@ -221,6 +223,28 @@ export default function App() {
 
   if (window.location.search.includes("window=docker-manager")) {
     return <DockerManager />;
+  }
+
+  if (window.location.search.includes("window=empty")) {
+    return (
+      <div className="app-container" data-theme={theme} style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)' }}>
+        <div 
+          className="global-header" 
+          data-tauri-drag-region 
+          style={{ height: '40px', display: 'flex', alignItems: 'center', padding: '0 10px', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--header-bg, #1e1e1e)' }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <img src={brandIcon} style={{ width: "16px", height: "16px", objectFit: "contain" }} alt="App Logo" />
+            <span style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '0.5px' }}>multi agen</span>
+          </div>
+          <WindowControls />
+        </div>
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+          <span style={{ opacity: 0.5, fontSize: '12px' }}>Cửa sổ trống</span>
+        </div>
+        <WindowResizer />
+      </div>
+    );
   }
 
 
@@ -690,6 +714,14 @@ export default function App() {
           await invoke("open_new_window");
         } catch (err: any) {
           triggerToast(`Failed to open new window: ${err}`, "error");
+        }
+        break;
+      }
+      case "open-empty-window": {
+        try {
+          await invoke("open_empty_window");
+        } catch (err: any) {
+          triggerToast(`Failed to open empty window: ${err}`, "error");
         }
         break;
       }
