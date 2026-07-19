@@ -39,6 +39,7 @@ import {
   Save,
   Brain,
   Plug,
+  ChartBarStacked,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -93,6 +94,7 @@ interface AiAgentProps {
   initialMessage?: string;
   onClearInitialMessage?: () => void;
   variant?: "sidebar" | "full";
+  isMultiAgentPage?: boolean;
 }
 
 // ─── Tool Card Item (compact, expandable) ───────────────────────────────
@@ -527,6 +529,7 @@ export default function AiAgent({
   initialMessage,
   onClearInitialMessage,
   variant = "sidebar",
+  isMultiAgentPage,
 }: AiAgentProps) {
   const [chatHistory, setChatHistory] = useState<ChatItem[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -2497,34 +2500,8 @@ export default function AiAgent({
                   lineHeight: "1.5",
                 }}
               >
-                Gửi tin nhắn để bắt đầu. Có thể giúp bạn đọc/ghi tệp, chạy
-                terminal, tìm kiếm mã nguồn.
+                What should you do now? Let's get creative together!
               </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                gap: "6px",
-                marginTop: "8px",
-                flexWrap: "wrap",
-                justifyContent: "center",
-              }}
-            >
-              {["DeepSeek-V4", "Claude Opus", "Gemini 3.5"].map((m) => (
-                <span
-                  key={m}
-                  style={{
-                    padding: "3px 8px",
-                    fontSize: "9.5px",
-                    background: "var(--bg-secondary)",
-                    border: "1px solid var(--border-primary)",
-                    color: "var(--text-muted)",
-                    borderRadius: "4px",
-                  }}
-                >
-                  {m}
-                </span>
-              ))}
             </div>
           </div>
         )}
@@ -3622,6 +3599,41 @@ export default function AiAgent({
                 position: "relative",
               }}
             >
+              {/* Multi Agent Button */}
+              {isMultiAgentPage && (
+                <div style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      padding: "5px 12px",
+                      background: "var(--bg-secondary)",
+                      border: "1px solid var(--border-primary)",
+                      borderRadius: "20px",
+                      color: "var(--text-secondary)",
+                      fontSize: "12px",
+                      cursor: "pointer",
+                      transition: "all 0.2s",
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background =
+                        "var(--bg-secondary)";
+                      e.currentTarget.style.color = "var(--text-primary)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background =
+                        "var(--bg-secondary)";
+                      e.currentTarget.style.color = "var(--text-secondary)";
+                    }}
+                  >
+                    <ChartBarStacked size={12} style={{ opacity: 0.8 }} />
+                    <span>Multi Agent</span>
+                  </button>
+                </div>
+              )}
+
               {/* Agent Mode Pill Dropdown */}
               <div ref={modeDropdownRef} style={{ position: "relative" }}>
                 <button
@@ -3818,9 +3830,10 @@ export default function AiAgent({
               </button>
             </div>
 
-            {/* Token counter (center) */}
-            <span
-              style={{
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              {/* Token counter (center) */}
+              <span
+                style={{
                 position: "relative",
                 display: isCompact ? "none" : "inline-flex",
                 alignItems: "center",
@@ -4020,6 +4033,7 @@ export default function AiAgent({
                 <CornerDownLeft size={13} strokeWidth={2.5} />
               </button>
             )}
+            </div>
           </div>
         </form>
 

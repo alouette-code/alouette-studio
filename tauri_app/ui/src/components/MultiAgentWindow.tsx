@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, History, Clock, FolderOpen, FolderPlus, MessageSquare } from 'lucide-react';
+import { Plus, History, Clock, FolderOpen, FolderPlus, MessageSquare, Trash2 } from 'lucide-react';
 import { invoke } from "@tauri-apps/api/core";
 import { Project } from "../types";
 
@@ -123,6 +123,23 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
     }
   };
 
+  const handleDeleteProject = async (proj: Project, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await invoke("deregister_project", { projectId: proj.id });
+      // If deleted project is active, clear active
+      if (activeProjectId === proj.id) {
+        setActiveProjectId("");
+        setActiveProjectCwd("");
+        setActiveSessionId("");
+        setActiveSessionData(null);
+      }
+      await loadProjects();
+    } catch (err) {
+      console.error("Failed to delete project:", err);
+    }
+  };
+
   return (
     <div className="multi-agent-window" data-theme={theme} style={{ display: 'flex', flexDirection: 'row', width: '100vw', height: '100vh', backgroundColor: 'var(--bg-color)', color: 'var(--text-color)', overflow: 'hidden' }}>
       
@@ -171,12 +188,21 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
                     <FolderOpen size={13} style={{ color: activeProjectId === proj.id ? 'var(--text-color, #ffffff)' : 'var(--text-muted)' }} />
                     <span className="conv-title">{proj.name}</span>
                   </div>
-                  <div 
-                    className="multi-agent-inline-action"
-                    onClick={(e) => handleNewChat(proj, e)}
-                    title="New Chat"
-                  >
-                    <Plus size={14} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <div 
+                      className="multi-agent-inline-action"
+                      onClick={(e) => handleDeleteProject(proj, e)}
+                      title="Delete Project"
+                    >
+                      <Trash2 size={13} />
+                    </div>
+                    <div 
+                      className="multi-agent-inline-action"
+                      onClick={(e) => handleNewChat(proj, e)}
+                      title="New Chat"
+                    >
+                      <Plus size={14} />
+                    </div>
                   </div>
                 </button>
                 
@@ -230,6 +256,7 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
               activeProjectCwd={activeProjectCwd}
               initialSessionData={activeSessionData}
               variant="full"
+              isMultiAgentPage={true}
             />
           </div>
         </div>
