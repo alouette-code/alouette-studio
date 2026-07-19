@@ -92,6 +92,7 @@ interface AiAgentProps {
   onLoadSession?: (sessionId: string, title: string) => void;
   initialMessage?: string;
   onClearInitialMessage?: () => void;
+  variant?: "sidebar" | "full";
 }
 
 // ─── Tool Card Item (compact, expandable) ───────────────────────────────
@@ -525,6 +526,7 @@ export default function AiAgent({
   onLoadSession,
   initialMessage,
   onClearInitialMessage,
+  variant = "sidebar",
 }: AiAgentProps) {
   const [chatHistory, setChatHistory] = useState<ChatItem[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -3207,19 +3209,19 @@ export default function AiAgent({
           </div>
         )}
 
-        {/* Input box styled exactly like the screenshot */}
+        {/* Input box styled dynamically */}
         <form
           onSubmit={handleSend}
           style={{
             display: "flex",
             flexDirection: "column",
-            background: "#18181b",
-            border: "1px solid rgba(255, 255, 255, 0.08)",
-            borderRadius: "24px",
-            padding: "12px 18px",
-            gap: "6px",
+            background: "transparent",
+            border: "none",
+            padding: variant === "full" ? "14px 0" : "12px 0",
+            gap: "8px",
             position: "relative",
-            boxShadow: "0 10px 30px -10px rgba(0, 0, 0, 0.7)",
+            boxShadow: "none",
+            margin: variant === "full" ? "10px 0" : "0",
           }}
         >
           {/* Top Row: Icons on Left, "Local Config v" on Right */}
@@ -3244,7 +3246,7 @@ export default function AiAgent({
                   color:
                     thinkingMode === "high"
                       ? "#a855f7"
-                      : "rgba(255, 255, 255, 0.35)",
+                      : "var(--text-muted)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -3255,13 +3257,13 @@ export default function AiAgent({
                   (e.currentTarget.style.color =
                     thinkingMode === "high"
                       ? "#c084fc"
-                      : "rgba(255, 255, 255, 0.75)")
+                      : "var(--text-secondary)")
                 }
                 onMouseLeave={(e) =>
                   (e.currentTarget.style.color =
                     thinkingMode === "high"
                       ? "#a855f7"
-                      : "rgba(255, 255, 255, 0.35)")
+                      : "var(--text-muted)")
                 }
                 title={
                   thinkingMode === "high"
@@ -3278,7 +3280,7 @@ export default function AiAgent({
                   background: "none",
                   border: "none",
                   padding: 0,
-                  color: capsOpen ? "#38bdf8" : "rgba(255, 255, 255, 0.35)",
+                  color: capsOpen ? "#38bdf8" : ("var(--text-muted)"),
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -3288,12 +3290,12 @@ export default function AiAgent({
                 onMouseEnter={(e) =>
                   (e.currentTarget.style.color = capsOpen
                     ? "#38bdf8"
-                    : "rgba(255, 255, 255, 0.75)")
+                    : "var(--text-secondary)")
                 }
                 onMouseLeave={(e) =>
                   (e.currentTarget.style.color = capsOpen
                     ? "#38bdf8"
-                    : "rgba(255, 255, 255, 0.35)")
+                    : "var(--text-muted)")
                 }
                 title="Config permissions"
               >
@@ -3306,7 +3308,7 @@ export default function AiAgent({
                   background: "none",
                   border: "none",
                   padding: 0,
-                  color: "rgba(255, 255, 255, 0.35)",
+                  color: "var(--text-muted)",
                   cursor: "pointer",
                   display: "flex",
                   alignItems: "center",
@@ -3314,10 +3316,10 @@ export default function AiAgent({
                   transition: "color 0.2s",
                 }}
                 onMouseEnter={(e) =>
-                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                  (e.currentTarget.style.color = "var(--text-primary)")
                 }
                 onMouseLeave={(e) =>
-                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.35)")
+                  (e.currentTarget.style.color = "var(--text-secondary)")
                 }
                 title="Workspace status"
               >
@@ -3332,7 +3334,7 @@ export default function AiAgent({
                 background: "none",
                 border: "none",
                 padding: "2px 6px",
-                color: "rgba(255, 255, 255, 0.45)",
+                color: "var(--text-secondary)",
                 fontSize: "12.5px",
                 cursor: "pointer",
                 display: "flex",
@@ -3342,10 +3344,10 @@ export default function AiAgent({
                 transition: "color 0.2s",
               }}
               onMouseEnter={(e) =>
-                (e.currentTarget.style.color = "rgba(255, 255, 255, 0.8)")
+                (e.currentTarget.style.color = "var(--text-primary)")
               }
               onMouseLeave={(e) =>
-                (e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)")
+                (e.currentTarget.style.color = "var(--text-secondary)")
               }
             >
               <span style={{ display: isCompact ? "none" : "inline" }}>Local Config</span>
@@ -3362,8 +3364,8 @@ export default function AiAgent({
                 flexWrap: "wrap",
                 gap: "4px",
                 padding: "8px 0 4px",
-                borderBottom: "1px solid rgba(255, 255, 255, 0.08)",
-                borderTop: "1px solid rgba(255, 255, 255, 0.08)",
+                borderBottom: "1px solid var(--border-primary)",
+                borderTop: "1px solid var(--border-primary)",
               }}
             >
               {capList.map((item) => {
@@ -3381,10 +3383,10 @@ export default function AiAgent({
                       fontSize: "10px",
                       borderRadius: "4px",
                       border: item.isActive
-                        ? "1px solid rgba(255, 255, 255, 0.2)"
-                        : "1px solid rgba(255, 255, 255, 0.05)",
+                        ? "1px solid var(--border-primary)"
+                        : "1px solid var(--border-primary)",
                       background: item.isActive
-                        ? "rgba(255, 255, 255, 0.08)"
+                        ? "var(--bg-secondary)"
                         : "transparent",
                       color: item.isActive
                         ? "var(--text-primary)"
@@ -3410,8 +3412,8 @@ export default function AiAgent({
                 left: "18px",
                 right: "18px",
                 marginBottom: "8px",
-                background: "#242424",
-                border: "1px solid rgba(255, 255, 255, 0.1)",
+                background: "var(--bg-primary)",
+                border: "1px solid var(--border-primary)",
                 borderRadius: "8px",
                 boxShadow:
                   "0 -8px 24px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5)",
@@ -3439,11 +3441,11 @@ export default function AiAgent({
                       width: "100%",
                       padding: "6px 10px",
                       background: isSelected
-                        ? "rgba(255, 255, 255, 0.08)"
+                        ? "var(--bg-secondary)"
                         : "transparent",
                       border: "none",
                       borderRadius: "6px",
-                      color: isSelected ? "#fff" : "rgba(255, 255, 255, 0.7)",
+                      color: isSelected ? "var(--text-primary)" : "var(--text-secondary)",
                       fontSize: "12px",
                       cursor: "pointer",
                       textAlign: "left",
@@ -3455,7 +3457,7 @@ export default function AiAgent({
                       <Folder
                         size={13}
                         style={{
-                          color: "rgba(255, 255, 255, 0.45)",
+                          color: "var(--text-secondary)",
                           flexShrink: 0,
                         }}
                       />
@@ -3463,7 +3465,7 @@ export default function AiAgent({
                       <File
                         size={13}
                         style={{
-                          color: "rgba(255, 255, 255, 0.45)",
+                          color: "var(--text-secondary)",
                           flexShrink: 0,
                         }}
                       />
@@ -3473,7 +3475,7 @@ export default function AiAgent({
                     </span>
                     <span
                       style={{
-                        color: "rgba(255, 255, 255, 0.35)",
+                        color: "var(--text-muted)",
                         fontSize: "10.5px",
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -3506,12 +3508,12 @@ export default function AiAgent({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "6px",
-                    background: "rgba(255, 255, 255, 0.06)",
-                    border: "1px solid rgba(255, 255, 255, 0.12)",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-primary)",
                     borderRadius: "16px",
                     padding: "3px 10px",
                     fontSize: "11px",
-                    color: "rgba(255, 255, 255, 0.8)",
+                    color: "var(--text-primary)",
                     fontFamily: "var(--font-sans)",
                     userSelect: "none",
                   }}
@@ -3520,7 +3522,7 @@ export default function AiAgent({
                     <Folder
                       size={11}
                       style={{
-                        color: "rgba(255, 255, 255, 0.45)",
+                        color: "var(--text-secondary)",
                         flexShrink: 0,
                       }}
                     />
@@ -3528,7 +3530,7 @@ export default function AiAgent({
                     <File
                       size={11}
                       style={{
-                        color: "rgba(255, 255, 255, 0.45)",
+                        color: "var(--text-secondary)",
                         flexShrink: 0,
                       }}
                     />
@@ -3586,15 +3588,15 @@ export default function AiAgent({
               width: "100%",
               background: "transparent",
               border: "none",
-              color: "rgba(255, 255, 255, 0.9)",
-              padding: "6px 0",
-              fontSize: "15px",
+              color: "var(--text-primary)",
+              padding: variant === "full" ? "10px 0" : "6px 0",
+              fontSize: variant === "full" ? "16px" : "15px",
               outline: "none",
               resize: "none",
               fontFamily: "var(--font-sans)",
               lineHeight: "1.5",
-              maxHeight: "160px",
-              minHeight: "36px",
+              maxHeight: "200px",
+              minHeight: variant === "full" ? "48px" : "36px",
               overflowY: "auto",
             }}
           />
@@ -3626,23 +3628,23 @@ export default function AiAgent({
                     alignItems: "center",
                     gap: "4px",
                     padding: "5px 12px",
-                    background: "rgba(255, 255, 255, 0.05)",
-                    border: "1px solid rgba(255, 255, 255, 0.08)",
+                    background: "var(--bg-secondary)",
+                    border: "1px solid var(--border-primary)",
                     borderRadius: "20px",
-                    color: "rgba(255, 255, 255, 0.65)",
+                    color: "var(--text-secondary)",
                     fontSize: "12px",
                     cursor: "pointer",
                     transition: "all 0.2s",
                   }}
                   onMouseEnter={(e) => {
                     e.currentTarget.style.background =
-                      "rgba(255, 255, 255, 0.08)";
-                    e.currentTarget.style.color = "#fff";
+                      "var(--bg-secondary)";
+                    e.currentTarget.style.color = "var(--text-primary)";
                   }}
                   onMouseLeave={(e) => {
                     e.currentTarget.style.background =
-                      "rgba(255, 255, 255, 0.05)";
-                    e.currentTarget.style.color = "rgba(255, 255, 255, 0.65)";
+                      "var(--bg-secondary)";
+                    e.currentTarget.style.color = "var(--text-secondary)";
                   }}
                 >
                   <Sparkles size={12} style={{ opacity: 0.8 }} />
@@ -3662,8 +3664,8 @@ export default function AiAgent({
                       position: "absolute",
                       bottom: "calc(100% + 6px)",
                       left: 0,
-                      background: "#242424",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      background: "var(--bg-primary)",
+                      border: "1px solid var(--border-primary)",
                       borderRadius: "8px",
                       boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
                       zIndex: 1000,
@@ -3689,11 +3691,11 @@ export default function AiAgent({
                           padding: "6px 8px",
                           background:
                             selectedMode === mode.value
-                              ? "rgba(255, 255, 255, 0.08)"
+                              ? "var(--bg-secondary)"
                               : "transparent",
                           border: "none",
                           borderRadius: "4px",
-                          color: "#fff",
+                          color: "var(--text-primary)",
                           fontSize: "11px",
                           cursor: "pointer",
                         }}
@@ -3717,16 +3719,16 @@ export default function AiAgent({
                     padding: "4px 8px",
                     background: "transparent",
                     border: "none",
-                    color: "rgba(255, 255, 255, 0.45)",
+                    color: "var(--text-secondary)",
                     fontSize: "12px",
                     cursor: "pointer",
                     transition: "color 0.2s",
                   }}
                   onMouseEnter={(e) =>
-                    (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                    (e.currentTarget.style.color = "var(--text-primary)")
                   }
                   onMouseLeave={(e) =>
-                    (e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)")
+                    (e.currentTarget.style.color = "var(--text-secondary)")
                   }
                 >
                   <span>
@@ -3742,8 +3744,8 @@ export default function AiAgent({
                       position: "absolute",
                       bottom: "calc(100% + 6px)",
                       left: 0,
-                      background: "#242424",
-                      border: "1px solid rgba(255, 255, 255, 0.1)",
+                      background: "var(--bg-primary)",
+                      border: "1px solid var(--border-primary)",
                       borderRadius: "8px",
                       boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
                       zIndex: 1000,
@@ -3767,11 +3769,11 @@ export default function AiAgent({
                           padding: "6px 8px",
                           background:
                             selectedModel === m.id
-                              ? "rgba(255, 255, 255, 0.08)"
+                              ? "var(--bg-secondary)"
                               : "transparent",
                           border: "none",
                           borderRadius: "4px",
-                          color: "#fff",
+                          color: "var(--text-primary)",
                           fontSize: "11px",
                           cursor: "pointer",
                         }}
@@ -3794,17 +3796,17 @@ export default function AiAgent({
                   background: "none",
                   border: "none",
                   padding: "4px 8px",
-                  color: "rgba(255, 255, 255, 0.45)",
+                  color: "var(--text-secondary)",
                   fontSize: "13px",
                   cursor: "pointer",
                   fontFamily: "var(--font-sans)",
                   transition: "color 0.2s",
                 }}
                 onMouseEnter={(e) =>
-                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.75)")
+                  (e.currentTarget.style.color = "var(--text-primary)")
                 }
                 onMouseLeave={(e) =>
-                  (e.currentTarget.style.color = "rgba(255, 255, 255, 0.45)")
+                  (e.currentTarget.style.color = "var(--text-secondary)")
                 }
                 title="Add context (@)"
               >
@@ -3835,15 +3837,15 @@ export default function AiAgent({
                   borderRadius: "50%",
                   background: showTokenTooltip
                     ? "rgba(167, 139, 250, 0.15)"
-                    : "rgba(255, 255, 255, 0.05)",
+                    : "var(--bg-secondary)",
                   border: showTokenTooltip
                     ? "1px solid rgba(167, 139, 250, 0.5)"
-                    : "1px solid rgba(255, 255, 255, 0.1)",
+                    : "1px solid var(--border-primary)",
                   fontSize: "7px",
                   fontWeight: 700,
                   color: showTokenTooltip
                     ? "#a78bfa"
-                    : "rgba(255, 255, 255, 0.35)",
+                    : "var(--text-muted)",
                   transition: "all 0.2s",
                   lineHeight: 1,
                   flexShrink: 0,
@@ -3855,8 +3857,8 @@ export default function AiAgent({
                 style={{
                   fontSize: "11px",
                   color: showTokenTooltip
-                    ? "rgba(255,255,255,0.7)"
-                    : "rgba(255, 255, 255, 0.35)",
+                    ? "var(--text-secondary)"
+                    : "var(--text-muted)",
                   transition: "color 0.2s",
                   fontFamily: "var(--font-mono)",
                 }}
@@ -3874,7 +3876,7 @@ export default function AiAgent({
                     bottom: "calc(100% + 10px)",
                     left: "50%",
                     transform: "translateX(-50%)",
-                    background: "#1a1a1f",
+                    background: "var(--bg-primary)",
                     border: "1px solid rgba(255,255,255,0.12)",
                     borderRadius: "8px",
                     padding: "8px 12px",
@@ -3888,7 +3890,7 @@ export default function AiAgent({
                     style={{
                       fontSize: "10px",
                       fontWeight: 700,
-                      color: "rgba(255,255,255,0.9)",
+                      color: "var(--text-primary)",
                       marginBottom: "6px",
                       letterSpacing: "0.03em",
                     }}
@@ -3908,7 +3910,7 @@ export default function AiAgent({
                         justifyContent: "space-between",
                         gap: "16px",
                         fontSize: "10px",
-                        color: "rgba(255,255,255,0.6)",
+                        color: "var(--text-secondary)",
                       }}
                     >
                       <span>Tin nhắn hiện tại</span>
@@ -3928,7 +3930,7 @@ export default function AiAgent({
                         justifyContent: "space-between",
                         gap: "16px",
                         fontSize: "10px",
-                        color: "rgba(255,255,255,0.6)",
+                        color: "var(--text-secondary)",
                       }}
                     >
                       <span>Tổng session</span>
@@ -3949,7 +3951,7 @@ export default function AiAgent({
                       paddingTop: "5px",
                       borderTop: "1px solid rgba(255,255,255,0.06)",
                       fontSize: "9px",
-                      color: "rgba(255,255,255,0.3)",
+                      color: "var(--text-muted)",
                       fontStyle: "italic",
                     }}
                   >
@@ -3995,11 +3997,11 @@ export default function AiAgent({
                 style={{
                   background: inputVal.trim()
                     ? "#0078d4"
-                    : "rgba(255, 255, 255, 0.05)",
+                    : "var(--bg-secondary)",
                   border: inputVal.trim()
                     ? "none"
-                    : "1px solid rgba(255, 255, 255, 0.08)",
-                  color: inputVal.trim() ? "#fff" : "rgba(255, 255, 255, 0.25)",
+                    : "1px solid var(--border-primary)",
+                  color: inputVal.trim() ? "var(--text-primary)" : "var(--text-muted)",
                   width: "28px",
                   height: "28px",
                   borderRadius: "8px",
@@ -4017,61 +4019,7 @@ export default function AiAgent({
           </div>
         </form>
 
-        {/* Below the box: "Last Session" and Status */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            padding: "0 4px",
-          }}
-        >
-          <button
-            type="button"
-            onClick={handleNewChat}
-            style={{
-              background: "none",
-              border: "none",
-              color: "rgba(255, 255, 255, 0.4)",
-              fontSize: "12px",
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              padding: 0,
-              fontFamily: "var(--font-sans)",
-            }}
-            onMouseEnter={(e) =>
-              (e.currentTarget.style.color = "rgba(255, 255, 255, 0.7)")
-            }
-            onMouseLeave={(e) =>
-              (e.currentTarget.style.color = "rgba(255, 255, 255, 0.4)")
-            }
-          >
-            <span style={{ display: isCompact ? "none" : "inline" }}>← Last Session</span>
-          </button>
 
-          {/* Status indicator */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "6px",
-              fontSize: "11px",
-              color: "rgba(255, 255, 255, 0.4)",
-            }}
-          >
-            <span
-              style={{
-                width: "6px",
-                height: "6px",
-                borderRadius: "50%",
-                background: isTyping ? "#f59e0b" : "#22c55e",
-              }}
-            />
-            {!isCompact && <span>{isTyping ? "Đang xử lý" : "Sẵn sàng"}</span>}
-          </div>
-        </div>
       </div>
 
       {/* ===== HISTORY MODAL ===== */}
