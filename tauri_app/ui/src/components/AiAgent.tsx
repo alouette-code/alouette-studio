@@ -3068,13 +3068,17 @@ export default function AiAgent({
       {/* ===== BOTTOM INPUT BAR ===== */}
       <div
         style={{
-          borderTop: "1px solid var(--border-primary)",
+          borderTopLeftRadius: variant === "full" ? "24px" : "0px",
+          borderTopRightRadius: variant === "full" ? "24px" : "0px",
+          borderTop: variant === "full" ? "none" : "1px solid var(--border-primary)",
           background: "var(--bg-secondary)",
           padding: "0 16px 12px",
           display: "flex",
           flexDirection: "column",
           gap: "8px",
           flexShrink: 0,
+          overflow: "hidden",
+          boxShadow: variant === "full" ? "0 -4px 12px rgba(0,0,0,0.05)" : "none",
         }}
       >
         {/* Error banner */}
