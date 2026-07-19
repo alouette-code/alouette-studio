@@ -265,8 +265,8 @@ pub fn all_tools() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
-            name: "edit_file",
-            description: "Replace a specific block of lines in a file with new content. More efficient than write_file for small targeted changes. Use when you only need to change a portion of a file. Line numbers can optionally be specified for extra safety and precision.",
+            name: "replace_in_file",
+            description: "Replace a specific block of lines in a file with new content. Use this to modify existing files efficiently without rewriting the entire file. Use extract_symbol or read_file_range to get exact line numbers first.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -274,24 +274,20 @@ pub fn all_tools() -> Vec<ToolDef> {
                         "type": "string",
                         "description": "Relative or absolute path to the file to edit."
                     },
-                    "old_content": {
-                        "type": "string",
-                        "description": "The exact text to find and replace. Must match the file content exactly (including whitespace and indentation)."
-                    },
-                    "new_content": {
-                        "type": "string",
-                        "description": "The replacement text. Will replace old_content exactly."
-                    },
                     "start_line": {
                         "type": "integer",
-                        "description": "Optional 1-based start line of the range to replace."
+                        "description": "1-based start line of the range to replace."
                     },
                     "end_line": {
                         "type": "integer",
-                        "description": "Optional 1-based end line (inclusive) of the range to replace."
+                        "description": "1-based end line (inclusive) of the range to replace."
+                    },
+                    "replacement_content": {
+                        "type": "string",
+                        "description": "The new content that will replace the specified lines."
                     }
                 },
-                "required": ["path", "old_content", "new_content"]
+                "required": ["path", "start_line", "end_line", "replacement_content"]
             }),
         },
         ToolDef {

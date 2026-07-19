@@ -601,7 +601,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     ) -> BlastRadius {
         match tool_name {
             "open_browser" | "get_browser_elements" | "browser_click" | "browser_type" | "browser_click_hardware" | "browser_type_hardware" => BlastRadius::Local,
-            "write_file" | "edit_file" | "execute_command" | "check_port" => BlastRadius::Local,
+            "write_file" | "replace_in_file" | "execute_command" | "check_port" => BlastRadius::Local,
             "get_project_files" | "read_file" => BlastRadius::Local,
             "delete_file" | "force_push" | "git_reset" => {
                 // Check if arguments indicate destructive operation
@@ -677,7 +677,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "extract_symbol" => self.execute_extract_symbol(tool),
             "read_file_range" => self.execute_read_file_range(tool),
             "search_symbol" => self.execute_search_symbol(tool),
-            "edit_file" => self.execute_edit_file(tool),
+            "replace_in_file" => self.execute_replace_in_file(tool),
             "ping_zero_min" => self.execute_ping_zero_min(tool).await,
             "search_web" => self.execute_search_web(tool).await,
             "fetch_webpage" => self.execute_fetch_webpage(tool).await,
@@ -1026,27 +1026,20 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             .map_err(|e| format!("Failed to write file: {}", e))
     }
 
-    fn execute_edit_file(&self, tool: &parser::ToolCall) -> Result<String, String> {
+    fn execute_replace_in_file(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let path_str = tool.arguments["path"]
             .as_str()
             .ok_or_else(|| "Missing 'path' argument".to_string())?;
-        let old_content = tool.arguments["old_content"]
+        let replacement_content = tool.arguments["replacement_content"]
             .as_str()
-            .ok_or_else(|| "Missing 'old_content' argument".to_string())?;
-        let new_content = tool.arguments["new_content"]
-            .as_str()
-            .ok_or_else(|| "Missing 'new_content' argument".to_string())?;
+            .ok_or_else(|| "Missing 'replacement_content' argument".to_string())?;
 
-        let start_line = tool
-            .arguments
-            .get("start_line")
-            .and_then(|v| v.as_u64())
-            .map(|n| n as usize);
-        let end_line = tool
-            .arguments
-            .get("end_line")
-            .and_then(|v| v.as_u64())
-            .map(|n| n as usize);
+        let start_line = tool.arguments["start_line"]
+            .as_u64()
+            .ok_or_else(|| "Missing 'start_line' argument".to_string())? as usize;
+        let end_line = tool.arguments["end_line"]
+            .as_u64()
+            .ok_or_else(|| "Missing 'end_line' argument".to_string())? as usize;
 
         let target_path = Path::new(path_str);
         let verified_path = self.validate_path(target_path)?;
@@ -1054,77 +1047,28 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         let current_content = fs::read_to_string(&verified_path)
             .map_err(|e| format!("Failed to read file '{}': {}", path_str, e))?;
 
-        // Detect line ending (\r\n vs \n)
-        let line_ending = if current_content.contains("\r\n") {
-            "\r\n"
-        } else {
-            "\n"
-        };
-
+        let line_ending = if current_content.contains("\r\n") { "\r\n" } else { "\n" };
         let lines: Vec<&str> = current_content.split(line_ending).collect();
 
-        if let (Some(start), Some(end)) = (start_line, end_line) {
-            // Line numbers are 1-based, inclusive
-            if start == 0 || end == 0 || start > end || start > lines.len() || end > lines.len() {
-                return Err(format!(
-                    "Invalid line range {}-{} (file '{}' has {} lines)",
-                    start,
-                    end,
-                    path_str,
-                    lines.len()
-                ));
-            }
-
-            let slice = &lines[start - 1..end];
-            let original_slice_text = slice.join(line_ending);
-
-            let norm_old = old_content.replace("\r\n", "\n").trim_end().to_string();
-            let norm_slice = original_slice_text
-                .replace("\r\n", "\n")
-                .trim_end()
-                .to_string();
-
-            if norm_old != norm_slice {
-                return Err(format!(
-                    "Line range mismatch: The provided old_content does not match the text at lines {}-{}.\nExpected:\n\"{}\"\nFound:\n\"{}\"",
-                    start, end, norm_old, norm_slice
-                ));
-            }
-
-            // Perform replacement on this range
-            let mut new_lines = lines.clone();
-            new_lines.splice(start - 1..end, vec![new_content]);
-            let replaced = new_lines.join(line_ending);
-            fs::write(&verified_path, replaced)
-                .map_err(|e| format!("Failed to write file: {}", e))?;
-        } else {
-            // Uniqueness checking fallback
-            let normalized_old = old_content.replace("\r\n", "\n");
-            let normalized_current = current_content.replace("\r\n", "\n");
-
-            let occurrences = normalized_current.matches(&normalized_old).count();
-            if occurrences == 0 {
-                return Err(format!(
-                    "Could not find the specified old_content in '{}'. The text may have changed or indentation may differ.",
-                    path_str
-                ));
-            } else if occurrences > 1 {
-                return Err(format!(
-                    "The text to replace (old_content) was found {} times in '{}'. To avoid incorrect replacements, please specify start_line and end_line, or provide a larger, unique block of surrounding code as old_content.",
-                    occurrences, path_str
-                ));
-            }
-
-            let replaced = normalized_current.replacen(&normalized_old, new_content, 1);
-            fs::write(&verified_path, replaced)
-                .map_err(|e| format!("Failed to write file: {}", e))?;
+        if start_line == 0 || end_line == 0 || start_line > end_line || start_line > lines.len() {
+            return Err(format!(
+                "Invalid line range {}-{} (file '{}' has {} lines)",
+                start_line, end_line, path_str, lines.len()
+            ));
         }
 
+        let actual_end_line = std::cmp::min(end_line, lines.len());
+
+        let mut new_lines = lines.clone();
+        new_lines.splice(start_line - 1..actual_end_line, vec![replacement_content]);
+        let replaced = new_lines.join(line_ending);
+        
+        fs::write(&verified_path, replaced)
+            .map_err(|e| format!("Failed to write file: {}", e))?;
+
         Ok(format!(
-            "✓ edit_file: replaced {} chars → {} chars in '{}'",
-            old_content.len(),
-            new_content.len(),
-            path_str
+            "✓ replace_in_file: replaced lines {}-{} with new content in '{}'",
+            start_line, end_line, path_str
         ))
     }
 
