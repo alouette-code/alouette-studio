@@ -62,7 +62,7 @@
     --terminal-bg: #050507;
     --terminal-border: #181820;
     --scrollbar-bg: rgba(255, 255, 255, 0.01);
-    --scrollbar-thumb: rgba(255, 255, 255, 0.05);
+    --scrollbar-thumb: var(--bg-hover);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.12);
 }
 
@@ -479,7 +479,7 @@ select option {
     /* Premium glassmorphism dark */
     backdrop-filter: blur(16px) saturate(180%);
     -webkit-backdrop-filter: blur(16px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    border: 1px solid var(--bg-hover);
     border-radius: 8px;
     box-shadow:
         0 10px 30px -10px rgba(0, 0, 0, 0.6),
@@ -551,7 +551,7 @@ select option {
 
 .agent-search-dropdown-item:hover {
     background: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.08);
+    border-color: var(--bg-hover);
 }
 
 .light-theme .agent-search-dropdown-item:hover {
@@ -589,8 +589,8 @@ select option {
     border-radius: 3px;
     font-size: 9px;
     font-weight: 500;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: var(--bg-hover);
+    border: 1px solid var(--bg-hover);
     color: var(--text-muted);
 }
 
@@ -818,7 +818,7 @@ select option {
     justify-content: center;
     gap: 6px;
     background-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
     border: none;
     padding: 7px 12px;
     font-size: 11.5px;
@@ -890,7 +890,7 @@ select option {
 }
 
 .zone5-tab-btn.active {
-    color: #ffffff;
+    color: var(--text-primary);
     border-bottom: 2px solid #ffffff;
 }
 
@@ -1000,11 +1000,11 @@ select option {
 }
 
 .chart-header strong.value-cpu {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .chart-header strong.value-ram {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .mini-canvas-wrapper {
@@ -1431,7 +1431,7 @@ select option {
 
 .active-badge {
     background-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
     padding: 1px 5px;
     font-size: 9px;
 }
@@ -1841,7 +1841,7 @@ select option {
 
 /* Elegant white active line in footer */
 .nav-tab-btn.active {
-    color: #ffffff;
+    color: var(--text-primary);
     background-color: var(--bg-tertiary);
     border-bottom: 2px solid #ffffff;
 }
@@ -1903,7 +1903,7 @@ select option {
 
 .btn-primary {
     background-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .btn-primary:hover {
@@ -1928,7 +1928,7 @@ select option {
 
 .btn-danger:hover {
     background-color: var(--color-danger);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 /* Scrollbars */
@@ -2247,11 +2247,11 @@ select option {
 }
 
 .build-stat-value.success {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .build-stat-value.fail {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .build-stat-value.total {
@@ -2401,7 +2401,7 @@ select option {
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.5;
-    color: #ffffff;
+    color: var(--text-primary);
     /* White text */
     white-space: pre-wrap;
     word-break: break-all;
@@ -2446,7 +2446,7 @@ select option {
     flex: 1;
     background: transparent;
     border: none;
-    color: #ffffff;
+    color: var(--text-primary);
     font-family: var(--font-mono);
     font-size: 12px;
     padding: 2px 0;
@@ -2709,7 +2709,7 @@ select option {
 .btn-save-file.dirty {
     background-color: var(--color-accent);
     border-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
     box-shadow: 0 0 8px rgba(58, 134, 255, 0.3);
 }
 
@@ -2833,7 +2833,7 @@ select option {
 }
 
 .header-meta-capsule .value.text-success {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .btn-header-start,
@@ -2852,7 +2852,7 @@ select option {
 
 .btn-header-start {
     background-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .btn-header-start:hover {
@@ -2861,7 +2861,7 @@ select option {
 
 .btn-header-stop {
     background-color: var(--color-danger);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .btn-header-stop:hover {
@@ -2885,7 +2885,7 @@ select option {
     justify-content: space-between;
     align-items: center;
     padding: 8px 16px;
-    background-color: var(--bg-tertiary, #151515);
+    background-color: var(--bg-secondary);
     border-bottom: 1px solid var(--border-primary);
     height: 38px;
     flex-shrink: 0;
@@ -2938,7 +2938,7 @@ select option {
     gap: 6px;
     font-size: 11px;
     font-weight: 500;
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
     border: 1px solid var(--border-primary);
     padding: 3px 8px;
     border-radius: 4px;
@@ -2987,7 +2987,7 @@ select option {
 
 .btn-toggle.active {
     background-color: var(--color-accent, #3a86ff);
-    color: #ffffff;
+    color: var(--text-primary);
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
@@ -3001,7 +3001,7 @@ select option {
 .sqlite-sidebar {
     width: 200px;
     border-right: 1px solid var(--border-primary);
-    background-color: var(--bg-tertiary, #151515);
+    background-color: var(--bg-secondary);
     display: flex;
     flex-direction: column;
     flex-shrink: 0;
@@ -3035,7 +3035,7 @@ select option {
 
 .sqlite-sidebar .refresh-btn:hover {
     color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
 }
 
 .sqlite-sidebar .tables-list {
@@ -3063,7 +3063,7 @@ select option {
 }
 
 .sqlite-sidebar .table-list-item:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
     color: var(--text-primary);
 }
 
@@ -3133,7 +3133,7 @@ select option {
 
 .grid-toolbar .row-count {
     font-size: 10px;
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
     padding: 1px 6px;
     border-radius: 10px;
     border: 1px solid var(--border-primary);
@@ -3165,7 +3165,7 @@ select option {
     gap: 6px;
     height: 24px;
     padding: 0 10px;
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
     border: 1px solid var(--border-primary);
     color: var(--text-secondary);
     border-radius: 4px;
@@ -3176,7 +3176,7 @@ select option {
 }
 
 .btn-toolbar:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+    background-color: var(--bg-hover);
     color: var(--text-primary);
     border-color: var(--text-muted);
 }
@@ -3184,7 +3184,7 @@ select option {
 .btn-toolbar.btn-primary {
     background-color: var(--color-accent, #3a86ff);
     border-color: var(--color-accent, #3a86ff);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .btn-toolbar.btn-primary:hover {
@@ -3204,7 +3204,7 @@ select option {
     align-items: flex-end;
     gap: 12px;
     padding: 10px 16px;
-    background-color: var(--bg-tertiary, #151515);
+    background-color: var(--bg-secondary);
     border-bottom: 1px solid var(--border-primary);
     flex-shrink: 0;
 }
@@ -3258,7 +3258,7 @@ select option {
 
 .btn-form.btn-primary {
     background-color: var(--color-accent, #3a86ff);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .btn-form.btn-primary:hover {
@@ -3272,7 +3272,7 @@ select option {
 }
 
 .btn-form.btn-cancel:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
     color: var(--text-primary);
 }
 
@@ -3294,7 +3294,7 @@ select option {
 .table-viewport th {
     position: sticky;
     top: 0;
-    background-color: var(--bg-tertiary, #151515);
+    background-color: var(--bg-secondary);
     padding: 8px 12px;
     font-weight: 700;
     color: var(--text-secondary);
@@ -3375,7 +3375,7 @@ select option {
 .grid-cell.cell-null .null-tag {
     font-size: 9px;
     color: var(--text-muted);
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
     padding: 1px 4px;
     border-radius: 3px;
     font-weight: 700;
@@ -3497,14 +3497,14 @@ select option {
 .btn-tabs-actions:hover,
 .btn-tabs-actions.active {
     color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
 }
 
 .tabs-dropdown-menu {
     position: absolute;
     top: 30px;
     right: 8px;
-    background-color: var(--bg-tertiary, #151515);
+    background-color: var(--bg-secondary);
     border: 1px solid var(--border-primary);
     box-shadow:
         0 10px 25px -5px rgba(0, 0, 0, 0.5),
@@ -3533,7 +3533,7 @@ select option {
 }
 
 .tabs-dropdown-item:hover {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-hover);
     color: var(--text-primary);
 }
 
@@ -3739,7 +3739,7 @@ select option {
 .btn-confirm-accept {
     background-color: var(--color-accent);
     border: none;
-    color: #ffffff;
+    color: var(--text-primary);
     padding: 6px 16px;
     font-size: 12px;
     font-weight: 600;
@@ -3812,7 +3812,7 @@ select option {
 }
 
 .sidebar-tab.active {
-    color: #ffffff;
+    color: var(--text-primary);
     background-color: var(--bg-primary);
     border-bottom-color: var(--color-accent);
 }
@@ -4139,7 +4139,7 @@ select option {
 }
 
 .tab-item.active {
-    color: #ffffff;
+    color: var(--text-primary);
     border-bottom-color: var(--color-accent);
 }
 
@@ -4240,7 +4240,7 @@ select option {
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: var(--bg-hover);
     border-bottom: 1px solid rgba(255, 255, 255, 0.06);
     font-size: 10px;
     font-weight: 600;
@@ -4321,7 +4321,7 @@ select option {
 }
 
 .body-editor-header .header-actions button:hover {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-hover);
     color: var(--text-primary);
 }
 
@@ -4389,7 +4389,7 @@ select option {
 
 .form-data-editor tbody td {
     padding: 4px 8px;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--bg-hover);
     vertical-align: middle;
 }
 
@@ -4398,7 +4398,7 @@ select option {
 }
 
 .form-data-editor tbody tr:hover {
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: var(--bg-hover);
 }
 
 .form-data-editor input[type="text"],
@@ -4425,8 +4425,8 @@ select option {
 }
 
 .form-data-editor select {
-    background-color: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-hover);
+    border: 1px solid var(--bg-hover);
     color: var(--text-primary);
     padding: 4px 6px;
     font-size: 10px;
@@ -4456,7 +4456,7 @@ select option {
     align-items: center;
     gap: 8px;
     padding: 24px 32px;
-    border: 2px dashed rgba(255, 255, 255, 0.1);
+    border: 2px dashed var(--bg-hover);
     border-radius: 12px;
     cursor: pointer;
     transition: all 0.2s ease;
@@ -4608,7 +4608,7 @@ select option {
 }
 
 .res-tab-btn.active {
-    color: #ffffff;
+    color: var(--text-primary);
     border-bottom-color: var(--color-accent);
 }
 
@@ -4890,7 +4890,7 @@ select option {
 
 .pingzero-window-titlebar .window-control-btn:hover {
     color: var(--text-primary);
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
 }
 
 .pingzero-window-titlebar .window-control-btn.close:hover {
@@ -5577,7 +5577,7 @@ select option {
 }
 
 .btn:hover {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-hover);
 }
 
 .btn:disabled {
@@ -5587,7 +5587,7 @@ select option {
 
 .btn-primary {
     background-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .btn-primary:hover {
@@ -5661,7 +5661,7 @@ select option {
     gap: 8px;
     height: 30px;
     padding: 0 12px;
-    background-color: rgba(255, 255, 255, 0.03);
+    background-color: var(--bg-hover);
     border: 1px solid rgba(255, 255, 255, 0.04);
     border-bottom: none;
     border-top-left-radius: 8px;
@@ -5688,7 +5688,7 @@ select option {
     border-color: var(--border-primary) !important;
     border-top: 2px solid var(--color-accent) !important;
     border-bottom: 1px solid var(--bg-primary) !important;
-    color: #ffffff;
+    color: var(--text-primary);
     font-weight: 600;
     z-index: 2;
 }
@@ -5730,8 +5730,8 @@ select option {
     width: 24px;
     height: 24px;
     border-radius: 50%;
-    background-color: rgba(255, 255, 255, 0.03) !important;
-    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background-color: var(--bg-hover) !important;
+    border: 1px solid var(--bg-hover) !important;
     outline: none !important;
     padding: 0 !important;
     color: var(--text-secondary);
@@ -5742,9 +5742,9 @@ select option {
 }
 
 .browser-tab-add:hover {
-    background-color: rgba(255, 255, 255, 0.08) !important;
+    background-color: var(--bg-hover) !important;
     border-color: rgba(255, 255, 255, 0.15) !important;
-    color: #ffffff;
+    color: var(--text-primary);
     transform: scale(1.05);
 }
 
@@ -5805,8 +5805,8 @@ select option {
     gap: 4px;
     font-size: 10.5px;
     color: var(--text-secondary);
-    background-color: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
+    border: 1px solid var(--bg-hover);
     padding: 2px 8px;
     border-radius: 4px;
     cursor: pointer;
@@ -5815,9 +5815,9 @@ select option {
 }
 
 .browser-bookmark-pill:hover {
-    color: #ffffff;
-    background-color: rgba(255, 255, 255, 0.08);
-    border-color: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+    background-color: var(--bg-hover);
+    border-color: var(--bg-hover);
 }
 
 /* Premium "New Tab" Page Layout */
@@ -5855,7 +5855,7 @@ select option {
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #ffffff;
+    color: var(--text-primary);
     margin-bottom: 8px;
     animation: newtab-float 6s ease-in-out infinite;
 }
@@ -5894,8 +5894,8 @@ select option {
     display: flex;
     align-items: center;
     gap: 10px;
-    background-color: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-hover);
+    border: 1px solid var(--bg-hover);
     border-radius: 12px;
     padding: 10px 16px;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
@@ -5904,7 +5904,7 @@ select option {
 }
 
 .newtab-search-box:hover {
-    background-color: rgba(255, 255, 255, 0.05);
+    background-color: var(--bg-hover);
     border-color: rgba(168, 85, 247, 0.3);
     box-shadow: 0 4px 25px rgba(168, 85, 247, 0.08);
 }
@@ -5920,7 +5920,7 @@ select option {
     border: none;
     outline: none;
     background: transparent;
-    color: #ffffff;
+    color: var(--text-primary);
     font-size: 13.5px;
     font-weight: 500;
 }
@@ -5953,7 +5953,7 @@ select option {
 
 .newtab-shortcut-card:hover {
     background-color: rgba(255, 255, 255, 0.06);
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--bg-hover);
     transform: translateY(-4px);
     box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
 }
@@ -5987,7 +5987,7 @@ select option {
 }
 
 .newtab-shortcut-card:hover .newtab-shortcut-title {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 /* ═══════════════════════════════════════════
@@ -7220,7 +7220,7 @@ select option {
     width: 5px;
     height: 5px;
     border-radius: 50% !important;
-    background-color: #ffffff;
+    background-color: var(--text-primary);
     flex-shrink: 0;
 }
 
@@ -7293,7 +7293,7 @@ select option {
 }
 
 .sandbox-status-value.connected {
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .sandbox-status-value.connecting {
@@ -7694,7 +7694,7 @@ select option {
 /* Custom Floating Context Menu */
 .custom-context-menu {
     position: fixed;
-    background-color: var(--bg-tertiary, #151515);
+    background-color: var(--bg-secondary);
     border: 1px solid var(--border-primary);
     box-shadow:
         0 10px 30px rgba(0, 0, 0, 0.6),
@@ -7729,7 +7729,7 @@ select option {
 }
 
 .context-menu-item:hover {
-    background-color: rgba(255, 255, 255, 0.08);
+    background-color: var(--bg-hover);
     color: var(--text-primary);
 }
 
@@ -7822,7 +7822,7 @@ select option {
     box-shadow:
         0 8px 32px -4px rgba(99, 102, 241, 0.15),
         0 0 16px 0 rgba(139, 92, 246, 0.1),
-        inset 0 1px 1px rgba(255, 255, 255, 0.05);
+        inset 0 1px 1px var(--bg-hover);
     transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -7831,7 +7831,7 @@ select option {
     box-shadow:
         0 12px 40px -4px rgba(99, 102, 241, 0.25),
         0 0 24px 2px rgba(236, 72, 153, 0.15),
-        inset 0 1px 1px rgba(255, 255, 255, 0.1);
+        inset 0 1px 1px var(--bg-hover);
     background:
         linear-gradient(var(--bg-tertiary), var(--bg-tertiary)) padding-box,
         linear-gradient(135deg, #8b5cf6, #ec4899, #3b82f6) border-box;
@@ -7842,7 +7842,7 @@ select option {
     box-shadow:
         0 12px 48px -4px rgba(99, 102, 241, 0.35),
         0 0 32px 4px rgba(236, 72, 153, 0.25),
-        inset 0 1px 1px rgba(255, 255, 255, 0.1);
+        inset 0 1px 1px var(--bg-hover);
     background:
         linear-gradient(var(--bg-tertiary), var(--bg-tertiary)) padding-box,
         linear-gradient(135deg, #a78bfa, #ec4899, #60a5fa) border-box;
@@ -8374,7 +8374,7 @@ select option {
 
 .chat-message-wrapper.user .avatar {
     background-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
 }
 
 .chat-message-wrapper .message-bubble {
@@ -8387,7 +8387,7 @@ select option {
 
 .chat-message-wrapper.user .message-bubble {
     background-color: var(--color-accent);
-    color: #ffffff;
+    color: var(--text-primary);
     border-top-right-radius: 2px;
 }
 
@@ -8518,7 +8518,7 @@ select option {
     display: inline-flex;
     align-items: center;
     gap: 12px;
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--bg-hover);
     border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 14px;
     padding: 10px 16px;
@@ -8887,4 +8887,252 @@ body.is-resizing-v, body.is-resizing-v * {
 
 body.is-resizing-h, body.is-resizing-h * {
     cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' xmlns='http://www.w3.org/2000/svg'%3E%3Cg stroke='black' stroke-width='4' stroke-linecap='round' stroke-linejoin='round' fill='none'%3E%3Cpath d='M8 9L12 4L16 9' /%3E%3Cpath d='M8 15L12 20L16 15' /%3E%3Cline x1='2' y1='12' x2='22' y2='12' /%3E%3C/g%3E%3Cg stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' fill='none'%3E%3Cpath d='M8 9L12 4L16 9' /%3E%3Cpath d='M8 15L12 20L16 15' /%3E%3Cline x1='2' y1='12' x2='22' y2='12' /%3E%3C/g%3E%3C/svg%3E") 12 12, ns-resize !important;
+}
+
+/* Multi-Agent Window Styling */
+.multi-agent-sidebar {
+    width: 250px;
+    background-color: var(--bg-secondary);
+    border-right: 1px solid var(--border-primary);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    height: 100%;
+}
+
+.multi-agent-sidebar-header {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.multi-agent-logo {
+    width: 16px;
+    height: 16px;
+    object-fit: contain;
+}
+
+.multi-agent-title {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.multi-agent-sidebar-actions {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    border-bottom: 1px solid var(--border-primary);
+}
+
+.multi-agent-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 6px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: background-color 0.15s, color 0.15s;
+    text-align: left;
+}
+
+.multi-agent-action-btn:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.multi-agent-action-btn.primary {
+    color: var(--text-primary);
+}
+
+.multi-agent-action-btn.primary:hover {
+    background-color: var(--bg-hover);
+}
+
+.multi-agent-sidebar-list-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+}
+
+.multi-agent-sidebar-section-title {
+    font-size: 10px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    margin-bottom: 8px;
+    padding-left: 8px;
+}
+
+.multi-agent-sidebar-folder {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.multi-agent-sidebar-folder .folder-name {
+    font-size: 11px;
+    color: var(--text-primary);
+    padding: 4px 8px;
+    margin-bottom: 4px;
+}
+
+.multi-agent-conv-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    padding: 6px 8px 6px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    text-align: left;
+    font-size: 11.5px;
+    transition: background-color 0.1s, color 0.1s;
+}
+
+.multi-agent-conv-item:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.multi-agent-conv-item.active {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.multi-agent-conv-item .conv-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 8px;
+}
+
+.multi-agent-conv-item .conv-time {
+    font-size: 10px;
+    color: var(--text-muted);
+    flex-shrink: 0;
+}
+
+.multi-agent-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.multi-agent-main-header {
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--border-primary);
+    background-color: var(--bg-primary);
+}
+
+.multi-agent-main-title {
+    font-size: 12px;
+    color: var(--text-primary);
+}
+
+.multi-agent-content {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+}
+
+.multi-agent-content > div {
+    height: 100%;
+}
+
+/* Nested History Styling */
+.multi-agent-proj-group {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 2px;
+}
+
+.multi-agent-inline-action {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--text-muted);
+    opacity: 0;
+    transition: opacity 0.15s, background-color 0.15s, color 0.15s;
+}
+
+.multi-agent-conv-item:hover .multi-agent-inline-action {
+    opacity: 1;
+}
+
+.multi-agent-inline-action:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.multi-agent-history-list {
+    display: flex;
+    flex-direction: column;
+    padding-left: 20px;
+    margin-top: 2px;
+    gap: 2px;
+}
+
+.multi-agent-history-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+    transition: background-color 0.1s, color 0.1s;
+    text-align: left;
+}
+
+.multi-agent-history-item:hover {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.multi-agent-history-item.active {
+    background-color: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.history-title {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.multi-agent-show-more-btn {
+    background: transparent;
+    border: none;
+    color: var(--color-accent, #3a86ff);
+    font-size: 10px;
+    cursor: pointer;
+    padding: 4px 8px;
+    text-align: left;
+    border-radius: 4px;
+}
+
+.multi-agent-show-more-btn:hover {
+    text-decoration: underline;
 }
