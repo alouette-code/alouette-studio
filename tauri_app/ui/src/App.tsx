@@ -1716,7 +1716,7 @@ export default function App() {
                             ) ? (
                             <AiAgentTab
                               filePath={paneOpenFilePath}
-                              activeProjectCwd={activeProject?.cwd}
+                              activeProjectCwd={activeProject?.cwd || activeProject?.name || ""}
                               activeProjectId={activeProject?.id}
                               onLoadSession={(sessId, title) => {
                                 const path = `__agent_history__:${sessId}:${title}`;
@@ -1843,7 +1843,7 @@ export default function App() {
           {isAiViewActive ? (
             <AiAgent
               onBack={() => setIsAiViewActive(false)}
-              activeProjectCwd={activeProject?.cwd}
+              activeProjectCwd={activeProject?.cwd || activeProject?.name || ""}
               activeProjectId={activeProject?.id}
               initialSessionData={initialAgentSessionData}
               onClearInitialSessionData={() => setInitialAgentSessionData(null)}

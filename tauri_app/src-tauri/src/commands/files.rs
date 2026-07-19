@@ -392,9 +392,12 @@ async fn collect_files_and_folders_recursive(
     items: &mut Vec<SearchFileItem>,
 ) -> Result<(), String> {
     if dir.is_dir() {
-        let mut read_dir = tokio::fs::read_dir(dir).await.map_err(|e| e.to_string())?;
+        let mut read_dir = match tokio::fs::read_dir(dir).await {
+            Ok(rd) => rd,
+            Err(_) => return Ok(()), // Ignore unreadable directories
+        };
 
-        while let Some(entry) = read_dir.next_entry().await.map_err(|e| e.to_string())? {
+        while let Ok(Some(entry)) = read_dir.next_entry().await {
             let entry_path = entry.path();
             let name = entry.file_name().to_string_lossy().to_string();
 
@@ -424,12 +427,12 @@ async fn collect_files_and_folders_recursive(
             });
 
             if is_dir {
-                Box::pin(collect_files_and_folders_recursive(
+                let _ = Box::pin(collect_files_and_folders_recursive(
                     root,
                     &entry_path,
                     items,
                 ))
-                .await?;
+                .await; // Ignore errors in subdirectories
             }
         }
     }

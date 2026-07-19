@@ -62,8 +62,9 @@
     --terminal-bg: #050507;
     --terminal-border: #181820;
     --scrollbar-bg: rgba(255, 255, 255, 0.01);
-    --scrollbar-thumb: var(--bg-hover);
+    --scrollbar-thumb: rgba(255, 255, 255, 0.05);
     --scrollbar-thumb-hover: rgba(255, 255, 255, 0.12);
+    --shadow-popup: 0 -8px 24px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 /* Light Theme Overrides */
@@ -92,6 +93,7 @@
     --scrollbar-bg: rgba(0, 0, 0, 0.01);
     --scrollbar-thumb: rgba(0, 0, 0, 0.05);
     --scrollbar-thumb-hover: rgba(0, 0, 0, 0.12);
+    --shadow-popup: 0 -4px 16px rgba(0, 0, 0, 0.1), 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
 * {

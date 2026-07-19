@@ -24,8 +24,10 @@ interface MultiAgentWindowProps {
 export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>("");
-  const [activeProjectCwd, setActiveProjectCwd] = useState<string>("");
   
+  // Derive active project and CWD
+  const activeProject = projects.find(p => p.id === activeProjectId);
+  const activeProjectCwd = activeProject?.cwd || activeProject?.name || "";  
   const [projectHistories, setProjectHistories] = useState<Record<string, AgentHistoryItem[]>>({});
   const [expandedProjects, setExpandedProjects] = useState<Record<string, boolean>>({});
   const [showAllHistory, setShowAllHistory] = useState<Record<string, boolean>>({});
@@ -37,10 +39,8 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
     try {
       const list = await invoke<Project[]>("get_projects");
       setProjects(list);
-      // Automatically select the first project if none is selected
       if (list.length > 0 && !activeProjectId) {
         setActiveProjectId(list[0].id);
-        setActiveProjectCwd(list[0].cwd || "");
         setExpandedProjects(prev => ({ ...prev, [list[0].id]: true }));
       }
 
@@ -82,7 +82,6 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
         await invoke("register_project", { config: newConfig });
         await loadProjects();
         setActiveProjectId(newId);
-        setActiveProjectCwd(normalizedFolder);
       }
     } catch (err) {
       console.error("Failed to select folder:", err);
@@ -94,7 +93,6 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
     
     if (activeProjectId !== proj.id) {
       setActiveProjectId(proj.id);
-      setActiveProjectCwd(proj.cwd || "");
       setActiveSessionId(""); 
       setActiveSessionData(null);
       setSessionKey(prev => prev + 1); // Force re-mount of AiAgent
@@ -104,7 +102,6 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
   const handleNewChat = (proj: Project, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent triggering handleSelectProject
     setActiveProjectId(proj.id);
-    setActiveProjectCwd(proj.cwd || "");
     setActiveSessionId(""); // Clear active session to start new
     setActiveSessionData(null);
     setSessionKey(prev => prev + 1); // Force re-mount of AiAgent
@@ -112,7 +109,6 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
 
   const handleSelectHistory = async (proj: Project, historyItem: AgentHistoryItem) => {
     setActiveProjectId(proj.id);
-    setActiveProjectCwd(proj.cwd || "");
     try {
       const data = await invoke("load_agent_session", { sessionId: historyItem.session_id });
       setActiveSessionId(historyItem.session_id);
@@ -130,7 +126,6 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
       // If deleted project is active, clear active
       if (activeProjectId === proj.id) {
         setActiveProjectId("");
-        setActiveProjectCwd("");
         setActiveSessionId("");
         setActiveSessionData(null);
       }
