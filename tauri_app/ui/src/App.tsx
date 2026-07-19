@@ -14,7 +14,7 @@ import {
   GitBranch,
   Sparkles,
   ArrowLeftRight,
-  Server,
+  SwatchBook,
   Settings,
   Database,
   Cloud,
@@ -2082,7 +2082,7 @@ export default function App() {
             title="5. Environment (Môi trường)"
             onClick={() => handleFileOpenCustom("__environment__")}
           >
-            <Server size={14} />
+            <SwatchBook size={14} />
           </button>
 
           <button

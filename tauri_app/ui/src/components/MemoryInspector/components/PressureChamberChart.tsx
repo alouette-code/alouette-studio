@@ -1,12 +1,14 @@
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList, Legend } from 'recharts';
+import React from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { TelemetryData } from '../types';
 
 interface ChartProps {
     data: TelemetryData[];
 }
 
-export function PressureChamberChart({ data }: ChartProps) {
-    const chartData = data.map(d => ({
+export const PressureChamberChart = React.memo(function PressureChamberChart({ data }: ChartProps) {
+    const displayData = data.slice(-100);
+    const chartData = displayData.map(d => ({
         time: new Date(d.timestamp * 1000).toLocaleTimeString(),
         usage: Number(d.memory_usage_mb.toFixed(1)),
         limit: Number(d.memory_limit_mb.toFixed(1))
@@ -28,12 +30,10 @@ export function PressureChamberChart({ data }: ChartProps) {
                         />
                         <Legend wrapperStyle={{ fontSize: '12px', color: '#92929e' }} />
                         <Bar dataKey="limit" name="Memory Limit (MB)" fill="#ef4444" radius={[2, 2, 0, 0]} opacity={0.3} />
-                        <Bar dataKey="usage" name="Memory Usage (MB)" fill="#3a86ff" radius={[2, 2, 0, 0]}>
-                            <LabelList dataKey="usage" position="top" fill="#e6e6eb" fontSize={10} />
-                        </Bar>
+                        <Bar dataKey="usage" name="Memory Usage (MB)" fill="#3a86ff" radius={[2, 2, 0, 0]} />
                     </BarChart>
                 </ResponsiveContainer>
             </div>
         </div>
     );
-}
+});

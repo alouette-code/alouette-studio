@@ -1,6 +1,6 @@
 import {
   FolderPen,
-  Droplets,
+  MemoryStick,
   UserRoundKey,
   Blocks,
   MonitorCog
@@ -52,7 +52,7 @@ export default function GlobalDock({ activeMode = "explorer", onOpenVmManager, o
           <DockerIcon size={20} />
         </button>
         <button className="dock-btn" title="Memory Leak" onClick={onOpenMemoryInspector}>
-          <Droplets size={20} />
+          <MemoryStick size={20} />
         </button>
         <button className="dock-btn" title="VM (Virtual Machine)" onClick={onOpenVmManager}>
           <MonitorCog size={20} />

@@ -369,6 +369,15 @@ impl super::ExecutionProvider for DockerDriver {
 
     async fn destroy_sandbox(&self, name: &str) -> Result<(), String> {
         let apm_name = format!("{}-apm", name);
+        
+        // --- DEBUG CODE: Save logs before destroying ---
+        let log_file = format!("/home/nhatanh/projet/alouette_studio/tauri_app/logs/{}_crash.log", name);
+        let _ = Command::new("sh")
+            .args(["-c", &format!("docker logs {} > {} 2>&1", name, log_file)])
+            .status()
+            .await;
+        // -----------------------------------------------
+
         let _ = Command::new("docker").args(["rm", "-f", name, &apm_name]).status().await;
         Ok(())
     }
