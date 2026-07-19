@@ -96,10 +96,12 @@ function computeUnsavedDiff(
   original: string,
   current: string,
 ): UnsavedChange[] {
+  if (original === current) return [];
   const origLines = original.split("\n");
   const currLines = current.split("\n");
   const changes: UnsavedChange[] = [];
 
+  // Strip common prefix
   let start = 0;
   while (
     start < origLines.length &&
@@ -109,6 +111,7 @@ function computeUnsavedDiff(
     start++;
   }
 
+  // Strip common suffix
   let origEnd = origLines.length - 1;
   let currEnd = currLines.length - 1;
   while (
@@ -120,14 +123,71 @@ function computeUnsavedDiff(
     currEnd--;
   }
 
-  for (let i = start; i <= currEnd; i++) {
-    changes.push({ line: i + 1, type: "modified", count: 0 });
+  const N = origEnd - start + 1;
+  const M = currEnd - start + 1;
+
+  if (N === 0) {
+    for (let i = start; i <= currEnd; i++) {
+      changes.push({ line: i + 1, type: "added", count: 0 });
+    }
+    return changes;
+  }
+  if (M === 0) {
+    const lineNum = Math.min(start + 1, currLines.length);
+    changes.push({ line: lineNum, type: "deleted_context", count: N });
+    return changes;
   }
 
-  if (start > currEnd && start <= origEnd) {
-     const deletedCount = origEnd - start + 1;
-     const lineNum = Math.min(start + 1, currLines.length);
-     changes.push({ line: lineNum, type: "deleted_context", count: deletedCount });
+  // Fallback to bulk modified if the changed block is too large for fast DP
+  if (N * M > 1000000) {
+    for (let i = start; i <= currEnd; i++) {
+      changes.push({ line: i + 1, type: "modified", count: 0 });
+    }
+    return changes;
+  }
+
+  // O(N*M) DP LCS
+  const dp: number[][] = Array(N + 1).fill(0).map(() => Array(M + 1).fill(0));
+  for (let i = 1; i <= N; i++) {
+    for (let j = 1; j <= M; j++) {
+      if (origLines[start + i - 1] === currLines[start + j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+
+  let i = N;
+  let j = M;
+  const added = new Set<number>();
+  const deletedBefore = new Map<number, number>();
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && origLines[start + i - 1] === currLines[start + j - 1]) {
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+      added.add(start + j);
+      j--;
+    } else if (i > 0 && (j === 0 || dp[i][j - 1] < dp[i - 1][j])) {
+      const nextLine = start + j + 1;
+      deletedBefore.set(nextLine, (deletedBefore.get(nextLine) || 0) + 1);
+      i--;
+    }
+  }
+
+  for (let idx = start + 1; idx <= currEnd + 2; idx++) {
+    if (added.has(idx)) {
+      if (deletedBefore.has(idx)) {
+        changes.push({ line: idx, type: "modified", count: 0 });
+        deletedBefore.delete(idx);
+      } else {
+        changes.push({ line: idx, type: "added", count: 0 });
+      }
+    } else if (deletedBefore.has(idx)) {
+      changes.push({ line: Math.min(idx, currLines.length), type: "deleted_context", count: deletedBefore.get(idx)! });
+    }
   }
 
   return changes;
@@ -272,6 +332,8 @@ export default React.memo(function CodeEditor({
           options: {
             isWholeLine: true,
             glyphMarginClassName: "git-glyph-added",
+            minimap: { color: "#2ea043", position: monacoApi.editor.MinimapPosition.Gutter },
+            overviewRuler: { color: "#2ea043", position: monacoApi.editor.OverviewRulerLane.Left }
           },
         });
       }
@@ -293,6 +355,8 @@ export default React.memo(function CodeEditor({
               options: {
                 isWholeLine: true,
                 glyphMarginClassName: "git-glyph-added",
+                minimap: { color: "#2ea043", position: monacoApi.editor.MinimapPosition.Gutter },
+                overviewRuler: { color: "#2ea043", position: monacoApi.editor.OverviewRulerLane.Left }
               },
             });
             break;
@@ -302,6 +366,8 @@ export default React.memo(function CodeEditor({
               options: {
                 isWholeLine: true,
                 glyphMarginClassName: "git-glyph-modified",
+                minimap: { color: "#007acc", position: monacoApi.editor.MinimapPosition.Gutter },
+                overviewRuler: { color: "#007acc", position: monacoApi.editor.OverviewRulerLane.Left }
               },
             });
             break;
@@ -311,6 +377,8 @@ export default React.memo(function CodeEditor({
               options: {
                 isWholeLine: true,
                 glyphMarginClassName: "git-glyph-deleted",
+                minimap: { color: "#f85149", position: monacoApi.editor.MinimapPosition.Gutter },
+                overviewRuler: { color: "#f85149", position: monacoApi.editor.OverviewRulerLane.Left }
               },
             });
             break;
@@ -331,6 +399,8 @@ export default React.memo(function CodeEditor({
             options: {
               isWholeLine: true,
               glyphMarginClassName: "git-glyph-unsaved-added",
+              minimap: { color: "#2ea043", position: monacoApi.editor.MinimapPosition.Gutter },
+              overviewRuler: { color: "#2ea043", position: monacoApi.editor.OverviewRulerLane.Left }
             },
           });
           break;
@@ -340,6 +410,8 @@ export default React.memo(function CodeEditor({
             options: {
               isWholeLine: true,
               glyphMarginClassName: "git-glyph-unsaved-modified",
+              minimap: { color: "#007acc", position: monacoApi.editor.MinimapPosition.Gutter },
+              overviewRuler: { color: "#007acc", position: monacoApi.editor.OverviewRulerLane.Left }
             },
           });
           break;
@@ -349,6 +421,8 @@ export default React.memo(function CodeEditor({
             options: {
               isWholeLine: true,
               glyphMarginClassName: "git-glyph-unsaved-deleted",
+              minimap: { color: "#f85149", position: monacoApi.editor.MinimapPosition.Gutter },
+              overviewRuler: { color: "#f85149", position: monacoApi.editor.OverviewRulerLane.Left }
             },
           });
           break;
