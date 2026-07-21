@@ -67,13 +67,14 @@ fn main() {
     let agent_cancel_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let default_workspace =
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+    let vm_manager = Arc::new(core_engine::vm_engine::VmManager::new(app_data_dir().join("vms")));
     let mut harness_raw = core_engine::agent_harness::AgentHarness::new(&default_workspace);
     harness_raw.cancel_flag = agent_cancel_flag.clone();
+    harness_raw.set_vm_manager(vm_manager.clone());
     let agent_harness = Arc::new(tokio::sync::Mutex::new(harness_raw));
 
     let agent_registry = Arc::new(DashMap::new());
     let active_agent_project = Arc::new(RwLock::new(None));
-    let vm_manager = Arc::new(core_engine::vm_engine::VmManager::new(app_data_dir().join("vms")));
 
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();

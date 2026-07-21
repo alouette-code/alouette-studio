@@ -265,6 +265,7 @@ pub struct AgentHarness {
     subagents: HashMap<String, Subagent>,
     running_commands: HashMap<String, RunningCommand>,
     sandbox_manager: sandbox::SandboxManager,
+    pub vm_manager: Option<Arc<crate::vm_engine::VmManager>>,
 }
 
 impl AgentHarness {
@@ -287,7 +288,13 @@ impl AgentHarness {
             subagents: HashMap::new(),
             running_commands: HashMap::new(),
             sandbox_manager: sandbox::SandboxManager::new(),
+            vm_manager: None,
         }
+    }
+
+    /// Set the vm manager
+    pub fn set_vm_manager(&mut self, vm_manager: Arc<crate::vm_engine::VmManager>) {
+        self.vm_manager = Some(vm_manager);
     }
 
     /// Set the harness operating mode
@@ -605,7 +612,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     ) -> BlastRadius {
         match tool_name {
             "open_browser" | "get_browser_elements" | "browser_click" | "browser_type" | "browser_click_hardware" | "browser_type_hardware" => BlastRadius::Local,
-            "write_file" | "replace_in_file" | "execute_command" | "check_port" => BlastRadius::Local,
+            "write_file" | "replace_in_file" | "execute_command" | "vm_execute_command" | "vm_list" | "vm_start" | "vm_stop" | "check_port" => BlastRadius::Local,
             "get_project_files" | "read_file" => BlastRadius::Local,
             "delete_file" | "force_push" | "git_reset" => {
                 // Check if arguments indicate destructive operation
@@ -669,6 +676,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "write_file" => self.execute_write_file(tool),
             "get_project_files" => self.execute_get_project_files(),
             "execute_command" => self.execute_command(session_id, tool).await,
+            "vm_execute_command" => self.execute_vm_command(tool).await,
+            "vm_list" => self.execute_vm_list(),
+            "vm_start" => self.execute_vm_start(tool),
+            "vm_stop" => self.execute_vm_stop(tool),
             "check_command_status" => self.execute_check_command_status(tool).await,
             "kill_command" => self.execute_kill_command(tool).await,
             "save_memory" => self.execute_save_memory(tool),
@@ -1475,6 +1486,150 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                 ))
             }
         }
+    }
+
+    async fn execute_vm_command(
+        &mut self,
+        tool: &parser::ToolCall,
+    ) -> Result<String, String> {
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?
+            .to_string();
+            
+        let command = tool.arguments["command"]
+            .as_str()
+            .ok_or_else(|| "Missing 'command' argument".to_string())?
+            .to_string();
+
+        let args: Vec<serde_json::Value> = if let Some(arr) = tool.arguments["args"].as_array() {
+            arr.clone()
+        } else {
+            Vec::new()
+        };
+
+        tokio::task::spawn_blocking(move || {
+            let qga_socket_path = std::path::Path::new("/tmp/alouette_vms").join(format!("{}_qga.sock", vm_id));
+            
+            let mut client = None;
+            let mut res = None;
+            let start = std::time::Instant::now();
+            
+            // Lặp lại việc kết nối và gửi lệnh guest-exec trong tối đa 60 giây (chờ VM boot)
+            loop {
+                match crate::vm_engine::qga_client::QgaClient::connect(&qga_socket_path) {
+                    Ok(mut c) => {
+                        match c.execute("guest-exec", Some(serde_json::json!({
+                            "path": &command,
+                            "arg": &args,
+                            "capture-output": true
+                        }))) {
+                            Ok(r) => {
+                                client = Some(c);
+                                res = Some(r);
+                                break;
+                            }
+                            Err(e) => {
+                                if start.elapsed().as_secs() > 60 {
+                                    return Err(format!("QGA execution failed after retries: {}", e));
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        if start.elapsed().as_secs() > 60 {
+                            return Err(format!("Failed to connect to QGA after retries: {}", e));
+                        }
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_secs(2));
+            }
+            
+            let mut client = client.unwrap();
+            let res = res.unwrap();
+            
+            let pid = res.get("pid").and_then(|p| p.as_i64()).ok_or_else(|| "Failed to get pid from guest-exec".to_string())?;
+            
+            let start = std::time::Instant::now();
+            loop {
+                if start.elapsed().as_secs() > 30 {
+                    return Err("Command execution timed out after 30 seconds".to_string());
+                }
+                
+                let status = client.execute("guest-exec-status", Some(serde_json::json!({"pid": pid})))?;
+                
+                if status.get("exited").and_then(|e| e.as_bool()).unwrap_or(false) {
+                    let exitcode = status.get("exitcode").and_then(|c| c.as_i64()).unwrap_or(0);
+                    
+                    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+                    
+                    let mut out_str = String::new();
+                    if let Some(out_data) = status.get("out-data").and_then(|d| d.as_str()) {
+                        if let Ok(decoded) = BASE64.decode(out_data) {
+                            out_str = String::from_utf8_lossy(&decoded).to_string();
+                        }
+                    }
+                    
+                    let mut err_str = String::new();
+                    if let Some(err_data) = status.get("err-data").and_then(|d| d.as_str()) {
+                        if let Ok(decoded) = BASE64.decode(err_data) {
+                            err_str = String::from_utf8_lossy(&decoded).to_string();
+                        }
+                    }
+                    
+                    if exitcode == 0 {
+                        return Ok(out_str);
+                    } else {
+                        return Ok(format!("Command exited with code {}\nStdout:\n{}\nStderr:\n{}", exitcode, out_str, err_str));
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+        })
+        .await
+        .map_err(|e| format!("Tokio task failed: {}", e))?
+    }
+
+    fn execute_vm_list(&self) -> Result<String, String> {
+        let vm_manager = self.vm_manager.as_ref().ok_or_else(|| "VM Manager not initialized".to_string())?;
+        let vms = vm_manager.list_vms()?;
+        let mut result = String::new();
+        for (config, status) in vms {
+            result.push_str(&format!("ID: {}, Name: {}, Status: {}\n", config.id, config.name, status));
+        }
+        if result.is_empty() {
+            Ok("No VMs found.".to_string())
+        } else {
+            Ok(result)
+        }
+    }
+
+    fn execute_vm_start(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let vm_manager = self.vm_manager.as_ref().ok_or_else(|| "VM Manager not initialized".to_string())?;
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?;
+        
+        match vm_manager.start_vm(vm_id, None, None) {
+            Ok(_) => Ok(format!("Successfully sent start signal to VM {}.", vm_id)),
+            Err(e) => {
+                if e.contains("Failed to get \"write\" lock") || e.contains("already running") {
+                    Ok(format!("VM {} is already running.", vm_id))
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    fn execute_vm_stop(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let vm_manager = self.vm_manager.as_ref().ok_or_else(|| "VM Manager not initialized".to_string())?;
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?;
+        
+        vm_manager.stop_vm(vm_id)?;
+        Ok(format!("Successfully sent stop signal to VM {}.", vm_id))
     }
 
     /// Check the status of a long-running command that was started with execute_command

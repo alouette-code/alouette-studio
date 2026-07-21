@@ -302,6 +302,10 @@ fn parse_raw_tool_tags(content: &str) -> Vec<ToolCall> {
     // All known tool names that can appear as raw XML tags
     const KNOWN_TOOLS: &[&str] = &[
         "execute_command",
+        "vm_execute_command",
+        "vm_list",
+        "vm_start",
+        "vm_stop",
         "read_file",
         "write_file",
         "check_port",
