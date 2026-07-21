@@ -7,6 +7,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 
 pub struct QgaClient {
     stream: UnixStream,
+    buffer: Vec<u8>,
 }
 
 impl QgaClient {
@@ -18,36 +19,34 @@ impl QgaClient {
         stream.set_read_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
         stream.set_write_timeout(Some(Duration::from_secs(10))).map_err(|e| e.to_string())?;
 
-        Ok(Self { stream })
+        Ok(Self { stream, buffer: Vec::new() })
     }
 
     /// Reads a single JSON object response from the socket.
     fn read_response(&mut self) -> Result<Value, String> {
-        let mut buffer = [0; 8192];
-        let mut raw_data = Vec::new();
+        let mut read_buf = [0; 8192];
 
         loop {
-            let bytes_read = self.stream.read(&mut buffer)
+            // Check if we already have a newline in the buffer
+            if let Some(pos) = self.buffer.iter().position(|&b| b == b'\n') {
+                let line = self.buffer[..pos].to_vec();
+                self.buffer.drain(..=pos); // Consume line + newline
+                
+                if let Ok(value) = serde_json::from_slice::<Value>(&line) {
+                    return Ok(value);
+                } else {
+                    continue; // Ignore invalid lines and look for next
+                }
+            }
+
+            let bytes_read = self.stream.read(&mut read_buf)
                 .map_err(|e| format!("Failed to read from QGA socket: {}", e))?;
             
             if bytes_read == 0 {
                 return Err("QGA socket closed unexpectedly".to_string());
             }
 
-            raw_data.extend_from_slice(&buffer[..bytes_read]);
-
-            // Try to parse what we have so far
-            if let Ok(value) = serde_json::from_slice::<Value>(&raw_data) {
-                return Ok(value);
-            }
-            
-            // Try reading lines
-            if let Some(pos) = raw_data.iter().position(|&b| b == b'\n') {
-                let line = &raw_data[..pos];
-                if let Ok(value) = serde_json::from_slice::<Value>(line) {
-                    return Ok(value);
-                }
-            }
+            self.buffer.extend_from_slice(&read_buf[..bytes_read]);
         }
     }
 
