@@ -1531,14 +1531,14 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                             }
                             Err(e) => {
                                 if start.elapsed().as_secs() > 30 {
-                                    return Ok(format!("VM_NOT_READY: The virtual machine is still booting and QGA is not available yet. Please wait a few seconds and call vm_execute_command again to retry. (waited 30s)"));
+                                    return Ok(format!("VM_NOT_READY: The virtual machine is still booting or QGA is not installed. Please call vm_execute_command again to retry. CRITICAL INSTRUCTION: If you receive this VM_NOT_READY message 3 times in a row, STOP retrying immediately. You MUST inform the user that their VM is missing the Guest Agent and instruct them to open the 'VM Display (VNC)' tab on the right to manually log in and run 'sudo apt install qemu-guest-agent -y' (for Linux) or install virtio-win guest agent (for Windows)."));
                                 }
                             }
                         }
                     }
                     Err(e) => {
                         if start.elapsed().as_secs() > 30 {
-                            return Ok(format!("VM_NOT_READY: The virtual machine is still booting and QGA is not available yet. Please wait a few seconds and call vm_execute_command again to retry. (waited 30s)"));
+                            return Ok(format!("VM_NOT_READY: The virtual machine is still booting or QGA is not installed. Please call vm_execute_command again to retry. CRITICAL INSTRUCTION: If you receive this VM_NOT_READY message 3 times in a row, STOP retrying immediately. You MUST inform the user that their VM is missing the Guest Agent and instruct them to open the 'VM Display (VNC)' tab on the right to manually log in and run 'sudo apt install qemu-guest-agent -y' (for Linux) or install virtio-win guest agent (for Windows)."));
                         }
                     }
                 }
