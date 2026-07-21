@@ -146,12 +146,12 @@ impl QemuInstance {
         // QMP (QEMU Monitor Protocol) over Unix Socket
         let qmp_socket_path = socket_dir.join(format!("{}_qmp.sock", config.id));
         args.push("-qmp".to_string());
-        args.push(format!("unix:{},server,nowait", qmp_socket_path.to_string_lossy()));
+        args.push(format!("unix:{},server=on,wait=off", qmp_socket_path.to_string_lossy()));
 
         // QEMU Guest Agent (QGA) over virtio-serial
         let qga_socket_path = socket_dir.join(format!("{}_qga.sock", config.id));
         args.push("-chardev".to_string());
-        args.push(format!("socket,path={},server,nowait,id=qga0", qga_socket_path.to_string_lossy()));
+        args.push(format!("socket,path={},server=on,wait=off,id=qga0", qga_socket_path.to_string_lossy()));
         args.push("-device".to_string());
         args.push("virtio-serial".to_string());
         args.push("-device".to_string());

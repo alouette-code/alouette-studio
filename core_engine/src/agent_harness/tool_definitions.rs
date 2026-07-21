@@ -11,7 +11,64 @@ pub struct ToolDef {
 
 pub fn all_tools() -> Vec<ToolDef> {
     vec![
-
+        ToolDef {
+            name: "vm_list",
+            description: "List all virtual machines and their current status (e.g. running, stopped).",
+            parameters: json!({
+                "type": "object",
+                "properties": {},
+            }),
+        },
+        ToolDef {
+            name: "vm_start",
+            description: "Start a specific virtual machine.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the virtual machine to start."
+                    }
+                },
+                "required": ["vm_id"]
+            }),
+        },
+        ToolDef {
+            name: "vm_stop",
+            description: "Stop a specific virtual machine.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the virtual machine to stop."
+                    }
+                },
+                "required": ["vm_id"]
+            }),
+        },        ToolDef {
+            name: "vm_execute_command",
+            description: "Execute a command inside a virtual machine using QEMU Guest Agent. Use this to run shell commands or scripts inside the guest OS.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the virtual machine to control."
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "The command or executable path to run inside the VM."
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional arguments for the command."
+                    }
+                },
+                "required": ["vm_id", "command"]
+            }),
+        },
         ToolDef {
             name: "write_file",
             description: "Create a new file or overwrite an existing file with new content. Parent directories are created automatically.",
