@@ -1530,15 +1530,15 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                                 break;
                             }
                             Err(e) => {
-                                if start.elapsed().as_secs() > 60 {
-                                    return Err(format!("QGA execution failed after retries: {}", e));
+                                if start.elapsed().as_secs() > 30 {
+                                    return Ok(format!("VM_NOT_READY: The virtual machine is still booting and QGA is not available yet. Please wait a few seconds and call vm_execute_command again to retry. (waited 30s)"));
                                 }
                             }
                         }
                     }
                     Err(e) => {
-                        if start.elapsed().as_secs() > 60 {
-                            return Err(format!("Failed to connect to QGA after retries: {}", e));
+                        if start.elapsed().as_secs() > 30 {
+                            return Ok(format!("VM_NOT_READY: The virtual machine is still booting and QGA is not available yet. Please wait a few seconds and call vm_execute_command again to retry. (waited 30s)"));
                         }
                     }
                 }
@@ -1552,8 +1552,8 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             
             let start = std::time::Instant::now();
             loop {
-                if start.elapsed().as_secs() > 30 {
-                    return Err("Command execution timed out after 30 seconds".to_string());
+                if start.elapsed().as_secs() > 45 {
+                    return Ok("COMMAND_TIMEOUT: The command is taking longer than 45 seconds to execute. Please run long-running commands in the background.".to_string());
                 }
                 
                 let status = client.execute("guest-exec-status", Some(serde_json::json!({"pid": pid})))?;
