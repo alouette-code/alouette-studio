@@ -3,6 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use parking_lot::Mutex;
+use sysinfo::System;
 use crate::vm_engine::config::VmConfig;
 use crate::vm_engine::qemu_wrapper::QemuInstance;
 
@@ -22,6 +23,27 @@ impl VmManager {
         let storage_path = storage_dir.as_ref().to_path_buf();
         if !storage_path.exists() {
             let _ = fs::create_dir_all(&storage_path);
+        }
+
+        // Clean up orphaned QEMU processes that might be running from previous sudden crashes
+        let mut sys = System::new_all();
+        sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+        
+        let storage_dir_str = storage_path.to_string_lossy().to_string();
+        for (pid, process) in sys.processes() {
+            let cmd_str = format!("{:?}", process.cmd());
+            
+            // Strict verification to prevent accidental kills:
+            // 1. Must be a QEMU process
+            // 2. Must contain Alouette's unique socket directory
+            // 3. Must be running from our specific storage directory
+            let is_qemu = cmd_str.contains("qemu-system-");
+            let is_alouette_vm = cmd_str.contains("/tmp/alouette_vms") && cmd_str.contains(&storage_dir_str);
+            
+            if is_qemu && is_alouette_vm {
+                // This is definitively an orphaned QEMU process belonging to our app
+                let _ = process.kill();
+            }
         }
 
         Self {
@@ -440,5 +462,15 @@ impl VmManager {
         client.guest_file_close(handle)?;
 
         Ok(())
+    }
+}
+
+impl Drop for VmManager {
+    fn drop(&mut self) {
+        let mut active = self.active_vms.lock();
+        for (_, active_vm) in active.drain() {
+            let mut qemu = active_vm.qemu_instance.lock();
+            let _ = qemu.kill();
+        }
     }
 }
