@@ -6,11 +6,17 @@ import {
   AlertCircle,
   RefreshCw,
   FilePlus,
+  Sparkles,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import Editor from "@monaco-editor/react";
 import { useGitDiff } from "../hooks/useGitDiff";
 import CodeRagSearchWidget from "./CodeRagSearchWidget";
+import {
+  extractCodeContext,
+  fetchAiCodeCompletion,
+} from "../services/aiCompletionService";
+
 
 interface CodeEditorProps {
   theme?: "dark" | "light";
@@ -211,15 +217,25 @@ const editorOptions = {
   suggestOnTriggerCharacters: true,
   quickSuggestionsDelay: 100,
   wordBasedSuggestions: "currentDocument" as const,
+  inlineSuggest: {
+    enabled: true,
+    showToolbar: "onHover" as const,
+    mode: "subword" as const,
+  },
   suggest: {
+    preview: true,
     showMethods: true,
     showFunctions: true,
-    showConstructors: false,
-    showFields: false,
-    showVariables: false,
-    showKeywords: false,
+    showConstructors: true,
+    showFields: true,
+    showVariables: true,
+    showKeywords: true,
+    showWords: true,
   },
   scrollbar: {
+
+
+
     vertical: "visible" as const,
     horizontal: "visible" as const,
     verticalScrollbarSize: 10,
@@ -269,6 +285,17 @@ export default React.memo(function CodeEditor({
   const [ragSearchLine, setRagSearchLine] = useState(1);
   const ragSearchEditorRef = useRef<any>(null);
   const ragSearchColumnRef = useRef<number>(1);
+
+  // ── AI Code Completion state ──
+  const [aiCompletionEnabled, setAiCompletionEnabled] = useState<boolean>(
+    () => localStorage.getItem("ai_completion_enabled") !== "false"
+  );
+  const aiCompletionEnabledRef = useRef(aiCompletionEnabled);
+  useEffect(() => {
+    aiCompletionEnabledRef.current = aiCompletionEnabled;
+    localStorage.setItem("ai_completion_enabled", String(aiCompletionEnabled));
+  }, [aiCompletionEnabled]);
+
   
   // ── Memoize onChange prop to avoid changing internal onChange reference ──
   const onChangePropRef = useRef(onChange);
@@ -750,7 +777,21 @@ export default React.memo(function CodeEditor({
         "true",
         "false",
       ],
+      html: [
+        "div", "span", "p", "a", "button", "input", "form", "h1", "h2", "h3", "h4",
+        "header", "footer", "main", "nav", "section", "article", "aside", "style",
+        "script", "link", "meta", "title", "head", "body", "html", "img", "ul", "li",
+        "ol", "table", "tr", "td", "th", "select", "option", "textarea", "label"
+      ],
+      css: [
+        "display", "position", "flex", "grid", "margin", "padding", "width", "height",
+        "color", "background", "border", "border-radius", "box-shadow", "font-size",
+        "font-family", "font-weight", "align-items", "justify-content", "flex-direction",
+        "overflow", "cursor", "transition", "transform", "opacity", "z-index", "absolute",
+        "relative", "fixed", "sticky", "none", "block", "inline-block", "center", "hidden"
+      ],
     };
+
 
     const allLanguages = Object.keys(keywords);
     monaco.languages.registerCompletionItemProvider(allLanguages, {
@@ -784,11 +825,90 @@ export default React.memo(function CodeEditor({
         return { suggestions };
       },
     });
+
+    // ── AI Inline Code Completion Provider (localhost:3001) ──
+    let inlineDebounceTimer: any = null;
+
+    try {
+      monaco.languages.registerInlineCompletionsProvider("*", {
+        provideInlineCompletions: async (model: any, position: any, _context: any, token: any) => {
+          if (!aiCompletionEnabledRef.current) {
+            return { items: [] };
+          }
+
+          const isManual = _context?.triggerKind === 1;
+
+          // Nếu là tự động khi gõ: Đợi dừng gõ đúng 2 giây (2000ms) mới phát request tiết kiệm token
+          if (!isManual) {
+            await new Promise<void>((resolve) => {
+              if (inlineDebounceTimer) clearTimeout(inlineDebounceTimer);
+              inlineDebounceTimer = setTimeout(() => {
+                resolve();
+              }, 2000);
+            });
+          }
+
+          if (token.isCancellationRequested) {
+            return { items: [] };
+          }
+
+          // 1,000 token sliding window (800 prefix / 200 suffix)
+          const { prefix, suffix } = extractCodeContext(model, position);
+          if (!prefix.trim() && !suffix.trim()) {
+            return { items: [] };
+          }
+
+          const langId = model.getLanguageId() || "plaintext";
+
+          const completionText = await fetchAiCodeCompletion({
+            prefix,
+            suffix,
+            language: langId,
+            isManualTrigger: isManual,
+          });
+
+          if (!completionText || token.isCancellationRequested) {
+            return { items: [] };
+          }
+
+          return {
+            items: [
+              {
+                insertText: completionText,
+                range: new monaco.Range(
+                  position.lineNumber,
+                  position.column,
+                  position.lineNumber,
+                  position.column
+                ),
+              },
+            ],
+          };
+        },
+        freeInlineCompletions: () => {},
+      });
+
+    } catch (e) {
+      console.warn("Inline completion provider registration error:", e);
+    }
   };
+
 
   const handleEditorDidMount = (editor: any, monacoInstance: any) => {
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
+
+    // ── Add context menu action: Sparkles AI Code Suggestion (Alt + \) ──
+    editor.addAction({
+      id: "ai-code-completion-trigger",
+      label: "✨ Gợi ý Code bằng AI (Alt+\\)",
+      keybindings: [monacoInstance.KeyMod.Alt | monacoInstance.KeyCode.Backslash],
+      contextMenuGroupId: "navigation",
+      contextMenuOrder: 1.4,
+      run: (ed: any) => {
+        ed.trigger("ai-completion", "editor.action.inlineSuggest.trigger", {});
+      },
+    });
 
     // ── Add context menu action: Tìm kiếm cấu trúc code (RAG) ──
     editor.addAction({
@@ -798,6 +918,7 @@ export default React.memo(function CodeEditor({
       contextMenuOrder: 1.5,
       run: (ed: any) => {
         const position = ed.getPosition();
+
         const lineNumber = position?.lineNumber || 1;
         const column = position?.column || 1;
         ragSearchEditorRef.current = ed;
@@ -1039,7 +1160,30 @@ export default React.memo(function CodeEditor({
           <span className="file-path">{filePath}</span>
         </div>
         <div className="editor-actions">
+          <button
+            className={`btn-ai-completion ${aiCompletionEnabled ? "active" : ""}`}
+            onClick={() => setAiCompletionEnabled((prev) => !prev)}
+            title="Gợi ý code bằng AI (server http://localhost:3001 - 800 prefix / 200 suffix token)"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "3px 8px",
+              fontSize: "11px",
+              borderRadius: "4px",
+              border: "1px solid var(--border-color, rgba(255,255,255,0.15))",
+              background: aiCompletionEnabled ? "rgba(99, 102, 241, 0.15)" : "transparent",
+              color: aiCompletionEnabled ? "#818cf8" : "var(--text-muted, #888)",
+              cursor: "pointer",
+              marginRight: "6px",
+              transition: "all 0.15s ease",
+            }}
+          >
+            <Sparkles size={12} style={{ color: aiCompletionEnabled ? "#818cf8" : "#888" }} />
+            <span>AI Suggest {aiCompletionEnabled ? "ON" : "OFF"}</span>
+          </button>
           {saveStatus === "saving" && (
+
             <span className="save-status-indicator text-muted">
               <RefreshCw size={11} className="spin-animation" /> Saving...
             </span>
