@@ -79,10 +79,6 @@ fn main() {
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
 
-    use core_engine::extension_manager::marketplace::MarketplaceClient;
-    use commands::marketplace_cmds::MarketplaceState;
-    use std::sync::Mutex as StdMutex;
-
     tauri::Builder::default()
         .manage(commands::database::DbState::default())
         .manage(commands::websocket::WsState { sender: tokio::sync::Mutex::new(None) })
@@ -99,7 +95,6 @@ fn main() {
             active_agent_project,
             vm_manager,
         })
-        .manage(MarketplaceState(StdMutex::new(MarketplaceClient::new())))
         .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
         .setup(move |app| {
             let memory_manager = tauri::async_runtime::block_on(async {
@@ -185,11 +180,14 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::marketplace_cmds::login_marketplace,
             commands::marketplace_cmds::fetch_marketplace_extensions,
-            commands::marketplace_cmds::publish_extension,
+            commands::marketplace_cmds::install_wasm_extension,
+            commands::marketplace_cmds::calculate_wasm_sha256,
+            commands::marketplace_cmds::generate_extension_icon_uuid,
+            commands::marketplace_cmds::publish_extension_github,
             commands::extension::get_installed_extensions,
             commands::extension::get_extension_details,
+            commands::extension::execute_wasm_extension,
             commands::process::start_project_process,
             commands::process::stop_project_process,
             commands::process::get_projects,
