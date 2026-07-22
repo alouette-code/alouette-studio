@@ -41,6 +41,11 @@ bollard = "0.17"
 lazy_static = "1.4.0"
 thiserror = "1.0"
 anyhow = "1.0"
+wasmtime = "29.0"
+wasmtime-wasi = "29.0"
+sha2 = "0.10"
+ed25519-dalek = "2.1"
+hex = "0.4"
 
 # rust-vmm dependencies
 kvm-ioctls = "0.19.0"

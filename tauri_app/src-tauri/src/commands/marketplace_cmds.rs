@@ -1,91 +1,107 @@
 use core_engine::extension_manager::marketplace::{
-    zip_extension_dir, CreateExtensionRequest, ExtensionData, MarketplaceClient,
+    RegistryIndexItem, ServerlessMarketplaceClient,
 };
 use core_engine::extension_manager::manifest::ExtensionManifest;
 use std::path::PathBuf;
-use std::sync::Mutex;
-use tauri::State;
 use std::fs;
 
-pub struct MarketplaceState(pub Mutex<MarketplaceClient>);
-
-#[tauri::command]
-pub async fn login_marketplace(
-    email: String,
-    password: String,
-    state: State<'_, MarketplaceState>,
-) -> Result<String, String> {
-    let client = state.0.lock().unwrap();
-    // This is synchronous lock but we need async login, actually let's just make a new client or unlock
-    // Wait, holding a std::sync::Mutex across an await is an error in Rust.
-    // Let's drop the lock or use tokio::sync::Mutex.
-    // For simplicity of Tauri commands, we'll recreate client or use a clone of token.
-    drop(client);
-    
-    // Create temporary client to login
-    let mut temp_client = MarketplaceClient::new();
-    match temp_client.login(&email, &password).await {
-        Ok(token) => {
-            let mut client = state.0.lock().unwrap();
-            client.set_token(token.clone());
-            Ok(token)
-        }
-        Err(e) => Err(e.to_string()),
+fn get_extensions_dir() -> PathBuf {
+    let mut ext_dir = PathBuf::new();
+    if let Ok(home) = std::env::var("HOME") {
+        ext_dir.push(home);
+    } else if let Ok(user_profile) = std::env::var("USERPROFILE") {
+        ext_dir.push(user_profile);
+    } else {
+        ext_dir.push(".");
     }
+    ext_dir.push(".alouette");
+    ext_dir.push("extensions");
+    ext_dir
 }
 
 #[tauri::command]
-pub async fn fetch_marketplace_extensions() -> Result<Vec<ExtensionData>, String> {
-    let client = MarketplaceClient::new();
-    client.fetch_extensions().await.map_err(|e| e.to_string())
+pub async fn fetch_marketplace_extensions() -> Result<Vec<RegistryIndexItem>, String> {
+    let client = ServerlessMarketplaceClient::new();
+    client.fetch_registry_index().await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn publish_extension(
+pub async fn install_wasm_extension(item: RegistryIndexItem) -> Result<String, String> {
+    let client = ServerlessMarketplaceClient::new();
+    let target_dir = get_extensions_dir();
+    
+    client.download_and_install_wasm(&item, &target_dir)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(format!("Extension {} (v{}) installed successfully!", item.name, item.version))
+}
+
+#[tauri::command]
+pub async fn calculate_wasm_sha256(file_path: String) -> Result<String, String> {
+    let path = PathBuf::from(file_path);
+    ServerlessMarketplaceClient::calculate_file_sha256(&path).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn generate_extension_icon_uuid(file_path: String) -> Result<String, String> {
+    let path = PathBuf::from(&file_path);
+    if !path.exists() {
+        return Err("Image file does not exist".to_string());
+    }
+
+    // 1. Kiểm tra kích thước độ phân giải tối đa 500x500
+    if let Ok((width, height)) = image::image_dimensions(&path) {
+        if width > 500 || height > 500 {
+            return Err(format!(
+                "Image resolution exceeds 500x500 limit! Your selected image is {}x{}px. Please choose an icon up to 500x500 pixels.",
+                width, height
+            ));
+        }
+    } else {
+        return Err("Failed to inspect image file dimensions. Please select a valid PNG/JPG/WebP/SVG image.".to_string());
+    }
+
+    // 2. Sinh mã UUID 36 ký tự duy nhất
+    let uuid_str = uuid::Uuid::new_v4().to_string();
+    let ext = path
+        .extension()
+        .map(|e| e.to_string_lossy().to_string())
+        .unwrap_or_else(|| "png".to_string());
+
+    let icon_filename = format!("{}.{}", uuid_str, ext);
+    let cdn_url = format!(
+        "https://raw.githubusercontent.com/alouette-code/alouette-extension-registry/main/icons/{}",
+        icon_filename
+    );
+
+    Ok(cdn_url)
+}
+
+#[tauri::command]
+pub async fn publish_extension_github(
     folder_path: String,
-    version: String,
-    changelog: String,
-    state: State<'_, MarketplaceState>,
+    _github_token: String,
 ) -> Result<String, String> {
     let path = PathBuf::from(&folder_path);
     let manifest_path = path.join("proto-extension.json");
     
     if !manifest_path.exists() {
-        return Err("proto-extension.json not found in the specified folder".to_string());
+        return Err("proto-extension.json not found in folder".to_string());
     }
 
     let manifest_content = fs::read_to_string(&manifest_path).map_err(|e| e.to_string())?;
     let manifest: ExtensionManifest = serde_json::from_str(&manifest_content).map_err(|e| e.to_string())?;
 
-    let token = {
-        let client = state.0.lock().unwrap();
-        client.token.clone()
-    };
-
-    if token.is_none() {
-        return Err("Not logged in".to_string());
+    let wasm_file = path.join(manifest.runtime.wasm_entry.as_deref().unwrap_or("plugin.wasm"));
+    if !wasm_file.exists() {
+        return Err("Wasm binary (plugin.wasm) not found in folder".to_string());
     }
 
-    let mut client = MarketplaceClient::new();
-    client.set_token(token.unwrap());
+    let sha256 = ServerlessMarketplaceClient::calculate_file_sha256(&wasm_file).map_err(|e| e.to_string())?;
 
-    // 1. Create extension
-    let req = CreateExtensionRequest {
-        name: manifest.name.clone(),
-        description: manifest.description.unwrap_or_default(),
-        category: "General".to_string(),
-        tech_stack: vec![manifest.runtime.r#type],
-        visibility: "public".to_string(),
-    };
-
-    let ext_id = client.create_extension(&req).await.map_err(|e| e.to_string())?;
-
-    // 2. Zip folder
-    let temp_zip = std::env::temp_dir().join(format!("{}.zip", ext_id));
-    zip_extension_dir(&path, &temp_zip).map_err(|e| e.to_string())?;
-
-    // 3. Upload release
-    client.upload_release(&ext_id, &version, &changelog, &temp_zip).await.map_err(|e| e.to_string())?;
-
-    Ok(ext_id)
+    Ok(format!(
+        "Ready to create PR for extension '{}' (v{}). Checksum SHA-256: {}",
+        manifest.name, manifest.version, sha256
+    ))
 }

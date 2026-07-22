@@ -156,11 +156,15 @@ Alouette Studio redefines the developer workspace by integrating enterprise-grad
 - **Real-Time Insights:** Stream raw telemetry logs into ANSI-colored xterm.js terminals instantly.
 - **PTY Injection:** Submerge directly into running containers via deep interactive shells for rapid-fire debugging.
 
-### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/blocks.svg" width="20" height="20" align="top"/> 20. VS Code Extension Compatibility Engine & Marketplace
-*Extend your environment instantly with an integrated VS Code-compatible plugin ecosystem.*
-- **Universal Marketplace:** Browse, discover, and install extensions directly from a beautifully integrated marketplace.
-- **Extension Sandboxing:** Execute legacy Node.js-based VS Code extensions securely within our custom compatibility layer.
-- **Publishing Hub:** Deploy and distribute your own bespoke plugins directly through the internal Extension Publisher interface.
+### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/blocks.svg" width="20" height="20" align="top"/> 20. Wasm-First Serverless Hybrid Architecture & Marketplace
+*Extend Alouette Studio securely using memory-isolated WebAssembly plugins and a GitHub-backed CDN registry.*
+- **Wasmtime WASI Engine:** Embedded Wasmtime runtime with WASI Preview 1 support, delivering near-native performance, zero-trust memory sandboxing, and zero-crash fault tolerance.
+- **Permission Firewall Interceptor:** Host API interceptor enforcing granular permissions (`fs:read`, `fs:write`, `net:http`, `terminal:exec`) prior to executing WASI calls.
+- **Serverless Git Registry:** Metadata and marketplace index served globally via jsDelivr CDN backed by [alouette-code/alouette-extension-registry](https://github.com/alouette-code/alouette-extension-registry).
+- **Publisher Namespace Protection:** Strict ID format (`<publisher_id>.<extension_id>`) eliminating namespace collisions and duplicate extensions.
+- **Ed25519 Cryptographic Signatures:** Asymmetric key signature verification protecting developers against unauthorized extension hijacking or malicious tampering.
+- **Automated 36-Char UUID Assets:** Local asset manager with maximum 500x500px resolution enforcement and collision-free 36-character UUID icon naming.
+- **Serverless Submission Form:** Integrated GUI form with automatic SHA-256 binary calculation and one-click JSON payload generation for GitHub Pull Requests.
 
 ### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/workflow.svg" width="20" height="20" align="top"/> 21. Multi-Agent Swarm Orchestration
 *Command an entire fleet of autonomous AI agents working in synchronized parallel.*
@@ -247,3 +251,46 @@ cd tauri_app/ui
 npm run dev    # Launch UI standalone
 npm run build  # Execute TypeScript rigorous compilation
 ```
+
+---
+
+## <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/box.svg" width="24" height="24" align="top"/> Wasm Extension Development Guide
+
+### 1. Extension Directory Structure
+```text
+my-extension/
+├── proto-extension.json    # Manifest configuration & permissions
+└── plugin.wasm             # Compiled WebAssembly binary
+```
+
+### 2. Sample Manifest (`proto-extension.json`)
+```json
+{
+  "id": "publisher_name.my-extension",
+  "name": "My Custom Wasm Plugin",
+  "version": "1.0.0",
+  "description": "High performance WASI extension",
+  "runtime": {
+    "type": "wasm",
+    "entry": "plugin.wasm"
+  },
+  "capabilities": {
+    "permissions": ["fs:read", "net:http"]
+  }
+}
+```
+
+### 3. Compiling Rust to WASI Target
+```bash
+# Add WASI target
+rustup target add wasm32-wasip1
+
+# Build release WASM binary
+cargo build --target wasm32-wasip1 --release
+```
+
+### 4. Local Installation Directory
+Place local plugins in:
+- **Linux / macOS**: `~/.alouette/extensions/<publisher>.<extension_id>/`
+- **Windows**: `C:\Users\<User>\.alouette\extensions\<publisher>.<extension_id>\`
+

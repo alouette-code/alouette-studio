@@ -1511,12 +1511,8 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         tokio::task::spawn_blocking(move || {
             let qga_socket_path = std::path::Path::new("/tmp/alouette_vms").join(format!("{}_qga.sock", vm_id));
             
-            let mut client = None;
-            let mut res = None;
             let start = std::time::Instant::now();
-            
-            // Lặp lại việc kết nối và gửi lệnh guest-exec trong tối đa 60 giây (chờ VM boot)
-            loop {
+            let (mut client, res) = loop {
                 match crate::vm_engine::qga_client::QgaClient::connect(&qga_socket_path) {
                     Ok(mut c) => {
                         match c.execute("guest-exec", Some(serde_json::json!({
@@ -1524,29 +1520,22 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
                             "arg": &args,
                             "capture-output": true
                         }))) {
-                            Ok(r) => {
-                                client = Some(c);
-                                res = Some(r);
-                                break;
-                            }
-                            Err(e) => {
+                            Ok(r) => break (c, r),
+                            Err(_e) => {
                                 if start.elapsed().as_secs() > 30 {
                                     return Ok(format!("VM_NOT_READY: The virtual machine is still booting or QGA is not installed. Please call vm_execute_command again to retry. CRITICAL INSTRUCTION: If you receive this VM_NOT_READY message 3 times in a row, STOP retrying immediately. You MUST inform the user that their VM is missing the Guest Agent and instruct them to open the 'VM Display (VNC)' tab on the right to manually log in and run 'sudo apt install qemu-guest-agent -y' (for Linux) or install virtio-win guest agent (for Windows)."));
                                 }
                             }
                         }
                     }
-                    Err(e) => {
+                    Err(_e) => {
                         if start.elapsed().as_secs() > 30 {
                             return Ok(format!("VM_NOT_READY: The virtual machine is still booting or QGA is not installed. Please call vm_execute_command again to retry. CRITICAL INSTRUCTION: If you receive this VM_NOT_READY message 3 times in a row, STOP retrying immediately. You MUST inform the user that their VM is missing the Guest Agent and instruct them to open the 'VM Display (VNC)' tab on the right to manually log in and run 'sudo apt install qemu-guest-agent -y' (for Linux) or install virtio-win guest agent (for Windows)."));
                         }
                     }
                 }
                 std::thread::sleep(std::time::Duration::from_secs(2));
-            }
-            
-            let mut client = client.unwrap();
-            let res = res.unwrap();
+            };
             
             let pid = res.get("pid").and_then(|p| p.as_i64()).ok_or_else(|| "Failed to get pid from guest-exec".to_string())?;
             

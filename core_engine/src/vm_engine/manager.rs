@@ -30,7 +30,7 @@ impl VmManager {
         sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
         
         let storage_dir_str = storage_path.to_string_lossy().to_string();
-        for (pid, process) in sys.processes() {
+        for (_pid, process) in sys.processes() {
             let cmd_str = format!("{:?}", process.cmd());
             
             // Strict verification to prevent accidental kills:
@@ -275,7 +275,7 @@ impl VmManager {
 
     /// Gracefully shuts down a running virtual machine using QMP system_powerdown.
     pub fn shutdown_vm(&self, id: &str) -> Result<(), String> {
-        let mut active = self.active_vms.lock();
+        let active = self.active_vms.lock();
         if let Some(active_vm) = active.get(id) {
             if active_vm.qemu_instance.lock().is_running() {
                 let qmp_socket_path = Path::new("/tmp/alouette_vms").join(format!("{}_qmp.sock", id));
@@ -428,7 +428,7 @@ impl VmManager {
             return Err("Invalid host_path: file may not exist or path is invalid".to_string());
         }
 
-        let config = self.get_vm_config(id)?;
+        let _config = self.get_vm_config(id)?;
         let mut active = self.active_vms.lock();
         let is_running = active.get_mut(id).map(|vm| vm.qemu_instance.lock().is_running()).unwrap_or(false);
 
