@@ -178,6 +178,16 @@ Alouette Studio redefines the developer workspace by integrating enterprise-grad
 - **Global Dock Navigation:** A liquid-smooth, macOS-inspired floating dock granting instantaneous access to all critical sub-systems.
 - **Unified Telemetry:** A monolithic Admin Panel consolidating global configurations, identity management, and workspace analytics into a single pane of glass.
 
+### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/sparkles.svg" width="20" height="20" align="top"/> 23. Smart AI Code Completion Engine (Inline Ghost Text)
+*Real-time, context-aware AI code suggestions integrated directly into Monaco Editor.*
+- **Inline Ghost Text:** Generates sleek, non-intrusive gray preview code directly at your cursor position—accept suggestions effortlessly with a single `Tab` press.
+- **Smart 1,000-Token Context Windowing:** Intelligently analyzes code scope around your cursor using a balanced sliding window (up to 800 prefix tokens and 200 suffix tokens) to ensure highly accurate, syntactically harmonious code completions.
+- **Pause-Aware Debounce Engine:** Intelligent 2-second typing pause detection waits until you complete your thought before requesting AI suggestions—eliminating unnecessary background requests, preserving system resources, and preventing rate limits.
+- **Manual Trigger Shortcut (`Alt + \`):** Instantly trigger AI completions on demand anytime without waiting for auto-detection.
+- **Seamless Monaco Coexistence:** Works harmoniously alongside Monaco's native autocomplete, keyword suggestions, and hover documentation without blocking or interfering with existing editor tools.
+- **One-Click Toggle:** Easily enable or disable AI suggestions at any time using the quick status control in the editor toolbar.
+
+
 ---
 
 ## <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/layers.svg" width="24" height="24" align="top"/> Architecture

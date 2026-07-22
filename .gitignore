@@ -60,3 +60,12 @@ tauri_app/src-tauri/icons/*
 # browser
 chrome/
 chrome_profile/
+
+# ── Local Proxy Server & Keys ──
+server_proxy/
+server.js
+proxy_server.js
+*proxy*.js
+
+
+package-lock.json
