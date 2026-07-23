@@ -568,10 +568,28 @@ export default function AiAgent({
   );
 
   // ─── Token Estimation ────────────────────────────────────────────────
-  const estimateTokens = (text: string): number => {
+  const estimateTokens = (text: string | null | undefined): number => {
     if (!text) return 0;
-    // Heuristic: ~4 ký tự ≈ 1 token (ước lượng)
-    return Math.max(1, Math.ceil(text.length / 4));
+    let asciiCount = 0;
+    let nonAsciiCount = 0;
+    for (let i = 0; i < text.length; i++) {
+      if (text.charCodeAt(i) <= 127) {
+        asciiCount++;
+      } else {
+        nonAsciiCount++;
+      }
+    }
+    const est = asciiCount / 3.8 + nonAsciiCount / 1.5;
+    return Math.max(1, Math.ceil(est));
+  };
+
+  const getModelMaxContext = (modelId: string): number => {
+    const id = (modelId || "").toLowerCase();
+    if (id.includes("gemini")) return 1048576; // 1M tokens
+    if (id.includes("claude")) return 200000;
+    if (id.includes("gpt-4o") || id.includes("o1") || id.includes("o3")) return 128000;
+    if (id.includes("deepseek") || id.includes("qwen") || id.includes("llama") || id.includes("mistral")) return 128000;
+    return 128000; // Default fallback: 128k
   };
 
   const estimatedInputTokens = useMemo(
@@ -580,15 +598,47 @@ export default function AiAgent({
   );
 
   const tokenBreakdown = useMemo(() => {
-    let total = 0;
-    const perMsg: number[] = [];
+    // System prompt & tools schema baseline context (~2,000 tokens)
+    const systemTokens = 2000;
+    let chatTokens = 0;
+    let toolTokens = 0;
+
     for (const msg of chatHistory) {
-      const t = msg.text ? estimateTokens(msg.text) : 0;
-      perMsg.push(t);
-      total += t;
+      if (msg.text) {
+        chatTokens += estimateTokens(msg.text);
+      }
+      if (msg.args) {
+        toolTokens += estimateTokens(msg.args);
+      }
+      if (msg.tools && Array.isArray(msg.tools)) {
+        toolTokens += estimateTokens(JSON.stringify(msg.tools));
+      }
+      if (msg.toolResult) {
+        toolTokens += estimateTokens(msg.toolResult);
+      }
+      if (msg.errorText) {
+        toolTokens += estimateTokens(msg.errorText);
+      }
     }
-    return { total, perMsg };
-  }, [chatHistory]);
+
+    const inputTokens = estimatedInputTokens;
+    const total = systemTokens + chatTokens + toolTokens + inputTokens;
+    const maxContext = getModelMaxContext(selectedModel);
+    const usagePercent = Math.min(
+      100,
+      Number(((total / maxContext) * 100).toFixed(1)),
+    );
+
+    return {
+      systemTokens,
+      chatTokens,
+      toolTokens,
+      inputTokens,
+      total,
+      maxContext,
+      usagePercent,
+    };
+  }, [chatHistory, estimatedInputTokens, selectedModel]);
 
   // ─── Multi-Session: Switch Project ─────────────────────────────────
   const prevProjectIdRef = useRef<string | undefined>(undefined);
@@ -3860,94 +3910,416 @@ export default function AiAgent({
                   : `~${totalSessionTokens.toLocaleString()}`}
               </span>
 
-              {/* Tooltip (pops up above) */}
+              {/* Tooltip (pops up above with Pie Chart Breakdown) */}
               {showTokenTooltip && (
                 <div
                   style={{
                     position: "absolute",
-                    bottom: "calc(100% + 10px)",
+                    bottom: "calc(100% + 12px)",
                     left: "50%",
                     transform: "translateX(-50%)",
-                    background: "var(--bg-primary)",
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: "8px",
-                    padding: "8px 12px",
+                    background: "rgba(18, 18, 24, 0.96)",
+                    backdropFilter: "blur(16px)",
+                    border: "1px solid rgba(255,255,255,0.15)",
+                    borderRadius: "12px",
+                    padding: "12px 14px",
                     whiteSpace: "nowrap",
                     zIndex: 2000,
-                    boxShadow: "0 8px 24px rgba(0,0,0,0.6)",
+                    boxShadow: "0 12px 32px rgba(0,0,0,0.7)",
                     pointerEvents: "none",
+                    minWidth: "295px",
                   }}
                 >
-                  <div
-                    style={{
-                      fontSize: "10px",
-                      fontWeight: 700,
-                      color: "var(--text-primary)",
-                      marginBottom: "6px",
-                      letterSpacing: "0.03em",
-                    }}
-                  >
-                    Ước lượng Token
-                  </div>
+                  {/* Top Header */}
                   <div
                     style={{
                       display: "flex",
-                      flexDirection: "column",
-                      gap: "3px",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      marginBottom: "10px",
+                      paddingBottom: "6px",
+                      borderBottom: "1px solid rgba(255,255,255,0.08)",
                     }}
                   >
-                    <div
+                    <span
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "16px",
-                        fontSize: "10px",
-                        color: "var(--text-secondary)",
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: "var(--text-primary)",
+                        letterSpacing: "0.02em",
                       }}
                     >
-                      <span>Tin nhắn hiện tại</span>
-                      <span
-                        style={{
-                          color: "#a78bfa",
-                          fontWeight: 600,
-                          fontFamily: "var(--font-mono)",
-                        }}
-                      >
-                        ~{estimatedInputTokens}
-                      </span>
-                    </div>
-                    <div
+                      Estimating the context window
+                    </span>
+                    <span
                       style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        gap: "16px",
-                        fontSize: "10px",
-                        color: "var(--text-secondary)",
+                        fontSize: "9px",
+                        fontWeight: 600,
+                        background: "rgba(167, 139, 250, 0.15)",
+                        color: "#a78bfa",
+                        padding: "2px 6px",
+                        borderRadius: "4px",
+                        border: "1px solid rgba(167, 139, 250, 0.3)",
+                        fontFamily: "var(--font-mono)",
                       }}
                     >
-                      <span>Tổng session</span>
-                      <span
-                        style={{
-                          color: "#38bdf8",
-                          fontWeight: 600,
-                          fontFamily: "var(--font-mono)",
-                        }}
-                      >
-                        ~{totalSessionTokens.toLocaleString()}
-                      </span>
-                    </div>
+                      Max{" "}
+                      {tokenBreakdown.maxContext >= 1000000
+                        ? `${(tokenBreakdown.maxContext / 1000000).toFixed(1)}M`
+                        : `${Math.round(tokenBreakdown.maxContext / 1000)}k`}
+                    </span>
                   </div>
+
+                  {/* Body: Left Donut SVG Chart + Right Legend */}
                   <div
                     style={{
-                      marginTop: "6px",
-                      paddingTop: "5px",
-                      borderTop: "1px solid rgba(255,255,255,0.06)",
-                      fontSize: "9px",
-                      color: "var(--text-muted)",
-                      fontStyle: "italic",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "14px",
                     }}
                   >
-                    ~4 ký tự / token
+                    {/* SVG Donut Chart */}
+                    <div
+                      style={{
+                        position: "relative",
+                        width: "74px",
+                        height: "74px",
+                        flexShrink: 0,
+                      }}
+                    >
+                      {(() => {
+                        const radius = 30;
+                        const circumference = 2 * Math.PI * radius; // ~188.495
+                        const {
+                          systemTokens,
+                          chatTokens,
+                          toolTokens,
+                          inputTokens,
+                          maxContext,
+                          usagePercent,
+                        } = tokenBreakdown;
+
+                        const sysFrac = (systemTokens / maxContext) * circumference;
+                        const chatFrac = (chatTokens / maxContext) * circumference;
+                        const toolFrac = (toolTokens / maxContext) * circumference;
+                        const inputFrac = (inputTokens / maxContext) * circumference;
+
+                        let currentOffset = 0;
+                        const sysOff = currentOffset;
+                        currentOffset += sysFrac;
+
+                        const chatOff = currentOffset;
+                        currentOffset += chatFrac;
+
+                        const toolOff = currentOffset;
+                        currentOffset += toolFrac;
+
+                        const inputOff = currentOffset;
+
+                        return (
+                          <>
+                            <svg width="74" height="74" viewBox="0 0 80 80">
+                              {/* Background track (Max Capacity) */}
+                              <circle
+                                cx="40"
+                                cy="40"
+                                r={radius}
+                                fill="transparent"
+                                stroke="rgba(255, 255, 255, 0.08)"
+                                strokeWidth="8"
+                              />
+                              {/* System & Tools */}
+                              {sysFrac > 0 && (
+                                <circle
+                                  cx="40"
+                                  cy="40"
+                                  r={radius}
+                                  fill="transparent"
+                                  stroke="#a78bfa"
+                                  strokeWidth="8"
+                                  strokeDasharray={`${sysFrac} ${circumference - sysFrac}`}
+                                  strokeDashoffset={-sysOff}
+                                  transform="rotate(-90 40 40)"
+                                  strokeLinecap="round"
+                                />
+                              )}
+                              {/* Chat History */}
+                              {chatFrac > 0 && (
+                                <circle
+                                  cx="40"
+                                  cy="40"
+                                  r={radius}
+                                  fill="transparent"
+                                  stroke="#38bdf8"
+                                  strokeWidth="8"
+                                  strokeDasharray={`${chatFrac} ${circumference - chatFrac}`}
+                                  strokeDashoffset={-chatOff}
+                                  transform="rotate(-90 40 40)"
+                                  strokeLinecap="round"
+                                />
+                              )}
+                              {/* Tool Results */}
+                              {toolFrac > 0 && (
+                                <circle
+                                  cx="40"
+                                  cy="40"
+                                  r={radius}
+                                  fill="transparent"
+                                  stroke="#34d399"
+                                  strokeWidth="8"
+                                  strokeDasharray={`${toolFrac} ${circumference - toolFrac}`}
+                                  strokeDashoffset={-toolOff}
+                                  transform="rotate(-90 40 40)"
+                                  strokeLinecap="round"
+                                />
+                              )}
+                              {/* Current Input */}
+                              {inputFrac > 0 && (
+                                <circle
+                                  cx="40"
+                                  cy="40"
+                                  r={radius}
+                                  fill="transparent"
+                                  stroke="#fbbf24"
+                                  strokeWidth="8"
+                                  strokeDasharray={`${inputFrac} ${circumference - inputFrac}`}
+                                  strokeDashoffset={-inputOff}
+                                  transform="rotate(-90 40 40)"
+                                  strokeLinecap="round"
+                                />
+                              )}
+                            </svg>
+                            <div
+                              style={{
+                                position: "absolute",
+                                top: 0,
+                                left: 0,
+                                width: "100%",
+                                height: "100%",
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                pointerEvents: "none",
+                              }}
+                            >
+                              <span
+                                style={{
+                                  fontSize: "11px",
+                                  fontWeight: 700,
+                                  color: "#ffffff",
+                                  lineHeight: 1,
+                                  fontFamily: "var(--font-mono)",
+                                }}
+                              >
+                                {usagePercent < 0.1 ? "<0.1%" : `${usagePercent}%`}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: "7px",
+                                  color: "var(--text-muted)",
+                                  marginTop: "2px",
+                                }}
+                              >
+                                context
+                              </span>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+
+                    {/* Breakdown List */}
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "4px",
+                        flexGrow: 1,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          fontSize: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "var(--text-secondary)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: "6px",
+                              height: "6px",
+                              borderRadius: "50%",
+                              background: "#a78bfa",
+                              display: "inline-block",
+                            }}
+                          />
+                          System & Tools
+                        </span>
+                        <span
+                          style={{
+                            color: "#a78bfa",
+                            fontWeight: 600,
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          ~{tokenBreakdown.systemTokens.toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          fontSize: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "var(--text-secondary)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: "6px",
+                              height: "6px",
+                              borderRadius: "50%",
+                              background: "#38bdf8",
+                              display: "inline-block",
+                            }}
+                          />
+                          Hội thoại (Chat)
+                        </span>
+                        <span
+                          style={{
+                            color: "#38bdf8",
+                            fontWeight: 600,
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          ~{tokenBreakdown.chatTokens.toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          fontSize: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "var(--text-secondary)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: "6px",
+                              height: "6px",
+                              borderRadius: "50%",
+                              background: "#34d399",
+                              display: "inline-block",
+                            }}
+                          />
+                          Kết quả Tool
+                        </span>
+                        <span
+                          style={{
+                            color: "#34d399",
+                            fontWeight: 600,
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          ~{tokenBreakdown.toolTokens.toLocaleString()}
+                        </span>
+                      </div>
+
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          fontSize: "10px",
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "var(--text-secondary)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: "6px",
+                              height: "6px",
+                              borderRadius: "50%",
+                              background: "#fbbf24",
+                              display: "inline-block",
+                            }}
+                          />
+                          Tin nhắn nhập
+                        </span>
+                        <span
+                          style={{
+                            color: "#fbbf24",
+                            fontWeight: 600,
+                            fontFamily: "var(--font-mono)",
+                          }}
+                        >
+                          ~{tokenBreakdown.inputTokens.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary Footer */}
+                  <div
+                    style={{
+                      marginTop: "10px",
+                      paddingTop: "6px",
+                      borderTop: "1px solid rgba(255,255,255,0.06)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: "9.5px",
+                    }}
+                  >
+                    <span style={{ color: "var(--text-muted)" }}>
+                      Tổng payload context:
+                    </span>
+                    <span
+                      style={{
+                        color: "#ffffff",
+                        fontWeight: 700,
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      ~{tokenBreakdown.total.toLocaleString()} /{" "}
+                      {tokenBreakdown.maxContext >= 1000000
+                        ? `${(tokenBreakdown.maxContext / 1000000).toFixed(1)}M`
+                        : `${Math.round(tokenBreakdown.maxContext / 1000)}k`}{" "}
+                      tokens
+                    </span>
                   </div>
                 </div>
               )}
