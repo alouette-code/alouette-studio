@@ -25,6 +25,7 @@ import {
 import Header from "./components/Header";
 import WindowResizer from "./components/WindowResizer";
 import CodeEditor from "./components/CodeEditor";
+import { globalErrorStore } from "./services/errorStore";
 import ConfigSetup from "./components/ConfigSetup";
 import TabList from "./components/TabList";
 import TerminalPanel from "./components/TerminalPanel";
@@ -320,6 +321,14 @@ export default function App() {
   const [initialAgentSessionData, setInitialAgentSessionData] =
     useState<any>(null);
   const [agentHistoryList, setAgentHistoryList] = useState<any[]>([]);
+  const [, forceAppRender] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = globalErrorStore.subscribe(() => {
+      forceAppRender((n) => n + 1);
+    });
+    return unsubscribe;
+  }, []);
 
   // Refs for dragging math
   const tabListRef = useRef<HTMLDivElement>(null);
@@ -1541,10 +1550,13 @@ export default function App() {
                             }
                           >
                             <div className="editor-tabs-bar">
-                              {paneOpenFiles.map((path) => (
-                                <div
-                                  key={`tab-${paneIdx}-${encodeURIComponent(path)}`}
-                                  className={`editor-tab ${paneOpenFilePath === path ? "active" : ""}`}
+                              {paneOpenFiles.map((path) => {
+                                const isTabError = globalErrorStore.hasError(path);
+
+                                return (
+                                  <div
+                                    key={`tab-${paneIdx}-${encodeURIComponent(path)}`}
+                                    className={`editor-tab ${paneOpenFilePath === path ? "active" : ""} ${isTabError ? "has-error" : ""}`}
                                   draggable
                                   onDragStart={(e) =>
                                     handleDragStart(e, paneIdx, path)
@@ -1618,8 +1630,9 @@ export default function App() {
                                   >
                                     <X size={12} />
                                   </button>
-                                </div>
-                              ))}
+                                  </div>
+                                );
+                              })}
                             </div>
 
                             <div className="tabs-actions-container">
