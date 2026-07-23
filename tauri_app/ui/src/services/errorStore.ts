@@ -1,6 +1,6 @@
 /**
- * Global Error Store for tracking code/syntax error counts across all open files.
- * Provides path-agnostic matching and real-time subscription for UI components.
+ * Global Error Store for tracking code/syntax error counts across files.
+ * Universal, path-agnostic, cross-platform architecture with segment-bounded matching.
  */
 
 type Listener = () => void;
@@ -14,27 +14,25 @@ class ErrorStore {
    */
   setFileError(path: string | null | undefined, count: number) {
     if (!path) return;
-    const norm = this.normalizePath(path);
-    const prev = this.errors.get(norm) || 0;
-    if (prev !== count) {
-      if (count > 0) {
-        this.errors.set(norm, count);
-      } else {
-        this.errors.delete(norm);
-      }
-      this.notify();
-    }
-  }
+    const norm = this.canonicalizePath(path);
+    if (!norm) return;
 
-  /**
-   * Clear errors for a file path
-   */
-  clearFileError(path: string | null | undefined) {
-    if (!path) return;
-    const norm = this.normalizePath(path);
-    if (this.errors.has(norm)) {
-      this.errors.delete(norm);
-      this.notify();
+    if (count > 0) {
+      if (this.errors.get(norm) !== count) {
+        this.errors.set(norm, count);
+        this.notify();
+      }
+    } else {
+      let changed = false;
+      for (const errPath of Array.from(this.errors.keys())) {
+        if (this.isPathMatch(errPath, norm)) {
+          this.errors.delete(errPath);
+          changed = true;
+        }
+      }
+      if (changed) {
+        this.notify();
+      }
     }
   }
 
@@ -50,35 +48,29 @@ class ErrorStore {
    */
   getErrorCount(nodePath: string | null | undefined, isDir: boolean = false): number {
     if (!nodePath) return 0;
-    const normNode = this.normalizePath(nodePath);
+    const normNode = this.canonicalizePath(nodePath);
     if (!normNode) return 0;
 
     if (isDir) {
-      const prefix = normNode.endsWith("/") ? normNode : normNode + "/";
       let total = 0;
       for (const [errPath, count] of this.errors.entries()) {
-        if (errPath.startsWith(prefix) || errPath.includes("/" + normNode + "/")) {
+        const normErr = this.canonicalizePath(errPath);
+        if (
+          normErr.startsWith(normNode + "/") ||
+          normErr.includes("/" + normNode + "/") ||
+          this.isPathMatch(normErr, normNode)
+        ) {
           total += count;
         }
       }
       return total;
     }
 
-    // Direct match
-    if (this.errors.has(normNode)) {
-      return this.errors.get(normNode) || 0;
-    }
-
-    // Flexible end-with match for relative/absolute path variations
-    const nodeFileName = normNode.split("/").pop() || "";
+    // Path-agnostic segment-bounded match across relative and absolute path representations
     for (const [errPath, count] of this.errors.entries()) {
-      if (
-        errPath === normNode ||
-        errPath.endsWith("/" + normNode) ||
-        normNode.endsWith("/" + errPath) ||
-        (nodeFileName && errPath.endsWith("/" + nodeFileName) && normNode.endsWith("/" + nodeFileName))
-      ) {
-        return count;
+      const normErr = this.canonicalizePath(errPath);
+      if (this.isPathMatch(normErr, normNode)) {
+        if (count > 0) return count;
       }
     }
 
@@ -105,8 +97,40 @@ class ErrorStore {
     });
   }
 
-  private normalizePath(p: string): string {
-    return p.replace(/\\/g, "/").toLowerCase().trim();
+  /**
+   * Universal path match: exact match, boundary-delimited segment suffix match, or filename fallback
+   */
+  private isPathMatch(pathA: string, pathB: string): boolean {
+    if (pathA === pathB) return true;
+    if (pathA.endsWith("/" + pathB)) return true;
+    if (pathB.endsWith("/" + pathA)) return true;
+
+    // Basename fallback if one of the paths is filename-only
+    const baseA = pathA.split("/").pop();
+    const baseB = pathB.split("/").pop();
+    if (baseA && baseB && baseA === baseB) {
+      if (!pathA.includes("/") || !pathB.includes("/")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Canonicalize file path: decode URI (%20), strip file:// scheme, normalize slashes, collapse duplicates, lower-case
+   */
+  private canonicalizePath(p: string): string {
+    if (!p) return "";
+    let decoded = p;
+    try {
+      decoded = decodeURIComponent(p);
+    } catch (e) {}
+    let norm = decoded.replace(/\\/g, "/").replace(/\/+/g, "/").toLowerCase().trim();
+    if (norm.startsWith("file:///")) norm = norm.substring(8);
+    else if (norm.startsWith("file://")) norm = norm.substring(7);
+    if (norm.startsWith("/")) norm = norm.substring(1);
+    if (norm.endsWith("/")) norm = norm.substring(0, norm.length - 1);
+    return norm;
   }
 }
 

@@ -9320,12 +9320,14 @@ body.is-resizing-h, body.is-resizing-h * {
 }
 
 /* Red Filename Highlight when file has errors */
-.file-name.has-error {
+.file-name.has-error,
+.tree-node-name.has-error {
   color: #ef4444 !important;
   font-weight: 600 !important;
 }
 
-.file-icon.has-error {
+.file-icon.has-error,
+.tree-node-icon.has-error {
   color: #ef4444 !important;
 }
 
