@@ -166,10 +166,16 @@ Alouette Studio redefines the developer workspace by integrating enterprise-grad
 - **Automated 36-Char UUID Assets:** Local asset manager with maximum 500x500px resolution enforcement and collision-free 36-character UUID icon naming.
 - **Serverless Submission Form:** Integrated GUI form with automatic SHA-256 binary calculation and one-click JSON payload generation for GitHub Pull Requests.
 
-### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/workflow.svg" width="20" height="20" align="top"/> 21. Multi-Agent Swarm Orchestration
-*Command an entire fleet of autonomous AI agents working in synchronized parallel.*
-- **Session Matrix:** Manage multiple isolated agent sessions concurrently across diverse projects with precision state tracking.
-- **Swarm Coordination:** Deploy specialized agent swarms to conquer massive architectural refactors or multi-file debugging tasks synchronously.
+### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/workflow.svg" width="20" height="20" align="top"/> 21. Multi-Agent Team Collaboration Workflow (5 Agents)
+*Command an entire specialized team of AI agents working in synchronized coordination.*
+- **5 Specialized Agent Roles:** Automated multi-agent workflow featuring 5 distinct specialized personas:
+  - 👑 **Leader (Coordinator):** Receives user objective, introduces team goals, coordinates workflow, and presents the final summary report.
+  - 📋 **Planner (Architect):** Drafts step-by-step technical plans and divides approved plans into subtasks for developer agents.
+  - 🔍 **Plan Reviewer (QA Specialist):** Audits proposed plans for logic flaws, security vulnerabilities, and edge cases until approved (`[APPROVED]`).
+  - 💻 **Coder 1 (Developer Alpha):** Executes primary backend/core source code implementation tasks.
+  - ⚡ **Coder 2 (Developer Beta):** Executes secondary/integration source code implementation tasks.
+- **Token Consumption Guard:** Integrated token expenditure warning modal requiring explicit user confirmation before launching the 5-Agent collaboration pipeline.
+- **Zero-Stutter 60FPS Streaming:** High-performance `requestAnimationFrame` event batching coupled with memoized `React.memo` markdown rendering, guaranteeing fluid 60FPS real-time chat updates without UI stuttering.
 - **Historical Memory:** Retain deep, searchable session histories to instantly restore previous AI workflows and thought patterns.
 
 ### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/fingerprint.svg" width="20" height="20" align="top"/> 22. Enterprise Admin Control Center & Global Dock
