@@ -7133,6 +7133,78 @@ select option {
     background-color: var(--terminal-bg) !important;
 }
 
+/* Monaco Editor IME composition & full-width current line highlight fix */
+.monaco-editor .view-overlays .current-line {
+    width: 100% !important;
+    left: 0 !important;
+}
+
+.monaco-editor .ime-span {
+    background-color: transparent !important;
+    border-bottom: 1px dashed rgba(255, 255, 255, 0.4) !important;
+}
+
+/* VS Code - style IME textarea to be completely transparent so Chromium doesn't draw opaque IME boxes */
+.monaco-editor .inputarea {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    outline: none !important;
+    resize: none !important;
+    background: transparent !important;
+    color: transparent !important;
+    caret-color: transparent !important;
+    font-size: 1px !important;
+    line-height: 1px !important;
+    overflow: hidden !important;
+    white-space: pre !important;
+}
+
+.monaco-editor .composition-view,
+.monaco-editor .compositionarea {
+    background: transparent !important;
+}
+
+
+/* Monaco Suggest Widget & Autocomplete Dropdown Styling */
+.monaco-editor .suggest-widget {
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.15)) !important;
+    background-color: #1e1e2e !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6) !important;
+    border-radius: 6px !important;
+    overflow: hidden !important;
+    max-width: 420px !important;
+}
+
+.monaco-editor .suggest-widget .tree-container {
+    background-color: #1e1e2e !important;
+}
+
+.monaco-editor .suggest-widget .monaco-list-row {
+    color: #cdd6f4 !important;
+}
+
+.monaco-editor .suggest-widget .monaco-list-row.focused,
+.monaco-editor .suggest-widget .monaco-list-row:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+.monaco-editor .suggest-widget .details-side {
+    border-left: 1px solid rgba(255, 255, 255, 0.12) !important;
+    background-color: #181825 !important;
+    max-width: 300px !important;
+}
+
+.monaco-editor .monaco-hover,
+.monaco-editor .parameter-hints-widget {
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    background-color: #1e1e2e !important;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5) !important;
+    border-radius: 6px !important;
+}
+
+
+
 /* ── Sidebar ────────────────────────────────────────────────────────── */
 
 .sandbox-sidebar {
