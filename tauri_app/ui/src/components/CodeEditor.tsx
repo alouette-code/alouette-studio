@@ -513,9 +513,14 @@ export default React.memo(function CodeEditor({
             const topTag = tagStack[tagStack.length - 1];
             if (topTag.name === rawTagName) {
               tagStack.pop();
-            } else {
-              const matchingIndex = tagStack.findLastIndex((t) => t.name === rawTagName);
-              if (matchingIndex !== -1) {
+            let matchingIndex = -1;
+            for (let k = tagStack.length - 1; k >= 0; k--) {
+              if (tagStack[k].name === rawTagName) {
+                matchingIndex = k;
+                break;
+              }
+            }
+            if (matchingIndex !== -1) {
                 for (let i = tagStack.length - 1; i > matchingIndex; i--) {
                   const unclosed = tagStack[i];
                   markers.push({
