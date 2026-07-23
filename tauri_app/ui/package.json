@@ -12,6 +12,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@novnc/novnc": "^1.7.0",
+    "@replit/codemirror-minimap": "^0.5.2",
     "@tauri-apps/api": "^2.11.0",
     "@types/dompurify": "^3.0.5",
     "@uiw/codemirror-extensions-langs": "^4.25.11",

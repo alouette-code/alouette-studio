@@ -2774,6 +2774,62 @@ select option {
     font-size: 13px !important;
 }
 
+/* CodeMirror Git Diff Gutter & Minimap */
+.cm-git-gutter {
+    width: 5px !important;
+    min-width: 5px !important;
+    background: transparent;
+    margin-right: 2px;
+}
+
+.cm-git-marker {
+    width: 5px;
+    height: 100%;
+    border-radius: 1px;
+}
+
+.cm-git-marker-added {
+    background-color: #2da44e !important;
+}
+
+.cm-git-marker-modified {
+    background-color: #d29922 !important;
+}
+
+.cm-git-marker-deleted {
+    background-color: #da3633 !important;
+}
+
+.cm-git-marker-unsaved_added {
+    background-color: #58a6ff !important;
+}
+
+.cm-git-marker-unsaved_modified {
+    background-color: #79c0ff !important;
+}
+
+/* GPU Hardware Acceleration & Compact Width (70px) for 60fps Minimap Rendering */
+.cm-minimap-gutter,
+.cm-minimap-wrapper,
+.cm-minimap-overlay-container {
+    width: 70px !important;
+    max-width: 70px !important;
+    min-width: 70px !important;
+    will-change: transform, top;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    contain: layout style paint;
+}
+
+.cm-minimap-wrapper canvas {
+    width: 70px !important;
+    max-width: 70px !important;
+}
+
+.cm-minimap-overlay {
+    width: 70px !important;
+}
+
 .custom-line-numbers {
     width: 42px;
     background-color: var(--bg-secondary);

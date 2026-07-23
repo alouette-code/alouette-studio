@@ -19,7 +19,6 @@ import {
   Database,
   Cloud,
   BrainCircuit,
-  Server,
 } from "lucide-react";
 
 // Components
