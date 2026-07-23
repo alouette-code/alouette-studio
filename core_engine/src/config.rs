@@ -178,6 +178,16 @@ impl ProjectsConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SimulatedEnvVar {
+    pub id: String,
+    pub key: String,
+    pub value: String,
+    pub visibility: String, // "exposed" | "hidden"
+    pub scope: String,      // "inbound" | "outbound" | "both"
+    pub enabled: bool,
+}
+
 /// Simulated environmental config for a project, stored in YAML file.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EnvSimulationConfig {
@@ -206,6 +216,12 @@ pub struct EnvSimulationConfig {
     pub cpu_limit_percent: u32,
     pub ram_limit_enabled: bool,
     pub ram_limit_mb: u64,
+
+    // Environment Variables & Gateway Markers Injection
+    #[serde(default)]
+    pub env_injection_enabled: bool,
+    #[serde(default)]
+    pub custom_envs: Vec<SimulatedEnvVar>,
 }
 
 impl EnvSimulationConfig {
@@ -228,6 +244,54 @@ impl EnvSimulationConfig {
             cpu_limit_percent: 80,
             ram_limit_enabled: false,
             ram_limit_mb: 2000,
+            env_injection_enabled: false,
+            custom_envs: Vec::new(),
+        }
+    }
+
+    pub fn sanitize(&mut self) {
+        self.loss_rate = self.loss_rate.clamp(0.0, 100.0);
+        self.unstable_server_drop_rate = self.unstable_server_drop_rate.clamp(0.0, 100.0);
+        self.unstable_server_error_rate = self.unstable_server_error_rate.clamp(0.0, 100.0);
+        self.cpu_limit_percent = self.cpu_limit_percent.clamp(1, 100);
+        self.latency_ms = self.latency_ms.min(60000);
+        self.jitter_ms = self.jitter_ms.min(30000);
+        
+        // Clean firewall rules string
+        let cleaned_rules: Vec<String> = self
+            .firewall_rules
+            .split(',')
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect();
+        self.firewall_rules = cleaned_rules.join(", ");
+
+        // Clean error codes string
+        let cleaned_codes: Vec<String> = self
+            .unstable_server_error_codes
+            .split(',')
+            .map(|s| s.trim())
+            .filter_map(|s| s.parse::<u16>().ok().map(|c| c.to_string()))
+            .collect();
+        if cleaned_codes.is_empty() {
+            self.unstable_server_error_codes = "500, 502, 503".to_string();
+        } else {
+            self.unstable_server_error_codes = cleaned_codes.join(", ");
+        }
+
+        // Sanitize custom environment variables
+        for env in &mut self.custom_envs {
+            env.key = env.key.trim().to_uppercase();
+            env.value = env.value.trim().to_string();
+            env.visibility = match env.visibility.to_lowercase().as_str() {
+                "hidden" => "hidden".to_string(),
+                _ => "exposed".to_string(),
+            };
+            env.scope = match env.scope.to_lowercase().as_str() {
+                "inbound" => "inbound".to_string(),
+                "outbound" => "outbound".to_string(),
+                _ => "both".to_string(),
+            };
         }
     }
 
@@ -237,9 +301,12 @@ impl EnvSimulationConfig {
         }
         let content = fs::read_to_string(path)
             .map_err(|e| format!("Failed to read env simulation config: {}", e))?;
-        let config: std::collections::HashMap<String, EnvSimulationConfig> = serde_yaml::from_str(&content)
+        let mut configs: std::collections::HashMap<String, EnvSimulationConfig> = serde_yaml::from_str(&content)
             .map_err(|e| format!("Failed to parse YAML env simulation config: {}", e))?;
-        Ok(config)
+        for cfg in configs.values_mut() {
+            cfg.sanitize();
+        }
+        Ok(configs)
     }
 
     pub fn save_all_to_file<P: AsRef<Path>>(configs: &std::collections::HashMap<String, Self>, path: P) -> Result<(), String> {

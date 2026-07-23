@@ -1576,7 +1576,7 @@ export default function App() {
                                       style={{ color: "#F38020" }}
                                     />
                                   ) : path === "__environment__" ? (
-                                    <Server
+                                    <SwatchBook
                                       size={12}
                                       className="tab-icon"
                                       style={{
