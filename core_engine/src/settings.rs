@@ -46,6 +46,12 @@ pub struct AppSettings {
     pub max_ram_mb: u32,
     pub auto_restart: bool,
     pub restart_interval_hours: u32,
+    #[serde(default = "default_editor_engine")]
+    pub editor_engine: String,
+}
+
+fn default_editor_engine() -> String {
+    "monaco".to_string()
 }
 
 impl Default for AppSettings {
@@ -81,6 +87,7 @@ impl Default for AppSettings {
             max_ram_mb: 1024,
             auto_restart: false,
             restart_interval_hours: 24,
+            editor_engine: "monaco".to_string(),
         }
     }
 }
