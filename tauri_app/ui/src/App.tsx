@@ -251,6 +251,14 @@ export default function App() {
     }
   }, []);
 
+  // Re-render App tabs when global error store updates
+  const [, forceRenderErrors] = useState(0);
+  useEffect(() => {
+    return globalErrorStore.subscribe(() => {
+      forceRenderErrors((n) => n + 1);
+    });
+  }, []);
+
   // Custom Toast & Confirm states
   const [toast, setToast] = useState<{
     message: string;

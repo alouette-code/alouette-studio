@@ -417,6 +417,204 @@ export default React.memo(function CodeEditor({
     filePathRef.current = filePath;
   }, [filePath]);
 
+  // HTML & Inline Script Syntax Validator
+  const validateHtmlModel = useCallback((model: any, monacoApi: any) => {
+    if (!model || !monacoApi) return;
+
+    const content = model.getValue();
+    const markers: any[] = [];
+    const lines = content.split("\n");
+
+    const VOID_HTML_TAGS = new Set([
+      "area", "base", "br", "col", "embed", "hr", "img", "input",
+      "link", "meta", "param", "source", "track", "wbr", "!doctype"
+    ]);
+
+    const tagStack: { name: string; line: number; col: number }[] = [];
+    let inScript = false;
+    let scriptStartLine = -1;
+    let scriptContentLines: string[] = [];
+
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      const lineNum = lineIdx + 1;
+      const lineText = lines[lineIdx];
+
+      // Collect & validate inline <script> JS code blocks
+      if (inScript) {
+        if (lineText.includes("</script>")) {
+          inScript = false;
+          const scriptCode = scriptContentLines.join("\n");
+          if (scriptCode.trim()) {
+            try {
+              new Function(scriptCode);
+            } catch (err: any) {
+              let errLine = scriptStartLine;
+              markers.push({
+                severity: monacoApi.MarkerSeverity.Error,
+                message: `JS Syntax Error inside <script>: ${err.message || err}`,
+                startLineNumber: errLine,
+                startColumn: 1,
+                endLineNumber: Math.min(lineNum, lines.length),
+                endColumn: lines[Math.min(lineNum, lines.length) - 1]?.length + 1 || 80,
+              });
+            }
+          }
+          scriptContentLines = [];
+        } else {
+          scriptContentLines.push(lineText);
+        }
+      } else if (lineText.includes("<script") && !lineText.includes("</script>")) {
+        inScript = true;
+        scriptStartLine = lineNum + 1;
+        scriptContentLines = [];
+      } else if (lineText.includes("<script") && lineText.includes("</script>")) {
+        const scriptInner = lineText.substring(
+          lineText.indexOf(">") + 1,
+          lineText.lastIndexOf("</script>")
+        );
+        if (scriptInner.trim()) {
+          try {
+            new Function(scriptInner);
+          } catch (err: any) {
+            markers.push({
+              severity: monacoApi.MarkerSeverity.Error,
+              message: `JS Syntax Error in <script>: ${err.message || err}`,
+              startLineNumber: lineNum,
+              startColumn: Math.max(1, lineText.indexOf(">") + 1),
+              endLineNumber: lineNum,
+              endColumn: lineText.lastIndexOf("</script>") + 1,
+            });
+          }
+        }
+      }
+
+      // HTML tag matcher regex
+      const tagRegex = /<\/?([a-zA-Z0-9!-]+)(?:\s+[^>]*?)?(\/?)>/g;
+      let match: RegExpExecArray | null;
+
+      while ((match = tagRegex.exec(lineText)) !== null) {
+        const fullTag = match[0];
+        const rawTagName = match[1].toLowerCase();
+        const isSelfClosing = match[2] === "/" || VOID_HTML_TAGS.has(rawTagName) || rawTagName.startsWith("!");
+        const isClosing = fullTag.startsWith("</");
+        const matchCol = match.index + 1;
+
+        if (isClosing) {
+          if (tagStack.length === 0) {
+            markers.push({
+              severity: monacoApi.MarkerSeverity.Error,
+              message: `Unmatched closing tag </${rawTagName}>`,
+              startLineNumber: lineNum,
+              startColumn: matchCol,
+              endLineNumber: lineNum,
+              endColumn: matchCol + fullTag.length,
+            });
+          } else {
+            const topTag = tagStack[tagStack.length - 1];
+            if (topTag.name === rawTagName) {
+              tagStack.pop();
+            } else {
+              const matchingIndex = tagStack.findLastIndex((t) => t.name === rawTagName);
+              if (matchingIndex !== -1) {
+                for (let i = tagStack.length - 1; i > matchingIndex; i--) {
+                  const unclosed = tagStack[i];
+                  markers.push({
+                    severity: monacoApi.MarkerSeverity.Error,
+                    message: `Unclosed HTML tag <${unclosed.name}>`,
+                    startLineNumber: unclosed.line,
+                    startColumn: unclosed.col,
+                    endLineNumber: unclosed.line,
+                    endColumn: unclosed.col + unclosed.name.length + 2,
+                  });
+                }
+                tagStack.length = matchingIndex;
+              } else {
+                markers.push({
+                  severity: monacoApi.MarkerSeverity.Error,
+                  message: `Unexpected closing tag </${rawTagName}> (expected </${topTag.name}>)`,
+                  startLineNumber: lineNum,
+                  startColumn: matchCol,
+                  endLineNumber: lineNum,
+                  endColumn: matchCol + fullTag.length,
+                });
+              }
+            }
+          }
+        } else if (!isSelfClosing) {
+          tagStack.push({ name: rawTagName, line: lineNum, col: matchCol });
+        }
+      }
+    }
+
+    for (const unclosed of tagStack) {
+      if (!VOID_HTML_TAGS.has(unclosed.name)) {
+        markers.push({
+          severity: monacoApi.MarkerSeverity.Error,
+          message: `Unclosed HTML tag <${unclosed.name}>`,
+          startLineNumber: unclosed.line,
+          startColumn: unclosed.col,
+          endLineNumber: unclosed.line,
+          endColumn: unclosed.col + unclosed.name.length + 2,
+        });
+      }
+    }
+
+    monacoApi.editor.setModelMarkers(model, "html-custom-validator", markers);
+  }, []);
+
+  // Sync all Monaco models markers across all open files into globalErrorStore
+  const syncAllMonacoMarkers = useCallback(() => {
+    const monacoInstance = monacoRef.current;
+    if (!monacoInstance) return;
+
+    const models = monacoInstance.editor.getModels();
+    models.forEach((model: any) => {
+      const langId = model.getLanguageId() || "";
+      const uriPath = model.uri?.path || "";
+
+      if (langId === "html" || uriPath.endsWith(".html") || uriPath.endsWith(".htm")) {
+        validateHtmlModel(model, monacoInstance);
+      }
+
+      const markers = monacoInstance.editor.getModelMarkers({ resource: model.uri });
+      const errors = markers.filter((m: any) => m.severity === monacoInstance.MarkerSeverity.Error);
+
+      let targetPath = model.uri.fsPath || model.uri.path || "";
+      if (!targetPath && filePathRef.current) {
+        targetPath = filePathRef.current;
+      }
+
+      if (targetPath) {
+        globalErrorStore.setFileError(targetPath, errors.length);
+      }
+    });
+
+    if (editorRef.current) {
+      const activeModel = editorRef.current.getModel();
+      if (activeModel) {
+        const activeMarkers = monacoInstance.editor.getModelMarkers({ resource: activeModel.uri });
+        const activeErrors = activeMarkers.filter((m: any) => m.severity === monacoInstance.MarkerSeverity.Error);
+        setMonacoErrorCount(activeErrors.length);
+        if (filePathRef.current) {
+          globalErrorStore.setFileError(filePathRef.current, activeErrors.length);
+        }
+      }
+    }
+  }, [validateHtmlModel]);
+
+  // Re-sync markers when active file or content changes
+  useEffect(() => {
+    syncAllMonacoMarkers();
+    const timer1 = setTimeout(syncAllMonacoMarkers, 500);
+    const timer2 = setTimeout(syncAllMonacoMarkers, 1500);
+    const timer3 = setTimeout(syncAllMonacoMarkers, 3000);
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+      clearTimeout(timer3);
+    };
+  }, [filePath, content, syncAllMonacoMarkers]);
+
   const restoreMonacoState = useCallback((targetPath: string) => {
     const editor = editorRef.current;
     if (!editor || !targetPath) return;
@@ -597,8 +795,8 @@ export default React.memo(function CodeEditor({
         },
       });
 
-      if (filePath) {
-        globalErrorStore.setFileError(filePath, diagnostics.length);
+      if (filePathRef.current) {
+        globalErrorStore.setFileError(filePathRef.current, diagnostics.length);
       }
       setMonacoErrorCount(diagnostics.length);
       return diagnostics;
@@ -866,6 +1064,17 @@ export default React.memo(function CodeEditor({
         validate: true,
         allowComments: true,
       });
+    }
+    if (monaco.languages?.html) {
+      if (monaco.languages.html.htmlDefaults?.setOptions) {
+        try {
+          monaco.languages.html.htmlDefaults.setOptions({
+            format: { tabSize: 2, insertSpaces: true },
+            suggest: { html5: true },
+            options: { validate: true }
+          });
+        } catch (e) {}
+      }
     }
 
     const keywords: { [lang: string]: string[] } = {
@@ -1211,22 +1420,12 @@ export default React.memo(function CodeEditor({
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
 
-    // Sync Monaco Native Marker Errors for Header Badge
-    const syncMonacoMarkers = () => {
-      const model = editor.getModel();
-      if (!model) return;
-      const markers = monacoInstance.editor.getModelMarkers({ resource: model.uri });
-      const errors = markers.filter((m: any) => m.severity === monacoInstance.MarkerSeverity.Error);
-      setMonacoErrorCount(errors.length);
-      if (filePath) {
-        globalErrorStore.setFileError(filePath, errors.length);
-      }
-    };
-
+    // Sync Monaco Native Marker Errors for Header Badge & File Explorer / Tabs
     const markerListener = monacoInstance.editor.onDidChangeMarkers(() => {
-      syncMonacoMarkers();
+      syncAllMonacoMarkers();
     });
-    setTimeout(syncMonacoMarkers, 500);
+    setTimeout(syncAllMonacoMarkers, 500);
+    setTimeout(syncAllMonacoMarkers, 1500);
 
     // Restore saved cursor position and view state for initial file
     if (filePathRef.current) {
@@ -1707,6 +1906,7 @@ export default React.memo(function CodeEditor({
             <Editor
               height="100%"
               width="100%"
+              path={filePath || undefined}
               language={getLanguageFromPath(filePath)}
               theme={theme === "light" ? "light" : "vs-dark"}
               onChange={handleEditorChange}

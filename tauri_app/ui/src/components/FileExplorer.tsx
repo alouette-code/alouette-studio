@@ -101,13 +101,17 @@ function TreeNode({
     }
   }, [inlineRenameTarget, node.path, node.name, node.is_dir]);
 
-  const getFileIcon = (fileName: string, isDir: boolean) => {
+  const getFileIcon = (fileName: string, isDir: boolean, hasError?: boolean) => {
     if (isDir) {
       return isOpen ? (
-        <FolderOpen size={13} className="tree-node-icon folder" />
+        <FolderOpen size={13} className={`tree-node-icon folder ${hasError ? "has-error" : ""}`} style={hasError ? { color: "#ef4444" } : undefined} />
       ) : (
-        <Folder size={13} className="tree-node-icon folder" />
+        <Folder size={13} className={`tree-node-icon folder ${hasError ? "has-error" : ""}`} style={hasError ? { color: "#ef4444" } : undefined} />
       );
+    }
+
+    if (hasError) {
+      return <Code size={13} style={{ color: "#ef4444" }} className="tree-node-icon file has-error" />;
     }
 
     const lowerName = fileName.toLowerCase();
@@ -190,71 +194,75 @@ function TreeNode({
         ) : (
           <span style={{ width: "13px", display: "inline-block" }} />
         )}
-        {getFileIcon(node.name, node.is_dir)}
-        {inlineRenameTarget === node.path ? (
-          <input
-            ref={inputRef}
-            type="text"
-            defaultValue={node.name}
-            style={{
-              background: "var(--bg-primary)",
-              border: "1px solid var(--color-primary)",
-              color: "var(--text-primary)",
-              padding: "0 2px",
-              marginLeft: "4px",
-              fontSize: "inherit",
-              outline: "none",
-              width: "100%",
-              borderRadius: "2px",
-            }}
-            onClick={(e) => e.stopPropagation()}
-            onBlur={(e) => {
-              const val = e.target.value.trim();
-              if (val && val !== node.name) {
-                onRenameSubmit(node.path, val, node.is_dir);
-              } else {
-                onRenameCancel();
-              }
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                const target = e.target as HTMLInputElement;
-                const val = target.value.trim();
-                if (val && val !== node.name) {
-                  onRenameSubmit(node.path, val, node.is_dir);
-                } else {
-                  onRenameCancel();
-                }
-              } else if (e.key === "Escape") {
-                onRenameCancel();
-              }
-            }}
-          />
-        ) : (() => {
-          const errCount = globalErrorStore.getErrorCount(node.path, node.is_dir);
-          const hasSyntaxError = errCount > 0;
+      {(() => {
+        const errCount = globalErrorStore.getErrorCount(node.path, node.is_dir);
+        const hasSyntaxError = errCount > 0;
 
-          return (
-            <span
-              className={`tree-node-name ${hasSyntaxError ? "has-error" : ""}`}
-              style={{
-                color: hasSyntaxError
-                  ? "#ef4444"
-                  : gitStatus === "modified"
-                  ? "var(--git-modified, #eab308)"
-                  : gitStatus === "untracked" || gitStatus === "added"
-                    ? "var(--git-added, #10b981)"
-                    : "inherit",
-                fontWeight: hasSyntaxError ? 600 : "normal",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {node.name}
-            </span>
-          );
-        })()}
+        return (
+          <>
+            {getFileIcon(node.name, node.is_dir, hasSyntaxError)}
+            {inlineRenameTarget === node.path ? (
+              <input
+                ref={inputRef}
+                type="text"
+                defaultValue={node.name}
+                style={{
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--color-primary)",
+                  color: "var(--text-primary)",
+                  padding: "0 2px",
+                  marginLeft: "4px",
+                  fontSize: "inherit",
+                  outline: "none",
+                  width: "100%",
+                  borderRadius: "2px",
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onBlur={(e) => {
+                  const val = e.target.value.trim();
+                  if (val && val !== node.name) {
+                    onRenameSubmit(node.path, val, node.is_dir);
+                  } else {
+                    onRenameCancel();
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    const target = e.target as HTMLInputElement;
+                    const val = target.value.trim();
+                    if (val && val !== node.name) {
+                      onRenameSubmit(node.path, val, node.is_dir);
+                    } else {
+                      onRenameCancel();
+                    }
+                  } else if (e.key === "Escape") {
+                    onRenameCancel();
+                  }
+                }}
+              />
+            ) : (
+              <span
+                className={`tree-node-name ${hasSyntaxError ? "has-error" : ""}`}
+                style={{
+                  color: hasSyntaxError
+                    ? "#ef4444"
+                    : gitStatus === "modified"
+                    ? "var(--git-modified, #eab308)"
+                    : gitStatus === "untracked" || gitStatus === "added"
+                      ? "var(--git-added, #10b981)"
+                      : "inherit",
+                  fontWeight: hasSyntaxError ? 600 : "normal",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {node.name}
+              </span>
+            )}
+          </>
+        );
+      })()}
 
         {(() => {
           const errCount = globalErrorStore.getErrorCount(node.path, node.is_dir);
