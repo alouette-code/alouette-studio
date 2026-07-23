@@ -507,9 +507,6 @@ export default function App() {
     return [{ openFiles: [], openFilePath: null }];
   });
   const [activePaneIndex, setActivePaneIndex] = useState<number>(0);
-  const [draggedOverPaneIndex, setDraggedOverPaneIndex] = useState<
-    number | null
-  >(null);
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean;
     x: number;
@@ -1074,31 +1071,51 @@ export default function App() {
     setActivePaneIndex(0);
   };
 
-  // Tab HTML5 Drag & Drop handlers
-  const handleDragStart = (
-    e: React.DragEvent,
+  // Tab Pointer Drag & Drop handlers for tab reordering & cross-pane dragging
+  const [dragOverTabInfo, setDragOverTabInfo] = useState<{ paneIdx: number; tabIdx: number } | null>(null);
+  const [draggingTabPath, setDraggingTabPath] = useState<string | null>(null);
+
+  const performTabMove = (
     sourcePaneIdx: number,
-    path: string,
+    sourceTabIdx: number,
+    targetPaneIdx: number,
+    targetTabIdx: number,
+    path: string
   ) => {
-    e.dataTransfer.setData("text/plain", path);
-    e.dataTransfer.setData("sourcePaneIndex", String(sourcePaneIdx));
-  };
-
-  const handleDrop = (e: React.DragEvent, targetPaneIdx: number) => {
-    e.preventDefault();
-    const path = e.dataTransfer.getData("text/plain");
-    const sourcePaneIdxStr = e.dataTransfer.getData("sourcePaneIndex");
-    if (!path || sourcePaneIdxStr === "") return;
-    const sourcePaneIdx = parseInt(sourcePaneIdxStr, 10);
-
-    if (sourcePaneIdx === targetPaneIdx) return;
-
     setPanes((prevPanes) => {
+      if (
+        sourcePaneIdx < 0 ||
+        sourcePaneIdx >= prevPanes.length ||
+        targetPaneIdx < 0 ||
+        targetPaneIdx >= prevPanes.length
+      ) {
+        return prevPanes;
+      }
       const copy = [...prevPanes];
       const sourcePane = { ...copy[sourcePaneIdx] };
+
+      // Same Pane tab reordering
+      if (sourcePaneIdx === targetPaneIdx) {
+        const currentFiles = [...sourcePane.openFiles];
+        const fromIdx = sourceTabIdx >= 0 ? sourceTabIdx : currentFiles.indexOf(path);
+        if (fromIdx !== -1) {
+          currentFiles.splice(fromIdx, 1);
+        }
+        let insertIdx = targetTabIdx;
+        if (fromIdx !== -1 && fromIdx < targetTabIdx) {
+          insertIdx = Math.max(0, targetTabIdx - 1);
+        }
+        insertIdx = Math.min(Math.max(0, insertIdx), currentFiles.length);
+        currentFiles.splice(insertIdx, 0, path);
+        sourcePane.openFiles = currentFiles;
+        sourcePane.openFilePath = path;
+        copy[sourcePaneIdx] = sourcePane;
+        return copy;
+      }
+
+      // Cross-pane dragging
       const targetPane = { ...copy[targetPaneIdx] };
 
-      // Remove from source
       sourcePane.openFiles = sourcePane.openFiles.filter((f) => f !== path);
       if (sourcePane.openFilePath === path) {
         sourcePane.openFilePath =
@@ -1107,10 +1124,12 @@ export default function App() {
             : null;
       }
 
-      // Add to target
-      if (!targetPane.openFiles.includes(path)) {
-        targetPane.openFiles = [...targetPane.openFiles, path];
-      }
+      const targetFiles = [...targetPane.openFiles];
+      const filteredTarget = targetFiles.filter((f) => f !== path);
+      const safeInsertIdx = Math.min(Math.max(0, targetTabIdx), filteredTarget.length);
+      filteredTarget.splice(safeInsertIdx, 0, path);
+
+      targetPane.openFiles = filteredTarget;
       targetPane.openFilePath = path;
 
       copy[sourcePaneIdx] = sourcePane;
@@ -1120,6 +1139,97 @@ export default function App() {
 
     setActivePaneIndex(targetPaneIdx);
     setOpenFilePath(path);
+  };
+
+  const handleTabPointerDown = (
+    e: React.PointerEvent,
+    sourcePaneIdx: number,
+    sourceTabIdx: number,
+    path: string
+  ) => {
+    if (e.button !== 0) return;
+    const targetEl = e.target as HTMLElement;
+    if (targetEl.closest(".tab-close-btn")) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let isDraggingStarted = false;
+
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      const dx = Math.abs(moveEvent.clientX - startX);
+      const dy = Math.abs(moveEvent.clientY - startY);
+
+      if (!isDraggingStarted) {
+        if (dx > 4 || dy > 4) {
+          isDraggingStarted = true;
+          setDraggingTabPath(path);
+        } else {
+          return;
+        }
+      }
+
+      const hoveredEl = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+      if (!hoveredEl) {
+        setDragOverTabInfo(null);
+        return;
+      }
+
+      const tabEl = hoveredEl.closest(".editor-tab") as HTMLElement | null;
+      if (tabEl && tabEl.dataset.paneIdx !== undefined && tabEl.dataset.tabIdx !== undefined) {
+        const pIdx = parseInt(tabEl.dataset.paneIdx, 10);
+        const tIdx = parseInt(tabEl.dataset.tabIdx, 10);
+        setDragOverTabInfo((prev) => {
+          if (prev?.paneIdx === pIdx && prev?.tabIdx === tIdx) return prev;
+          return { paneIdx: pIdx, tabIdx: tIdx };
+        });
+        return;
+      }
+
+      const paneEl = hoveredEl.closest(".editor-pane") as HTMLElement | null;
+      if (paneEl && paneEl.dataset.paneIdx !== undefined) {
+        const pIdx = parseInt(paneEl.dataset.paneIdx, 10);
+        setDragOverTabInfo((prev) => {
+          if (prev?.paneIdx === pIdx && prev?.tabIdx === 9999) return prev;
+          return { paneIdx: pIdx, tabIdx: 9999 };
+        });
+        return;
+      }
+
+      setDragOverTabInfo(null);
+    };
+
+    const handlePointerUp = (upEvent: PointerEvent) => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+
+      if (isDraggingStarted) {
+        const hoveredEl = document.elementFromPoint(upEvent.clientX, upEvent.clientY);
+        let targetPaneIdx = sourcePaneIdx;
+        let targetTabIdx = sourceTabIdx;
+
+        if (hoveredEl) {
+          const tabEl = hoveredEl.closest(".editor-tab") as HTMLElement | null;
+          if (tabEl && tabEl.dataset.paneIdx !== undefined && tabEl.dataset.tabIdx !== undefined) {
+            targetPaneIdx = parseInt(tabEl.dataset.paneIdx, 10);
+            targetTabIdx = parseInt(tabEl.dataset.tabIdx, 10);
+          } else {
+            const paneEl = hoveredEl.closest(".editor-pane") as HTMLElement | null;
+            if (paneEl && paneEl.dataset.paneIdx !== undefined) {
+              targetPaneIdx = parseInt(paneEl.dataset.paneIdx, 10);
+              targetTabIdx = 9999;
+            }
+          }
+        }
+
+        performTabMove(sourcePaneIdx, sourceTabIdx, targetPaneIdx, targetTabIdx, path);
+      }
+
+      setDraggingTabPath(null);
+      setDragOverTabInfo(null);
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
   };
 
   // ── Window click listener to close dropdowns ──
@@ -1538,26 +1648,13 @@ export default function App() {
                     return (
                       <div
                         key={`pane-${paneIdx}`}
-                        className={`editor-pane ${isActivePane ? "active" : ""} ${draggedOverPaneIndex === paneIdx ? "drag-over" : ""}`}
+                        data-pane-idx={paneIdx}
+                        className={`editor-pane ${isActivePane ? "active" : ""} ${dragOverTabInfo?.paneIdx === paneIdx ? "drag-over" : ""}`}
                         onClick={() => {
                           if (!isActivePane) {
                             setActivePaneIndex(paneIdx);
                             setOpenFilePath(paneOpenFilePath);
                           }
-                        }}
-                        onDragEnter={(e) => {
-                          e.preventDefault();
-                          setDraggedOverPaneIndex(paneIdx);
-                        }}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                        }}
-                        onDragLeave={() => {
-                          setDraggedOverPaneIndex(null);
-                        }}
-                        onDrop={(e) => {
-                          setDraggedOverPaneIndex(null);
-                          handleDrop(e, paneIdx);
                         }}
                       >
                         {paneOpenFiles.length > 0 && (
@@ -1568,32 +1665,37 @@ export default function App() {
                             }
                           >
                             <div className="editor-tabs-bar">
-                              {paneOpenFiles.map((path) => {
+                              {paneOpenFiles.map((path, tabIdx) => {
                                 const isTabError = globalErrorStore.hasError(path);
+                                const isDragTarget =
+                                  dragOverTabInfo?.paneIdx === paneIdx &&
+                                  dragOverTabInfo?.tabIdx === tabIdx;
+                                const isBeingDragged = draggingTabPath === path;
 
                                 return (
                                   <div
                                     key={`tab-${paneIdx}-${encodeURIComponent(path)}`}
-                                    className={`editor-tab ${paneOpenFilePath === path ? "active" : ""} ${isTabError ? "has-error" : ""}`}
-                                  draggable
-                                  onDragStart={(e) =>
-                                    handleDragStart(e, paneIdx, path)
-                                  }
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setActivePaneIndex(paneIdx);
-                                    setPanes((prev) => {
-                                      const copy = [...prev];
-                                      copy[paneIdx] = {
-                                        ...copy[paneIdx],
-                                        openFilePath: path,
-                                      };
-                                      return copy;
-                                    });
-                                    setOpenFilePath(path);
-                                  }}
-                                  title={path}
-                                >
+                                    data-pane-idx={paneIdx}
+                                    data-tab-idx={tabIdx}
+                                    className={`editor-tab ${paneOpenFilePath === path ? "active" : ""} ${isTabError ? "has-error" : ""} ${isDragTarget ? "drag-target" : ""} ${isBeingDragged ? "is-dragging" : ""}`}
+                                    onPointerDown={(e) =>
+                                      handleTabPointerDown(e, paneIdx, tabIdx, path)
+                                    }
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setActivePaneIndex(paneIdx);
+                                      setPanes((prev) => {
+                                        const copy = [...prev];
+                                        copy[paneIdx] = {
+                                          ...copy[paneIdx],
+                                          openFilePath: path,
+                                        };
+                                        return copy;
+                                      });
+                                      setOpenFilePath(path);
+                                    }}
+                                    title={path}
+                                  >
                                   {path === "__local_ai__" ? (
                                     <BrainCircuit size={12} className="tab-icon" style={{ color: "var(--accent)" }} />
                                   ) : path === "__resources__" ? (
