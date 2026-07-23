@@ -2750,6 +2750,30 @@ select option {
     background-color: var(--bg-primary);
 }
 
+/* CodeMirror full width & height layout */
+.editor-body > .cm-theme-dark,
+.editor-body > .cm-theme-light,
+.editor-body > .cm-editor,
+.editor-body .cm-editor {
+    width: 100% !important;
+    height: 100% !important;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.editor-body .cm-scroller {
+    flex: 1 !important;
+    overflow: auto !important;
+    height: 100% !important;
+    font-family: var(--font-mono, 'Consolas', 'Courier New', monospace) !important;
+}
+
+.editor-body .cm-content {
+    font-family: var(--font-mono, 'Consolas', 'Courier New', monospace) !important;
+    font-size: 13px !important;
+}
+
 .custom-line-numbers {
     width: 42px;
     background-color: var(--bg-secondary);

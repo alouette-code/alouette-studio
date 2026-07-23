@@ -9,7 +9,65 @@ import {
   Sparkles,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import Editor from "@monaco-editor/react";
+import CodeMirror, { oneDark } from "@uiw/react-codemirror";
+import { loadLanguage } from "@uiw/codemirror-extensions-langs";
+import { useEditorEngine } from "../hooks/useEditorEngine";
+
+const getCodeMirrorLanguageExtension = (path: string | null) => {
+  if (!path) return null;
+  const fileName = path.split(/[\\/]/).pop()?.toLowerCase() || "";
+  if (fileName.startsWith(".env")) return loadLanguage("ini");
+  const ext = fileName.split(".").pop()?.toLowerCase();
+  switch (ext) {
+    case "js":
+      return loadLanguage("js");
+    case "jsx":
+      return loadLanguage("jsx");
+    case "ts":
+      return loadLanguage("ts");
+    case "tsx":
+      return loadLanguage("tsx");
+    case "html":
+    case "htm":
+      return loadLanguage("html");
+    case "css":
+      return loadLanguage("css");
+    case "json":
+      return loadLanguage("json");
+    case "md":
+    case "markdown":
+      return loadLanguage("markdown");
+    case "rs":
+    case "rust":
+      return loadLanguage("rust");
+    case "py":
+    case "python":
+      return loadLanguage("python");
+    case "go":
+      return loadLanguage("go");
+    case "sh":
+    case "bash":
+      return loadLanguage("bash");
+    case "sql":
+      return loadLanguage("sql");
+    case "c":
+    case "cpp":
+    case "h":
+    case "hpp":
+      return loadLanguage("cpp");
+    case "java":
+      return loadLanguage("java");
+    case "yaml":
+    case "yml":
+      return loadLanguage("yaml");
+    case "toml":
+      return loadLanguage("toml");
+    default:
+      return null;
+  }
+};
 import { useGitDiff } from "../hooks/useGitDiff";
 import CodeRagSearchWidget from "./CodeRagSearchWidget";
 import {
@@ -294,6 +352,14 @@ export default React.memo(function CodeEditor({
     aiCompletionEnabledRef.current = aiCompletionEnabled;
     localStorage.setItem("ai_completion_enabled", String(aiCompletionEnabled));
   }, [aiCompletionEnabled]);
+
+  // ── Editor Engine (Monaco vs CodeMirror) via useEditorEngine hook ──
+  const { editorEngine } = useEditorEngine();
+
+  const cmExtensions = React.useMemo(() => {
+    const langExt = getCodeMirrorLanguageExtension(filePath);
+    return langExt ? [langExt] : [];
+  }, [filePath]);
 
   
   // ── Memoize onChange prop to avoid changing internal onChange reference ──
@@ -1274,17 +1340,27 @@ export default React.memo(function CodeEditor({
                 }} 
               />
             </div>
+          ) : editorEngine === "codemirror" ? (
+            <CodeMirror
+              value={content}
+              height="100%"
+              width="100%"
+              theme={theme === "light" ? "light" : oneDark}
+              extensions={cmExtensions}
+              onChange={(val) => handleEditorChange(val)}
+              style={{ fontSize: "13px", height: "100%", width: "100%", flex: 1 }}
+            />
           ) : (
             <Editor
-            height="100%"
-            width="100%"
-            language={getLanguageFromPath(filePath)}
-            theme={theme === "light" ? "light" : "vs-dark"}
-            onChange={handleEditorChange}
-            beforeMount={handleBeforeMount}
-            onMount={handleEditorDidMount}
-            options={editorOptions}
-          />
+              height="100%"
+              width="100%"
+              language={getLanguageFromPath(filePath)}
+              theme={theme === "light" ? "light" : "vs-dark"}
+              onChange={handleEditorChange}
+              beforeMount={handleBeforeMount}
+              onMount={handleEditorDidMount}
+              options={editorOptions}
+            />
           )}
         </div>
       )}
