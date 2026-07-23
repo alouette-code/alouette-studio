@@ -2,8 +2,17 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::sync::oneshot;
 use tokio::time::{sleep, Duration};
 use rand::Rng;
+
+#[derive(Clone, Debug)]
+pub struct HeaderInjection {
+    pub key: String,
+    pub value: String,
+    pub visibility: String, // "exposed" | "hidden"
+    pub scope: String,      // "inbound" | "outbound" | "both"
+}
 
 #[derive(Clone, Debug)]
 pub struct SimulationParams {
@@ -18,37 +27,71 @@ pub struct SimulationParams {
     pub unstable_server_drop_rate: f32,
     pub unstable_server_error_rate: f32,
     pub unstable_server_error_codes: Vec<u16>,
+    pub env_injection_enabled: bool,
+    pub custom_headers: Vec<HeaderInjection>,
 }
 
-/// Spawns the SOCKS5/HTTP Forward Proxy on localhost. Returns the local port it is listening on.
-pub async fn start_proxy(params: SimulationParams) -> Result<u16, String> {
+/// Handle for controlling lifecycle & graceful shutdown of simulation proxies.
+pub struct ProxyHandle {
+    pub port: u16,
+    shutdown_tx: Option<oneshot::Sender<()>>,
+}
+
+impl ProxyHandle {
+    pub fn stop(&mut self) {
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+impl Drop for ProxyHandle {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Spawns the SOCKS5/HTTP Forward Proxy on localhost. Returns ProxyHandle containing the port and shutdown trigger.
+pub async fn start_proxy(params: SimulationParams) -> Result<ProxyHandle, String> {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .map_err(|e| format!("Failed to bind simulation forward proxy listener: {}", e))?;
     
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let params = Arc::new(params);
+    let (tx, mut rx) = oneshot::channel::<()>();
 
     tokio::spawn(async move {
         loop {
-            match listener.accept().await {
-                Ok((socket, addr)) => {
-                    let params_clone = Arc::clone(&params);
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_forward_client(socket, addr, params_clone).await {
-                            log_debug(format!("Forward proxy connection error for {}: {}", addr, e));
-                        }
-                    });
-                }
-                Err(e) => {
-                    eprintln!("[simulation_proxy] Error accepting socket: {}", e);
+            tokio::select! {
+                _ = &mut rx => {
+                    log_debug(format!("Forward proxy listener on port {} shut down", port));
                     break;
+                }
+                accept_res = listener.accept() => {
+                    match accept_res {
+                        Ok((socket, addr)) => {
+                            let params_clone = Arc::clone(&params);
+                            tokio::spawn(async move {
+                                if let Err(e) = handle_forward_client(socket, addr, params_clone).await {
+                                    log_debug(format!("Forward proxy connection error for {}: {}", addr, e));
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            eprintln!("[simulation_proxy] Error accepting socket: {}", e);
+                            break;
+                        }
+                    }
                 }
             }
         }
     });
 
-    Ok(port)
+    Ok(ProxyHandle {
+        port,
+        shutdown_tx: Some(tx),
+    })
 }
 
 /// Spawns the Inbound Reverse Proxy Gateway on public_port, forwarding allowed traffic to internal_port.
@@ -56,35 +99,47 @@ pub async fn start_reverse_proxy_gateway(
     public_port: u16,
     internal_port: u16,
     params: SimulationParams,
-) -> Result<(), String> {
+) -> Result<ProxyHandle, String> {
     let listener = TcpListener::bind(format!("0.0.0.0:{}", public_port))
         .await
         .map_err(|e| format!("Failed to bind reverse proxy gateway on port {}: {}", public_port, e))?;
 
     let params = Arc::new(params);
     let target_addr = format!("127.0.0.1:{}", internal_port);
+    let (tx, mut rx) = oneshot::channel::<()>();
 
     tokio::spawn(async move {
         loop {
-            match listener.accept().await {
-                Ok((socket, addr)) => {
-                    let params_clone = Arc::clone(&params);
-                    let target_addr_clone = target_addr.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = handle_reverse_client(socket, addr, target_addr_clone, params_clone).await {
-                            log_debug(format!("Reverse proxy gateway error for {}: {}", addr, e));
-                        }
-                    });
-                }
-                Err(e) => {
-                    log_debug(format!("Reverse proxy gateway accept error: {}", e));
+            tokio::select! {
+                _ = &mut rx => {
+                    log_debug(format!("Reverse proxy gateway listener on port {} shut down", public_port));
                     break;
+                }
+                accept_res = listener.accept() => {
+                    match accept_res {
+                        Ok((socket, addr)) => {
+                            let params_clone = Arc::clone(&params);
+                            let target_addr_clone = target_addr.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = handle_reverse_client(socket, addr, target_addr_clone, params_clone).await {
+                                    log_debug(format!("Reverse proxy gateway error for {}: {}", addr, e));
+                                }
+                            });
+                        }
+                        Err(e) => {
+                            log_debug(format!("Reverse proxy gateway accept error: {}", e));
+                            break;
+                        }
+                    }
                 }
             }
         }
     });
 
-    Ok(())
+    Ok(ProxyHandle {
+        port: public_port,
+        shutdown_tx: Some(tx),
+    })
 }
 
 fn log_debug(msg: String) {
@@ -103,7 +158,7 @@ async fn pipe_with_emulation<R, W>(
     R: AsyncReadExt + Unpin,
     W: AsyncWriteExt + Unpin,
 {
-    let mut buf = [0u8; 4096];
+    let mut buf = [0u8; 8192];
     let bw = params.bandwidth_kbps;
     let limit_rate = params.weak_network_enabled && bw > 0;
 
@@ -164,6 +219,12 @@ async fn handle_forward_client(
         return Ok(());
     }
 
+    // Check if client is using SOCKS5 protocol (VER = 0x05)
+    if buffer[0] == 0x05 {
+        return handle_socks5_forward(&mut client_stream, &buffer[..n], params).await;
+    }
+
+    // HTTP / HTTPS CONNECT Protocol
     let request_str = String::from_utf8_lossy(&buffer[..n]);
     let first_line = request_str.lines().next().unwrap_or("");
     log_debug(format!("Incoming Forward Request: {}", first_line));
@@ -213,7 +274,7 @@ async fn handle_forward_client(
     if params.firewall_enabled {
         for rule in &params.firewall_rules {
             if matches_rule(&host, rule) {
-                log_debug(format!("Blocked by firewall: {} (rule: {})", host, rule));
+                log_debug(format!("[ENV_SIM] Blocked by firewall: {} (rule: {})", host, rule));
                 if is_connect {
                     return Ok(());
                 } else {
@@ -232,7 +293,7 @@ async fn handle_forward_client(
             rng.gen_range(0.0..100.0) < params.unstable_server_drop_rate
         };
         if drop_conn {
-            log_debug(format!("Simulated server random connection drop for host {}", host));
+            log_debug(format!("[ENV_SIM] Simulated server random connection drop for host {}", host));
             return Ok(());
         }
 
@@ -252,7 +313,7 @@ async fn handle_forward_client(
                     "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
                     code, status_text, body
                 );
-                log_debug(format!("Injecting simulated server error {} for host {}", code, host));
+                log_debug(format!("[ENV_SIM] Injecting simulated server error {} for host {}", code, host));
                 let _ = client_stream.write_all(response.as_bytes()).await;
                 return Ok(());
             }
@@ -299,6 +360,106 @@ async fn handle_forward_client(
     Ok(())
 }
 
+async fn handle_socks5_forward(
+    client_stream: &mut TcpStream,
+    initial_buf: &[u8],
+    params: Arc<SimulationParams>,
+) -> Result<(), String> {
+    // 1. SOCKS5 Handshake / Auth Negotiation
+    // Response: [VER 0x05, METHOD 0x00 (NO AUTHENTICATION)]
+    client_stream.write_all(&[0x05, 0x00]).await
+        .map_err(|e| format!("SOCKS5 handshake reply error: {}", e))?;
+
+    // 2. Read Request packet
+    let mut req_buf = [0u8; 512];
+    let req_n = client_stream.read(&mut req_buf).await
+        .map_err(|e| format!("SOCKS5 request read error: {}", e))?;
+
+    if req_n < 7 || req_buf[0] != 0x05 || req_buf[1] != 0x01 {
+        // Only CMD = 0x01 (CONNECT) is supported
+        let _ = client_stream.write_all(&[0x05, 0x07, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await; // Command not supported
+        return Ok(());
+    }
+
+    let atyp = req_buf[3];
+    let (host, port) = match atyp {
+        0x01 => { // IPv4
+            if req_n < 10 { return Ok(()); }
+            let ip = format!("{}.{}.{}.{}", req_buf[4], req_buf[5], req_buf[6], req_buf[7]);
+            let p = u16::from_be_bytes([req_buf[8], req_buf[9]]);
+            (ip, p)
+        }
+        0x03 => { // Domain Name
+            let len = req_buf[4] as usize;
+            if req_n < 5 + len + 2 { return Ok(()); }
+            let domain = String::from_utf8_lossy(&req_buf[5..5 + len]).to_string();
+            let p = u16::from_be_bytes([req_buf[5 + len], req_buf[5 + len + 1]]);
+            (domain, p)
+        }
+        0x04 => { // IPv6
+            if req_n < 22 { return Ok(()); }
+            let p = u16::from_be_bytes([req_buf[20], req_buf[21]]);
+            ("localhost".to_string(), p) // Simplified IPv6 fallback
+        }
+        _ => return Ok(()),
+    };
+
+    let host = host.trim().to_lowercase();
+
+    // Firewall check
+    if params.firewall_enabled {
+        for rule in &params.firewall_rules {
+            if matches_rule(&host, rule) {
+                log_debug(format!("[ENV_SIM] SOCKS5 Blocked by firewall: {} (rule: {})", host, rule));
+                // Reply Connection not allowed by ruleset (0x02)
+                let _ = client_stream.write_all(&[0x05, 0x02, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+                return Ok(());
+            }
+        }
+    }
+
+    // Unstable Server Drop
+    if params.unstable_server_enabled {
+        let drop_conn = {
+            let mut rng = rand::thread_rng();
+            rng.gen_range(0.0..100.0) < params.unstable_server_drop_rate
+        };
+        if drop_conn {
+            log_debug(format!("[ENV_SIM] SOCKS5 Random Connection drop for host {}", host));
+            return Ok(());
+        }
+    }
+
+    // Connect to Target
+    let dest_addr = format!("{}:{}", host, port);
+    let server_stream = match TcpStream::connect(&dest_addr).await {
+        Ok(s) => s,
+        Err(e) => {
+            log_debug(format!("SOCKS5 Target connect failed {}: {}", dest_addr, e));
+            // Reply Host Unreachable (0x04)
+            let _ = client_stream.write_all(&[0x05, 0x04, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await;
+            return Ok(());
+        }
+    };
+
+    // SOCKS5 Success Response
+    client_stream.write_all(&[0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]).await
+        .map_err(|e| format!("SOCKS5 reply error: {}", e))?;
+
+    let (client_reader, client_writer) = client_stream.split();
+    let (server_reader, server_writer) = server_stream.into_split();
+
+    let client_to_server = pipe_with_emulation(client_reader, server_writer, Arc::clone(&params), "socks5_c2s");
+    let server_to_client = pipe_with_emulation(server_reader, client_writer, Arc::clone(&params), "socks5_s2c");
+
+    tokio::select! {
+        _ = client_to_server => {}
+        _ = server_to_client => {}
+    }
+
+    Ok(())
+}
+
 async fn handle_reverse_client(
     mut client_stream: TcpStream,
     _addr: SocketAddr,
@@ -312,7 +473,7 @@ async fn handle_reverse_client(
             rng.gen_range(0.0..100.0) < params.unstable_server_drop_rate
         };
         if drop_conn {
-            log_debug("Reverse Proxy Gateway: Simulating connection drop before forwarding".to_string());
+            log_debug("[ENV_SIM] Reverse Proxy Gateway: Simulating connection drop before forwarding".to_string());
             return Ok(());
         }
     }
@@ -345,7 +506,7 @@ async fn handle_reverse_client(
                         "HTTP/1.1 {} {}\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n{}",
                         code, status_text, body
                     );
-                    log_debug(format!("Reverse Proxy Gateway: Injecting error code {}", code));
+                    log_debug(format!("[ENV_SIM] Reverse Proxy Gateway: Injecting error code {}", code));
                     let _ = client_stream.write_all(response.as_bytes()).await;
                     return Ok(());
                 }
@@ -357,7 +518,7 @@ async fn handle_reverse_client(
     let mut server_stream = match TcpStream::connect(&target_addr).await {
         Ok(s) => s,
         Err(e) => {
-            log_debug(format!("Reverse Proxy Gateway: Failed to connect to internal server {}: {}", target_addr, e));
+            log_debug(format!("[ENV_SIM] Reverse Proxy Gateway: Failed to connect to internal server {}: {}", target_addr, e));
             let response = format!(
                 "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nReverse Proxy Gateway: Failed to connect to backend target.\r\n"
             );
@@ -397,17 +558,17 @@ fn parse_host_port(target: &str, default_port: u16) -> (String, u16) {
     (target.to_string(), default_port)
 }
 
-fn matches_rule(host: &str, rule: &str) -> bool {
+pub fn matches_rule(host: &str, rule: &str) -> bool {
     let host = host.trim().to_lowercase();
     let rule = rule.trim().to_lowercase();
 
-    if rule == "*" {
+    if rule == "*" || rule == "*.*" {
         return true;
     }
 
     if rule.starts_with("*.") {
         let suffix = &rule[2..];
-        return host.ends_with(suffix);
+        return host == suffix || host.ends_with(&format!(".{}", suffix));
     }
 
     host == rule
@@ -424,5 +585,25 @@ fn get_http_status_details(code: u16) -> (&'static str, &'static str) {
         503 => ("Service Unavailable", "Simulated server failure: Service Unavailable"),
         504 => ("Gateway Timeout", "Simulated server failure: Gateway Timeout"),
         _ => ("Error", "Simulated Server Error"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_matches_rule_exact() {
+        assert!(matches_rule("github.com", "github.com"));
+        assert!(!matches_rule("gitlab.com", "github.com"));
+    }
+
+    #[test]
+    fn test_matches_rule_wildcard() {
+        assert!(matches_rule("google.com", "*.google.com"));
+        assert!(matches_rule("api.google.com", "*.google.com"));
+        assert!(matches_rule("v2.api.google.com", "*.google.com"));
+        assert!(!matches_rule("notgoogle.com", "*.google.com"));
+        assert!(!matches_rule("fakegoogle.com", "*.google.com"));
     }
 }

@@ -99,9 +99,13 @@ impl ProcessManager {
 
             let is_sim_active = sim_config.firewall_enabled
                 || sim_config.weak_network_enabled
-                || sim_config.unstable_server_enabled;
+                || sim_config.unstable_server_enabled
+                || sim_config.env_injection_enabled;
 
             let mut proxy_port_opt = None;
+            let mut _outbound_proxy_handle: Option<super::network_simulate_proxy::ProxyHandle> = None;
+            let mut _inbound_proxy_handle: Option<super::network_simulate_proxy::ProxyHandle> = None;
+
             if is_sim_active {
                 let params = super::network_simulate_proxy::SimulationParams {
                     firewall_enabled: sim_config.firewall_enabled,
@@ -124,14 +128,27 @@ impl ProcessManager {
                         .split(',')
                         .map(|s| s.trim().parse::<u16>().unwrap_or(500))
                         .collect(),
+                    env_injection_enabled: sim_config.env_injection_enabled,
+                    custom_headers: sim_config
+                        .custom_envs
+                        .iter()
+                        .filter(|e| e.enabled)
+                        .map(|e| super::network_simulate_proxy::HeaderInjection {
+                            key: e.key.clone(),
+                            value: e.value.clone(),
+                            visibility: e.visibility.clone(),
+                            scope: e.scope.clone(),
+                        })
+                        .collect(),
                 };
                 match super::network_simulate_proxy::start_proxy(params.clone()).await {
-                    Ok(port) => {
+                    Ok(handle) => {
                         log_system!(format!(
-                            "Watchdog: Khởi động Outbound Proxy Giả lập Môi trường trên cổng {}...",
-                            port
+                            "Watchdog: Khởi động Outbound Proxy Giả lập (SOCKS5/HTTP) trên cổng {}...",
+                            handle.port
                         ));
-                        proxy_port_opt = Some(port);
+                        proxy_port_opt = Some(handle.port);
+                        _outbound_proxy_handle = Some(handle);
                     }
                     Err(e) => {
                         log_system!(format!(
@@ -150,8 +167,9 @@ impl ProcessManager {
                     )
                     .await
                     {
-                        Ok(_) => {
+                        Ok(handle) => {
                             log_system!(format!("Watchdog: Khởi động Inbound Reverse Proxy Gateway (Cổng ngoài: {}, Cổng trong: {})...", port, internal_port));
+                            _inbound_proxy_handle = Some(handle);
                         }
                         Err(e) => {
                             log_system!(format!(
@@ -324,6 +342,24 @@ impl ProcessManager {
                     cmd.env("HTTPS_PROXY", &proxy_url);
                     cmd.env("no_proxy", "localhost,127.0.0.1");
                     cmd.env("NO_PROXY", "localhost,127.0.0.1");
+                }
+
+                if sim_config.env_injection_enabled {
+                    let mut injected_count = 0;
+                    for custom_env in &sim_config.custom_envs {
+                        if custom_env.enabled && !custom_env.key.is_empty() {
+                            if custom_env.visibility == "exposed" {
+                                cmd.env(&custom_env.key, &custom_env.value);
+                                injected_count += 1;
+                            } else if custom_env.visibility == "hidden" {
+                                cmd.env(format!("__CLOAKED_{}", custom_env.key), &custom_env.value);
+                                injected_count += 1;
+                            }
+                        }
+                    }
+                    if injected_count > 0 {
+                        log_system!(format!("Watchdog: Đã tiêm {} biến môi trường giả lập (Exposed/Hidden)...", injected_count));
+                    }
                 }
 
                 cmd.stdout(std::process::Stdio::piped());
