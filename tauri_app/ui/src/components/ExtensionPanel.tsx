@@ -177,7 +177,7 @@ export default function ExtensionPanel({ onFileSelect }: ExtensionPanelProps) {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "4px" }}>
                         {ext.name}
-                        {ext.publisher?.verified && <ShieldCheck size={14} color="#3b82f6" title="Verified Publisher" />}
+                        {ext.publisher?.verified && <span title="Verified Publisher"><ShieldCheck size={14} color="#3b82f6" /></span>}
                       </div>
                       <button 
                         onClick={(e) => { e.stopPropagation(); onFileSelect?.(`__extension__:${ext.id}`); }}
@@ -236,7 +236,7 @@ export default function ExtensionPanel({ onFileSelect }: ExtensionPanelProps) {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                       <div style={{ fontWeight: 600, fontSize: "13px", color: "var(--text-primary)", display: "flex", alignItems: "center", gap: "4px" }}>
                         {item.name}
-                        {item.publisher?.verified && <ShieldCheck size={14} color="#3b82f6" title="Verified Publisher" />}
+                        {item.publisher?.verified && <span title="Verified Publisher"><ShieldCheck size={14} color="#3b82f6" /></span>}
                       </div>
                       <span style={{ fontSize: "11px", color: "var(--text-tertiary)" }}>v{item.version}</span>
                     </div>

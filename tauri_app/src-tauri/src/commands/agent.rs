@@ -259,9 +259,22 @@ pub async fn agent_send_message(
     window: WebviewWindow,
     app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
-    let workspace = active_cwd.map(std::path::PathBuf::from).unwrap_or_else(|| {
+    let workspace = active_cwd.clone().map(std::path::PathBuf::from).unwrap_or_else(|| {
         std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
     });
+
+    if mode == "multi_agent" {
+        let session_id = format!("sess_{}", Local::now().timestamp());
+        return super::multi_agent::run_multi_agent_workflow(
+            message,
+            model,
+            active_cwd,
+            thinking_mode,
+            window,
+            session_id,
+        )
+        .await;
+    }
     let persistent_harness = app_state.agent_harness.clone();
     let mut harness = persistent_harness.lock().await;
     harness.set_workspace_root(&workspace);
@@ -1468,7 +1481,7 @@ pub fn save_custom_ai_config(mut config: CustomAiConfig) -> Result<(), String> {
 
 // ─── Helpers ────────────────────────────────────────────────────────────
 
-fn resolve_model_config(ai_cfg: &CustomAiConfig, model_hint: &str) -> ModelConfig {
+pub fn resolve_model_config(ai_cfg: &CustomAiConfig, model_hint: &str) -> ModelConfig {
     let model_key = if !model_hint.is_empty()
         && model_hint != "autonomous"
         && model_hint != "write"
@@ -1511,7 +1524,7 @@ fn resolve_model_config(ai_cfg: &CustomAiConfig, model_hint: &str) -> ModelConfi
     }
 }
 
-fn resolve_api_key(model_config: &ModelConfig) -> Result<String, String> {
+pub fn resolve_api_key(model_config: &ModelConfig) -> Result<String, String> {
     // Prefer the stored (possibly encrypted) key
     let stored = model_config.api_key.expose_secret().trim();
     if !stored.is_empty() && stored != "none" {
@@ -1537,7 +1550,7 @@ fn resolve_api_key(model_config: &ModelConfig) -> Result<String, String> {
         ))
 }
 
-fn load_custom_ai_config() -> CustomAiConfig {
+pub fn load_custom_ai_config() -> CustomAiConfig {
     let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let mut config_path = None;
 
