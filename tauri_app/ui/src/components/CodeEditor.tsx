@@ -213,9 +213,11 @@ const editorOptions = {
   wordWrap: "on" as const,
   renderLineHighlight: "all" as const,
   glyphMargin: true,
-  quickSuggestions: true,
+  quickSuggestions: { other: true, comments: false, strings: false },
   suggestOnTriggerCharacters: true,
-  quickSuggestionsDelay: 100,
+  quickSuggestionsDelay: 300,
+  acceptSuggestionOnCommitCharacter: false,
+  unicodeHighlight: { ambiguousCharacters: false },
   wordBasedSuggestions: "currentDocument" as const,
   inlineSuggest: {
     enabled: true,
@@ -223,7 +225,7 @@ const editorOptions = {
     mode: "subword" as const,
   },
   suggest: {
-    preview: true,
+    preview: false,
     showMethods: true,
     showFunctions: true,
     showConstructors: true,
@@ -233,9 +235,6 @@ const editorOptions = {
     showWords: true,
   },
   scrollbar: {
-
-
-
     vertical: "visible" as const,
     horizontal: "visible" as const,
     verticalScrollbarSize: 10,
@@ -964,26 +963,18 @@ export default React.memo(function CodeEditor({
     if (currentInitialContent !== null && editor.getValue() !== currentInitialContent) {
       editor.setValue(currentInitialContent);
     }
-
-    // --- HACK ĐỂ CHẶN HOÀN TOÀN BỘ GÕ (IME) THEO YÊU CẦU ---
-    // Trên Linux Tauri, Monaco bị lỗi lặp chữ với IME.
-    // Dùng readOnly toggle thay vì blur/focus để tránh lỗi mất dòng/nhảy con trỏ.
     setTimeout(() => {
       const domNode = editor.getDomNode();
       if (domNode) {
         const textArea = domNode.querySelector('textarea');
         if (textArea) {
-          textArea.addEventListener('compositionstart', (_e: Event) => {
-            // Ép huỷ quá trình gõ tiếng Việt bằng cách chớp readOnly
-            textArea.readOnly = true;
-            setTimeout(() => {
-              textArea.readOnly = false;
-            }, 0);
-          });
+          textArea.setAttribute('autocomplete', 'off');
+          textArea.setAttribute('autocorrect', 'off');
+          textArea.setAttribute('autocapitalize', 'off');
+          textArea.setAttribute('spellcheck', 'false');
         }
       }
-    }, 500);
-    // -------------------------------------------------------
+    }, 200);
 
     if (filePath) {
       const model = editor.getModel();
