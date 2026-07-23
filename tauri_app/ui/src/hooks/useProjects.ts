@@ -52,8 +52,14 @@ export function useProjects(deps: UseProjectsDeps) {
   );
 
   // File Editing State
-  const [openFilePath, setOpenFilePath] = useState<string | null>(null);
-  const [openFiles, setOpenFiles] = useState<string[]>([]);
+  const [openFilePath, setOpenFilePath] = useState<string | null>(() => {
+    const session = editorStateStore.getSessionState();
+    return session?.activeFilePath || (session?.openFiles?.[0] ?? null);
+  });
+  const [openFiles, setOpenFiles] = useState<string[]>(() => {
+    const session = editorStateStore.getSessionState();
+    return session?.openFiles || [];
+  });
   const [openFileContent, _setOpenFileContent] = useState<string | null>(null);
   const [isFileLoading, setIsFileLoading] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
