@@ -11,7 +11,7 @@ export default function PublishExtensionTab() {
   const [icon, setIcon] = useState("");
   const [wasmUrl, setWasmUrl] = useState("");
   const [readmeUrl, setReadmeUrl] = useState("");
-  const [repository, setRepository] = useState("");
+  const [repository, _setRepository] = useState("");
   const [sha256, setSha256] = useState("");
   const [permissions, setPermissions] = useState<string[]>(["fs:read", "net:http"]);
   

@@ -83,6 +83,9 @@ interface ChatItem {
   timestamp: string;
   projectName?: string;
   errorText?: string;
+  agentRole?: string;
+  agentName?: string;
+  avatar?: string;
 }
 
 interface AiAgentProps {
@@ -555,6 +558,8 @@ export default function AiAgent({
   const [isTyping, setIsTyping] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gemini-3.5-flash");
   const [selectedMode, setSelectedMode] = useState("interactive");
+  const [isMultiAgentActive, setIsMultiAgentActive] = useState<boolean>(!!isMultiAgentPage);
+  const [showTokenWarningModal, setShowTokenWarningModal] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
@@ -566,6 +571,41 @@ export default function AiAgent({
   const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
     {},
   );
+
+  // Multi-Agent Event Listener
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    listen<any>("multi-agent-step", (event) => {
+      const payload = event.payload;
+      if (!payload) return;
+      setChatHistory((prev) => {
+        const itemKey = `ma_${payload.session_id}_step_${payload.step}`;
+        const existingIdx = prev.findIndex((i) => i.id === itemKey);
+        const newItem: ChatItem = {
+          id: itemKey,
+          type: "text",
+          sender: "agent",
+          agentRole: payload.agent_role,
+          agentName: payload.agent_name,
+          avatar: payload.avatar,
+          text: payload.content,
+          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        };
+        if (existingIdx >= 0) {
+          const copy = [...prev];
+          copy[existingIdx] = newItem;
+          return copy;
+        }
+        return [...prev, newItem];
+      });
+    }).then((unlisten) => {
+      unlistenFn = unlisten;
+    });
+
+    return () => {
+      if (unlistenFn) unlistenFn();
+    };
+  }, []);
 
   // ─── Token Estimation ────────────────────────────────────────────────
   const estimateTokens = (text: string | null | undefined): number => {
@@ -1560,7 +1600,7 @@ export default function AiAgent({
       } = await invoke("agent_send_message", {
         message: messageText,
         model: backendModelName,
-        mode: selectedMode,
+        mode: isMultiAgentActive ? "multi_agent" : selectedMode,
         activeCwd: activeProjectCwd,
         thinkingMode: thinkingMode,
       });
@@ -2869,11 +2909,23 @@ export default function AiAgent({
                 >
                   <span
                     style={{
-                      fontWeight: 500,
-                      color: "var(--text-secondary)",
+                      fontWeight: 600,
+                      color: item.agentRole
+                        ? item.agentRole === "leader"
+                          ? "#c084fc"
+                          : item.agentRole === "planner"
+                          ? "#60a5fa"
+                          : item.agentRole === "reviewer"
+                          ? "#fbbf24"
+                          : item.agentRole === "coder1"
+                          ? "#34d399"
+                          : item.agentRole === "coder2"
+                          ? "#22d3ee"
+                          : "var(--text-secondary)"
+                        : "var(--text-secondary)",
                     }}
                   >
-                    {isUser ? "Bạn" : "Agent"}
+                    {isUser ? "Bạn" : item.agentName ? `${item.avatar || ""} ${item.agentName}` : "Agent"}
                   </span>
                   <span style={{ fontSize: "9px", opacity: 0.5 }}>•</span>
                   <span style={{ fontSize: "9px" }}>{item.timestamp}</span>
@@ -2887,8 +2939,21 @@ export default function AiAgent({
                   width: isUser ? "auto" : "100%",
                   background: isUser ? "var(--bg-secondary)" : "transparent",
                   color: "var(--text-primary)",
-                  padding: isUser ? "8px 14px" : "0",
+                  padding: isUser ? "8px 14px" : item.agentRole ? "8px 12px" : "0",
                   borderRadius: "6px",
+                  borderLeft: item.agentRole
+                    ? item.agentRole === "leader"
+                      ? "3px solid #c084fc"
+                      : item.agentRole === "planner"
+                      ? "3px solid #60a5fa"
+                      : item.agentRole === "reviewer"
+                      ? "3px solid #fbbf24"
+                      : item.agentRole === "coder1"
+                      ? "3px solid #34d399"
+                      : item.agentRole === "coder2"
+                      ? "3px solid #22d3ee"
+                      : "none"
+                    : "none",
                   border: isUser ? "1px solid var(--border-primary)" : "none",
                   fontSize: "12.5px",
                   lineHeight: "1.55",
@@ -3629,32 +3694,35 @@ export default function AiAgent({
                 <div style={{ position: "relative" }}>
                   <button
                     type="button"
+                    onClick={() => {
+                      if (!isMultiAgentActive) {
+                        setShowTokenWarningModal(true);
+                      } else {
+                        setIsMultiAgentActive(false);
+                        setSelectedMode("interactive");
+                      }
+                    }}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: "4px",
                       padding: "5px 12px",
-                      background: "var(--bg-secondary)",
-                      border: "1px solid var(--border-primary)",
+                      background: isMultiAgentActive
+                        ? "rgba(99, 102, 241, 0.15)"
+                        : "var(--bg-secondary)",
+                      border: isMultiAgentActive
+                        ? "1px solid #6366f1"
+                        : "1px solid var(--border-primary)",
                       borderRadius: "20px",
-                      color: "var(--text-secondary)",
+                      color: isMultiAgentActive ? "#a5b4fc" : "var(--text-secondary)",
                       fontSize: "12px",
+                      fontWeight: isMultiAgentActive ? 600 : 400,
                       cursor: "pointer",
                       transition: "all 0.2s",
                     }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background =
-                        "var(--bg-secondary)";
-                      e.currentTarget.style.color = "var(--text-primary)";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background =
-                        "var(--bg-secondary)";
-                      e.currentTarget.style.color = "var(--text-secondary)";
-                    }}
                   >
                     <ChartBarStacked size={12} style={{ opacity: 0.8 }} />
-                    <span>Multi Agent</span>
+                    <span>{isMultiAgentActive ? "Multi Agent (ON)" : "Multi Agent"}</span>
                   </button>
                 </div>
               )}
@@ -4591,6 +4659,92 @@ export default function AiAgent({
                   </div>
                 ))
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Token Warning Modal */}
+      {showTokenWarningModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(0, 0, 0, 0.7)",
+            backdropFilter: "blur(4px)",
+            zIndex: 2500,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "20px",
+          }}
+          onClick={() => setShowTokenWarningModal(false)}
+        >
+          <div
+            style={{
+              background: "var(--bg-secondary)",
+              border: "1px solid var(--border-primary)",
+              borderRadius: "10px",
+              boxShadow: "0 16px 48px rgba(0, 0, 0, 0.6)",
+              width: "100%",
+              maxWidth: "420px",
+              padding: "20px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#f59e0b" }}>
+              <AlertCircle size={22} />
+              <span style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" }}>
+                Cảnh báo sử dụng Token
+              </span>
+            </div>
+
+            <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.5", margin: 0 }}>
+              Chức năng <strong>Multi-Agent</strong> sẽ tự động điều phối 5 Agent (Leader, Planner, Reviewer, Coder 1, Coder 2) cùng thảo luận và thực thi bài toán. Quá trình này sẽ <strong>tiêu tốn nhiều token hơn đáng kể</strong> so với chat đơn lẻ thông thường.
+            </p>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
+              <button
+                type="button"
+                onClick={() => setShowTokenWarningModal(false)}
+                style={{
+                  padding: "6px 14px",
+                  background: "var(--bg-primary)",
+                  border: "1px solid var(--border-primary)",
+                  borderRadius: "6px",
+                  color: "var(--text-secondary)",
+                  fontSize: "12px",
+                  cursor: "pointer",
+                }}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMultiAgentActive(true);
+                  setSelectedMode("multi_agent");
+                  setShowTokenWarningModal(false);
+                }}
+                style={{
+                  padding: "6px 14px",
+                  background: "#6366f1",
+                  border: "none",
+                  borderRadius: "6px",
+                  color: "#fff",
+                  fontSize: "12px",
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Xác nhận bật
+              </button>
             </div>
           </div>
         </div>
