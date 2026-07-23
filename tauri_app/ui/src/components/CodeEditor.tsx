@@ -17,6 +17,7 @@ import { loadLanguage } from "@uiw/codemirror-extensions-langs";
 import { useEditorEngine } from "../hooks/useEditorEngine";
 import { syntaxTree } from "@codemirror/language";
 import { globalErrorStore } from "../services/errorStore";
+import { editorStateStore } from "../services/editorStateStore";
 
 class GitGutterMarker extends GutterMarker {
   type: string;
@@ -347,6 +348,7 @@ export default React.memo(function CodeEditor({
   const [unsavedChanges, setUnsavedChanges] = useState<UnsavedChange[]>([]);
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
+  const cmViewRef = useRef<any>(null);
   const lastPathRef = useRef<string | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -409,6 +411,89 @@ export default React.memo(function CodeEditor({
 
   // ── Native Monaco Error Count State ──
   const [monacoErrorCount, setMonacoErrorCount] = useState<number>(0);
+
+  const filePathRef = useRef(filePath);
+  useEffect(() => {
+    filePathRef.current = filePath;
+  }, [filePath]);
+
+  const restoreMonacoState = useCallback((targetPath: string) => {
+    const editor = editorRef.current;
+    if (!editor || !targetPath) return;
+
+    const saved = editorStateStore.getFileState(targetPath);
+    if (saved) {
+      if (saved.viewState) {
+        try {
+          editor.restoreViewState(saved.viewState);
+        } catch (e) {}
+      }
+      if (saved.lineNumber && saved.column) {
+        editor.setPosition({ lineNumber: saved.lineNumber, column: saved.column });
+        editor.revealPositionInCenter({ lineNumber: saved.lineNumber, column: saved.column });
+      }
+      if (typeof saved.scrollTop === "number") {
+        try {
+          editor.setScrollTop(saved.scrollTop);
+        } catch (e) {}
+      }
+    }
+  }, []);
+
+  const restoreCodeMirrorState = useCallback((targetPath: string) => {
+    const view = cmViewRef.current;
+    if (!view || !targetPath) return;
+
+    const saved = editorStateStore.getFileState(targetPath);
+    if (!saved) return;
+
+    try {
+      const doc = view.state.doc;
+      if (!doc || doc.length === 0) return;
+
+      const lineNum = Math.min(Math.max(1, saved.lineNumber), doc.lines);
+      const line = doc.line(lineNum);
+      const col = Math.min(Math.max(1, saved.column), line.length + 1);
+      const pos = line.from + col - 1;
+
+      view.dispatch({
+        selection: { anchor: pos, head: pos },
+        scrollIntoView: true,
+      });
+
+      if (typeof saved.scrollTop === "number" && view.scrollDOM) {
+        view.scrollDOM.scrollTop = saved.scrollTop;
+      }
+      if (typeof saved.scrollLeft === "number" && view.scrollDOM) {
+        view.scrollDOM.scrollLeft = saved.scrollLeft;
+      }
+    } catch (e) {
+      console.warn("Error restoring CodeMirror position:", e);
+    }
+  }, []);
+
+  const restoreFileState = useCallback((targetPath: string) => {
+    if (!targetPath) return;
+
+    const doRestore = () => {
+      if (editorEngine === "codemirror") {
+        restoreCodeMirrorState(targetPath);
+      } else {
+        restoreMonacoState(targetPath);
+      }
+    };
+
+    doRestore();
+    setTimeout(doRestore, 30);
+    setTimeout(doRestore, 100);
+  }, [editorEngine, restoreCodeMirrorState, restoreMonacoState]);
+
+  // Restore cursor & view state whenever active filePath or content changes
+  useEffect(() => {
+    if (filePath) {
+      restoreFileState(filePath);
+    }
+  }, [filePath, content, restoreFileState]);
 
   // ── Notify App & File Explorer when error status changes for active file ──
   useEffect(() => {
@@ -699,26 +784,14 @@ export default React.memo(function CodeEditor({
     return () => {
       if (filePath && editorRef.current) {
         const editor = editorRef.current;
-        const model = editor.getModel();
-        if (model) {
-          scrollPositionsRef.current[filePath] = editor.getScrollTop();
-          const selection = editor.getSelection();
-          if (selection) {
-            cursorPositionsRef.current[filePath] = {
-              start: model.getOffsetAt({
-                lineNumber: selection.startLineNumber,
-                column: selection.startColumn,
-              }),
-              end: model.getOffsetAt({
-                lineNumber: selection.endLineNumber,
-                column: selection.endColumn,
-              }),
-            };
-          }
+        const pos = editor.getPosition();
+        if (pos) {
+          const viewState = editor.saveViewState();
+          editorStateStore.saveFileState(filePath, pos.lineNumber, pos.column, viewState);
         }
       }
     };
-  }, [filePath, scrollPositionsRef, cursorPositionsRef]);
+  }, [filePath]);
 
   // Sync internal content with parent's decoded content
   useEffect(() => {
@@ -735,24 +808,20 @@ export default React.memo(function CodeEditor({
 
         if (filePath && editorRef.current) {
           const editor = editorRef.current;
-          const model = editor.getModel();
-          if (model) {
-            const savedScroll = scrollPositionsRef.current[filePath] || 0;
-            const savedCursor = cursorPositionsRef.current[filePath];
-            setTimeout(() => {
-              if (savedCursor) {
-                const startPos = model.getPositionAt(savedCursor.start);
-                const endPos = model.getPositionAt(savedCursor.end);
-                editor.setSelection({
-                  startLineNumber: startPos.lineNumber,
-                  startColumn: startPos.column,
-                  endLineNumber: endPos.lineNumber,
-                  endColumn: endPos.column,
-                });
+          setTimeout(() => {
+            const saved = editorStateStore.getFileState(filePath);
+            if (saved) {
+              if (saved.viewState) {
+                try {
+                  editor.restoreViewState(saved.viewState);
+                } catch (e) {}
               }
-              editor.setScrollTop(savedScroll);
-            }, 0);
-          }
+              if (saved.lineNumber && saved.column) {
+                editor.setPosition({ lineNumber: saved.lineNumber, column: saved.column });
+                editor.revealPositionInCenter({ lineNumber: saved.lineNumber, column: saved.column });
+              }
+            }
+          }, 50);
         }
       } else {
         setContent("");
@@ -1145,8 +1214,54 @@ export default React.memo(function CodeEditor({
     });
     setTimeout(syncMonacoMarkers, 500);
 
+    // Restore saved cursor position and view state for initial file
+    if (filePathRef.current) {
+      restoreFileState(filePathRef.current);
+    }
+
+    // Restore saved cursor position whenever Monaco swaps models (tab switch)
+    const modelChangeListener = editor.onDidChangeModel(() => {
+      if (filePathRef.current) {
+        restoreFileState(filePathRef.current);
+      }
+    });
+
+    // Save cursor position and view state on position change (user typing or mouse click only)
+    const posListener = editor.onDidChangeCursorPosition((e: any) => {
+      if (filePathRef.current) {
+        if (e.source === "keyboard" || e.source === "mouse" || e.source === "api.command") {
+          const viewState = editor.saveViewState();
+          editorStateStore.saveFileState(
+            filePathRef.current,
+            e.position.lineNumber,
+            e.position.column,
+            viewState
+          );
+        }
+      }
+    });
+
+    // Save view state on scroll change
+    const scrollListener = editor.onDidScrollChange((e: any) => {
+      if (filePathRef.current && e.isExplicit) {
+        const pos = editor.getPosition();
+        if (pos) {
+          const viewState = editor.saveViewState();
+          editorStateStore.saveFileState(
+            filePathRef.current,
+            pos.lineNumber,
+            pos.column,
+            viewState
+          );
+        }
+      }
+    });
+
     editor.onDidDispose(() => {
       if (markerListener) markerListener.dispose();
+      if (posListener) posListener.dispose();
+      if (scrollListener) scrollListener.dispose();
+      if (modelChangeListener) modelChangeListener.dispose();
     });
 
     // ── Add context menu action: Sparkles AI Code Suggestion (Alt + \) ──
@@ -1533,6 +1648,44 @@ export default React.memo(function CodeEditor({
               width="100%"
               theme={theme === "light" ? "light" : oneDark}
               extensions={cmExtensions}
+              onCreateEditor={(view) => {
+                cmViewRef.current = view;
+                if (filePathRef.current) {
+                  restoreFileState(filePathRef.current);
+                }
+              }}
+              onUpdate={(update) => {
+                if (filePathRef.current && update.state) {
+                  const isUserInteraction = update.transactions.some(
+                    (tr: any) =>
+                      tr.isUserEvent?.("select") ||
+                      tr.isUserEvent?.("input") ||
+                      tr.isUserEvent?.("delete") ||
+                      tr.isUserEvent?.("move") ||
+                      tr.isUserEvent?.("undo") ||
+                      tr.isUserEvent?.("redo")
+                  );
+
+                  if (isUserInteraction) {
+                    try {
+                      const pos = update.state.selection.main.head;
+                      const line = update.state.doc.lineAt(pos);
+                      const lineNumber = line.number;
+                      const column = pos - line.from + 1;
+                      const scrollTop = update.view?.scrollDOM?.scrollTop || 0;
+                      const scrollLeft = update.view?.scrollDOM?.scrollLeft || 0;
+                      editorStateStore.saveFileState(
+                        filePathRef.current,
+                        lineNumber,
+                        column,
+                        null,
+                        scrollTop,
+                        scrollLeft
+                      );
+                    } catch (e) {}
+                  }
+                }
+              }}
               onChange={(val) => handleEditorChange(val)}
               style={{ fontSize: "13px", height: "100%", width: "100%", flex: 1 }}
             />

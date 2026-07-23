@@ -9,6 +9,7 @@ import {
   TerminalSessionItem,
 } from "../types";
 import { MOCK_PROJECTS, MAX_LOG_LINES, TOOLCHAIN_DEFAULTS } from "../constants";
+import { editorStateStore } from "../services/editorStateStore";
 
 interface UseProjectsDeps {
   setResourceHistory: React.Dispatch<React.SetStateAction<ResourceHistory>>;
@@ -64,6 +65,34 @@ export function useProjects(deps: UseProjectsDeps) {
     [path: string]: string;
   }>({});
   const [showTabsMenu, setShowTabsMenu] = useState(false);
+
+  // Restore open files and active file tab session from editorStateStore on startup
+  useEffect(() => {
+    const savedSession = editorStateStore.getSessionState();
+    if (savedSession) {
+      if (savedSession.openFiles && savedSession.openFiles.length > 0) {
+        setOpenFiles(savedSession.openFiles);
+        for (const file of savedSession.openFiles) {
+          if (!file.startsWith("__")) {
+            invoke<string>("read_file_content", { filePath: file })
+              .then((content) => {
+                setFilesContent((prev) => ({ ...prev, [file]: content }));
+                setFilesOriginalContent((prev) => ({ ...prev, [file]: content }));
+              })
+              .catch(() => {});
+          }
+        }
+      }
+      if (savedSession.activeFilePath) {
+        setOpenFilePath(savedSession.activeFilePath);
+      }
+    }
+  }, []);
+
+  // Save open files and active file tab session whenever they change
+  useEffect(() => {
+    editorStateStore.saveSessionState(openFiles, openFilePath);
+  }, [openFiles, openFilePath]);
 
   // Form State
   const [newProjName, setNewProjName] = useState("");
