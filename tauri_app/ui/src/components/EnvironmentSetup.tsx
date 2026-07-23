@@ -664,7 +664,6 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
             {config.custom_envs && config.custom_envs.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>
                 {config.custom_envs.map((env) => {
-                  const isHidden = env.visibility === "hidden";
                   return (
                     <div
                       key={env.id}

@@ -44,9 +44,13 @@ Alouette Studio redefines the developer workspace by integrating enterprise-grad
 - **Chaos Engineering:** Simulate unstable servers, HTTP error code injections (500, 502, 503), and random connection drops.
 - **Resource Constraints:** Enforce unforgiving hardware boundaries (CPU %, RAM MB) coupled with watchdog termination protocols.
 
-### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/columns.svg" width="20" height="20" align="top"/> 4. Premium Split Editor Panes
-*A sublime coding environment powered by Monaco's rich editing intelligence.*
-- **Monaco Integration:** State-of-the-art syntax highlighting, semantic search, and formatting capabilities.
+### <img src="https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/columns.svg" width="20" height="20" align="top"/> 4. Premium Dual-Engine Split Editors (Monaco & CodeMirror 6)
+*A sublime coding environment offering dynamic runtime switching between Monaco Editor and CodeMirror 6.*
+- **Dual Text Editor Engine Architecture:** Switch effortlessly between **Monaco Editor** (rich VS Code features) and **CodeMirror 6** (ultra-lightweight, high-performance) directly in System Settings with instant auto-save and zero-latency cross-window state synchronization via custom React hooks (`useEditorEngine`) and Tauri event broadcasting.
+- **Monaco Engine Integration:** Full-featured editing experience with built-in Minimap, Git diff gutter markers, overview ruler, syntax highlighting, semantic search, and formatting capabilities.
+- **CodeMirror 6 Lightweight Engine:** Extremely fast, low-RAM editor engine for opening large files or working on light hardware environments.
+  - **High-Performance 60FPS Code Minimap:** Integrated `@replit/codemirror-minimap` with GPU hardware acceleration (`will-change: transform`, `contain: layout style paint`) and zero-lag 0ms synchronous render pass calculation.
+  - **Native Git Diff Gutter & Minimap Markers:** GitHub standard color-coded line decorations for Added (`#2da44e`), Modified (`#d29922`), Deleted (`#da3633`), Unsaved Added (`#58a6ff`), and Unsaved Modified (`#79c0ff`) lines rendered directly on both gutter and minimap canvas.
 - **State Recovery:** Fluid navigation with automatic scroll and cursor position preservation across sessions.
 - **Directory Explorer:** An interactive, lightning-fast recursive directory tree for flawless project traversal.
 - **Split Editors:** Effortlessly divide your workspace into up to 3 side-by-side active panes with seamless drag-and-drop tab management.

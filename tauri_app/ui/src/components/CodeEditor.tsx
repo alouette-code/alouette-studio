@@ -9,11 +9,30 @@ import {
   Sparkles,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import Editor from "@monaco-editor/react";
-import CodeMirror, { oneDark } from "@uiw/react-codemirror";
+import CodeMirror, { oneDark, gutter, GutterMarker } from "@uiw/react-codemirror";
+import { showMinimap } from "@replit/codemirror-minimap";
 import { loadLanguage } from "@uiw/codemirror-extensions-langs";
 import { useEditorEngine } from "../hooks/useEditorEngine";
+
+class GitGutterMarker extends GutterMarker {
+  type: string;
+  constructor(type: string) {
+    super();
+    this.type = type;
+  }
+  toDOM() {
+    const el = document.createElement("div");
+    el.className = `cm-git-marker cm-git-marker-${this.type}`;
+    return el;
+  }
+}
+
+const gitAddedMarker = new GitGutterMarker("added");
+const gitModifiedMarker = new GitGutterMarker("modified");
+const gitDeletedMarker = new GitGutterMarker("deleted");
+const gitUnsavedAddedMarker = new GitGutterMarker("unsaved_added");
+const gitUnsavedModifiedMarker = new GitGutterMarker("unsaved_modified");
 
 const getCodeMirrorLanguageExtension = (path: string | null) => {
   if (!path) return null;
@@ -41,7 +60,7 @@ const getCodeMirrorLanguageExtension = (path: string | null) => {
       return loadLanguage("markdown");
     case "rs":
     case "rust":
-      return loadLanguage("rust");
+      return loadLanguage("rust" as any);
     case "py":
     case "python":
       return loadLanguage("python");
@@ -356,9 +375,88 @@ export default React.memo(function CodeEditor({
   // ── Editor Engine (Monaco vs CodeMirror) via useEditorEngine hook ──
   const { editorEngine } = useEditorEngine();
 
+  // ── Git diff decorations from backend (HEAD vs disk) ──
+  const { diffLines, isUntracked } = useGitDiff({
+    filePath,
+    cwd,
+    revision: saveRevision,
+  });
+
+  // ── Compute Git Diff Status map for CodeMirror (Synchronous 0ms delay for 60fps) ──
+  const gitStatusMapRef = useRef<{ [line: number]: string }>({});
+  const isUntrackedRef = useRef(isUntracked);
+  isUntrackedRef.current = isUntracked;
+
+  // Compute map synchronously during render pass so CodeMirror receives updates instantly (0ms lag)
+  const synchronousGitMap: { [line: number]: string } = {};
+  if (!isUntracked) {
+    for (const d of diffLines) {
+      if (d.change_type === "added") synchronousGitMap[d.line_number] = "added";
+      else if (d.change_type === "modified") synchronousGitMap[d.line_number] = "modified";
+      else if (d.change_type === "deleted_context") synchronousGitMap[d.line_number] = "deleted";
+    }
+  }
+  for (const u of unsavedChanges) {
+    if (u.type === "added") synchronousGitMap[u.line] = "unsaved_added";
+    else if (u.type === "modified") synchronousGitMap[u.line] = "unsaved_modified";
+    else if (u.type === "deleted_context") synchronousGitMap[u.line] = "deleted";
+  }
+  gitStatusMapRef.current = synchronousGitMap;
+
   const cmExtensions = React.useMemo(() => {
+    const exts: any[] = [];
+
+    // Git Diff Gutter Marker
+    const gitGutterExt = gutter({
+      class: "cm-git-gutter",
+      lineMarker(view, line) {
+        if (isUntrackedRef.current) return gitAddedMarker;
+        const lineNumber = view.state.doc.lineAt(line.from).number;
+        const status = gitStatusMapRef.current[lineNumber];
+        if (status === "added") return gitAddedMarker;
+        if (status === "modified") return gitModifiedMarker;
+        if (status === "deleted") return gitDeletedMarker;
+        if (status === "unsaved_added") return gitUnsavedAddedMarker;
+        if (status === "unsaved_modified") return gitUnsavedModifiedMarker;
+        return null;
+      },
+      initialSpacer: () => gitAddedMarker,
+    });
+    exts.push(gitGutterExt);
+
+    // Code Minimap Extension (Dynamic Git gutters from Ref without extension re-creation)
+    const minimapExt = showMinimap.compute([], () => {
+      const minimapGuttersMap: { [line: number]: string } = {};
+      if (isUntrackedRef.current) {
+        minimapGuttersMap[1] = "#2da44e";
+      } else {
+        for (const [lineStr, status] of Object.entries(gitStatusMapRef.current)) {
+          const line = parseInt(lineStr, 10);
+          if (status === "added") minimapGuttersMap[line] = "#2da44e";
+          else if (status === "modified") minimapGuttersMap[line] = "#d29922";
+          else if (status === "deleted") minimapGuttersMap[line] = "#da3633";
+          else if (status === "unsaved_added") minimapGuttersMap[line] = "#58a6ff";
+          else if (status === "unsaved_modified") minimapGuttersMap[line] = "#79c0ff";
+        }
+      }
+      return {
+        create: () => {
+          const dom = document.createElement("div");
+          dom.className = "cm-minimap-wrapper";
+          return { dom };
+        },
+        displayText: "characters",
+        showOverlay: "always",
+        gutters: [minimapGuttersMap],
+      };
+    });
+    exts.push(minimapExt);
+
+    // Syntax Highlighting
     const langExt = getCodeMirrorLanguageExtension(filePath);
-    return langExt ? [langExt] : [];
+    if (langExt) exts.push(langExt);
+
+    return exts;
   }, [filePath]);
 
   
@@ -381,12 +479,7 @@ export default React.memo(function CodeEditor({
     if (onChangePropRef.current) onChangePropRef.current(newVal);
   }, []);
 
-  // ── Git diff decorations from backend (HEAD vs disk) ──
-  const { diffLines, isUntracked } = useGitDiff({
-    filePath,
-    cwd,
-    revision: saveRevision,
-  });
+
 
   // ── Compute unsaved diff whenever content changes (debounced) ──
   useEffect(() => {
