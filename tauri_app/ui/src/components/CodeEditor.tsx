@@ -438,6 +438,10 @@ export default React.memo(function CodeEditor({
         } catch (e) {}
       }
     }
+
+    try {
+      editor.focus();
+    } catch (e) {}
   }, []);
 
   const restoreCodeMirrorState = useCallback((targetPath: string) => {
@@ -445,11 +449,19 @@ export default React.memo(function CodeEditor({
     if (!view || !targetPath) return;
 
     const saved = editorStateStore.getFileState(targetPath);
-    if (!saved) return;
+    if (!saved) {
+      try {
+        view.focus();
+      } catch (e) {}
+      return;
+    }
 
     try {
       const doc = view.state.doc;
-      if (!doc || doc.length === 0) return;
+      if (!doc || doc.length === 0) {
+        view.focus();
+        return;
+      }
 
       const lineNum = Math.min(Math.max(1, saved.lineNumber), doc.lines);
       const line = doc.line(lineNum);
@@ -467,6 +479,8 @@ export default React.memo(function CodeEditor({
       if (typeof saved.scrollLeft === "number" && view.scrollDOM) {
         view.scrollDOM.scrollLeft = saved.scrollLeft;
       }
+
+      view.focus();
     } catch (e) {
       console.warn("Error restoring CodeMirror position:", e);
     }

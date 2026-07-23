@@ -26,6 +26,7 @@ import Header from "./components/Header";
 import WindowResizer from "./components/WindowResizer";
 import CodeEditor from "./components/CodeEditor";
 import { globalErrorStore } from "./services/errorStore";
+import { editorStateStore } from "./services/editorStateStore";
 import ConfigSetup from "./components/ConfigSetup";
 import TabList from "./components/TabList";
 import TerminalPanel from "./components/TerminalPanel";
@@ -485,9 +486,18 @@ export default function App() {
     openFilePath: string | null;
   }
 
-  const [panes, setPanes] = useState<EditorPane[]>([
-    { openFiles: [], openFilePath: null },
-  ]);
+  const [panes, setPanes] = useState<EditorPane[]>(() => {
+    const savedSession = editorStateStore.getSessionState();
+    if (savedSession && savedSession.openFiles && savedSession.openFiles.length > 0) {
+      return [
+        {
+          openFiles: savedSession.openFiles,
+          openFilePath: savedSession.activeFilePath || savedSession.openFiles[0],
+        },
+      ];
+    }
+    return [{ openFiles: [], openFilePath: null }];
+  });
   const [activePaneIndex, setActivePaneIndex] = useState<number>(0);
   const [draggedOverPaneIndex, setDraggedOverPaneIndex] = useState<
     number | null
