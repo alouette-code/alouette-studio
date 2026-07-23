@@ -523,6 +523,105 @@ function SingleToolRequestCard({
   );
 }
 
+const strictMarkdownSchema = {
+  tagNames: [
+    "p",
+    "br",
+    "b",
+    "i",
+    "strong",
+    "em",
+    "strike",
+    "code",
+    "pre",
+    "del",
+    "ul",
+    "ol",
+    "li",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "blockquote",
+    "a",
+    "img",
+    "table",
+    "thead",
+    "tbody",
+    "tr",
+    "th",
+    "td",
+  ],
+  attributes: {
+    a: ["href", "title", "target"],
+    img: ["src", "alt", "title"],
+    "*": ["className"],
+  },
+  protocols: {
+    href: ["http", "https", "mailto"],
+    src: ["http", "https"],
+  },
+};
+
+const SafeMarkdown = React.memo(({ content }: { content: string }) => {
+  const sanitizedContent = useMemo(() => DOMPurify.sanitize(content), [content]);
+
+  return (
+    <ReactMarkdown
+      rehypePlugins={[[rehypeSanitize, strictMarkdownSchema]]}
+      components={{
+        code({ node, inline, className, children, ...props }: any) {
+          const codeContent = String(children).replace(/\n$/, "");
+          if (!inline) {
+            return (
+              <pre
+                className="code-block"
+                style={{
+                  margin: 0,
+                  padding: "10px",
+                  background: "var(--bg-secondary)",
+                  borderRadius: "4px",
+                  overflowX: "auto",
+                }}
+              >
+                <code
+                  className={className}
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "11.5px",
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  {codeContent}
+                </code>
+              </pre>
+            );
+          }
+          return (
+            <code
+              className={className}
+              style={{
+                fontFamily: "var(--font-mono)",
+                background: "var(--bg-secondary)",
+                padding: "2px 4px",
+                borderRadius: "3px",
+                color: "var(--color-accent)",
+              }}
+              {...props}
+            >
+              {children}
+            </code>
+          );
+        },
+      }}
+    >
+      {sanitizedContent}
+    </ReactMarkdown>
+  );
+});
+
 export default function AiAgent({
   onBack,
   activeProjectCwd,
@@ -558,7 +657,7 @@ export default function AiAgent({
   const [isTyping, setIsTyping] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gemini-3.5-flash");
   const [selectedMode, setSelectedMode] = useState("interactive");
-  const [isMultiAgentActive, setIsMultiAgentActive] = useState<boolean>(!!isMultiAgentPage);
+  const [isMultiAgentActive, setIsMultiAgentActive] = useState<boolean>(false);
   const [showTokenWarningModal, setShowTokenWarningModal] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -573,37 +672,51 @@ export default function AiAgent({
   );
 
   // Multi-Agent Event Listener
+  const maBufferRef = useRef<Record<string, ChatItem>>({});
+  const maRafRef = useRef<number | null>(null);
+
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
     listen<any>("multi-agent-step", (event) => {
       const payload = event.payload;
       if (!payload) return;
-      setChatHistory((prev) => {
-        const itemKey = `ma_${payload.session_id}_step_${payload.step}`;
-        const existingIdx = prev.findIndex((i) => i.id === itemKey);
-        const newItem: ChatItem = {
-          id: itemKey,
-          type: "text",
-          sender: "agent",
-          agentRole: payload.agent_role,
-          agentName: payload.agent_name,
-          avatar: payload.avatar,
-          text: payload.content,
-          timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        };
-        if (existingIdx >= 0) {
-          const copy = [...prev];
-          copy[existingIdx] = newItem;
-          return copy;
-        }
-        return [...prev, newItem];
-      });
+      const itemKey = `ma_${payload.session_id}_step_${payload.step}`;
+      maBufferRef.current[itemKey] = {
+        id: itemKey,
+        type: "text",
+        sender: "agent",
+        agentRole: payload.agent_role,
+        agentName: payload.agent_name,
+        avatar: payload.avatar,
+        text: payload.content,
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+
+      if (!maRafRef.current) {
+        maRafRef.current = requestAnimationFrame(() => {
+          const updates = { ...maBufferRef.current };
+          setChatHistory((prev) => {
+            let next = [...prev];
+            for (const [key, item] of Object.entries(updates)) {
+              const existingIdx = next.findIndex((i) => i.id === key);
+              if (existingIdx >= 0) {
+                next[existingIdx] = item;
+              } else {
+                next.push(item);
+              }
+            }
+            return next;
+          });
+          maRafRef.current = null;
+        });
+      }
     }).then((unlisten) => {
       unlistenFn = unlisten;
     });
 
     return () => {
       if (unlistenFn) unlistenFn();
+      if (maRafRef.current) cancelAnimationFrame(maRafRef.current);
     };
   }, []);
 
@@ -807,104 +920,7 @@ export default function AiAgent({
     }, 0);
   };
 
-  const SafeMarkdown = ({ content }: { content: string }) => {
-    const strictSchema = {
-      tagNames: [
-        "p",
-        "br",
-        "b",
-        "i",
-        "strong",
-        "em",
-        "strike",
-        "code",
-        "pre",
-        "del",
-        "ul",
-        "ol",
-        "li",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "blockquote",
-        "a",
-        "img",
-        "table",
-        "thead",
-        "tbody",
-        "tr",
-        "th",
-        "td",
-      ],
-      attributes: {
-        a: ["href", "title", "target"],
-        img: ["src", "alt", "title"],
-        "*": ["className"],
-      },
-      protocols: {
-        href: ["http", "https", "mailto"],
-        src: ["http", "https"],
-      },
-    };
 
-    const sanitizedContent = DOMPurify.sanitize(content);
-
-    return (
-      <ReactMarkdown
-        rehypePlugins={[[rehypeSanitize, strictSchema]]}
-        components={{
-          code({ node, inline, className, children, ...props }: any) {
-            const codeContent = String(children).replace(/\n$/, "");
-            if (!inline) {
-              return (
-                <pre
-                  className="code-block"
-                  style={{
-                    margin: 0,
-                    padding: "10px",
-                    background: "var(--bg-secondary)",
-                    borderRadius: "4px",
-                    overflowX: "auto",
-                  }}
-                >
-                  <code
-                    className={className}
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "11.5px",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {codeContent}
-                  </code>
-                </pre>
-              );
-            }
-            return (
-              <code
-                className={className}
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  background: "var(--bg-secondary)",
-                  padding: "2px 4px",
-                  borderRadius: "3px",
-                  color: "var(--color-accent)",
-                }}
-                {...props}
-              >
-                {children}
-              </code>
-            );
-          },
-        }}
-      >
-        {sanitizedContent}
-      </ReactMarkdown>
-    );
-  };
 
   const saveSession = async (
     history: ChatItem[],
@@ -4701,12 +4717,12 @@ export default function AiAgent({
             <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#f59e0b" }}>
               <AlertCircle size={22} />
               <span style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" }}>
-                Cảnh báo sử dụng Token
+                High Token Usage Warning
               </span>
             </div>
 
             <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.5", margin: 0 }}>
-              Chức năng <strong>Multi-Agent</strong> sẽ tự động điều phối 5 Agent (Leader, Planner, Reviewer, Coder 1, Coder 2) cùng thảo luận và thực thi bài toán. Quá trình này sẽ <strong>tiêu tốn nhiều token hơn đáng kể</strong> so với chat đơn lẻ thông thường.
+              Enabling <strong>Multi-Agent Mode</strong> will automatically coordinate a team of 5 specialized Agents (Leader, Planner, Reviewer, Coder 1, Coder 2) to collaborate on your task. This process will <strong>consume significantly more tokens</strong> than standard single-agent chat.
             </p>
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
@@ -4723,7 +4739,7 @@ export default function AiAgent({
                   cursor: "pointer",
                 }}
               >
-                Hủy
+                Cancel
               </button>
               <button
                 type="button"
@@ -4743,7 +4759,7 @@ export default function AiAgent({
                   cursor: "pointer",
                 }}
               >
-                Xác nhận bật
+                Enable Multi-Agent
               </button>
             </div>
           </div>
