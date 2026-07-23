@@ -11,9 +11,12 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import Editor from "@monaco-editor/react";
 import CodeMirror, { oneDark, gutter, GutterMarker } from "@uiw/react-codemirror";
+import { linter, lintGutter, Diagnostic } from "@codemirror/lint";
 import { showMinimap } from "@replit/codemirror-minimap";
 import { loadLanguage } from "@uiw/codemirror-extensions-langs";
 import { useEditorEngine } from "../hooks/useEditorEngine";
+import { syntaxTree } from "@codemirror/language";
+import { globalErrorStore } from "../services/errorStore";
 
 class GitGutterMarker extends GutterMarker {
   type: string;
@@ -289,6 +292,7 @@ const editorOptions = {
   insertSpaces: true,
   wordWrap: "on" as const,
   renderLineHighlight: "all" as const,
+  renderValidationDecorations: "editable" as const,
   glyphMargin: true,
   quickSuggestions: { other: true, comments: false, strings: false },
   suggestOnTriggerCharacters: true,
@@ -403,6 +407,23 @@ export default React.memo(function CodeEditor({
   }
   gitStatusMapRef.current = synchronousGitMap;
 
+  // ── Native Monaco Error Count State ──
+  const [monacoErrorCount, setMonacoErrorCount] = useState<number>(0);
+
+  // ── Notify App & File Explorer when error status changes for active file ──
+  useEffect(() => {
+    if (filePath) {
+      window.dispatchEvent(
+        new CustomEvent("file-syntax-error-change", {
+          detail: {
+            filePath,
+            hasError: monacoErrorCount > 0,
+          },
+        })
+      );
+    }
+  }, [monacoErrorCount, filePath]);
+
   const cmExtensions = React.useMemo(() => {
     const exts: any[] = [];
 
@@ -451,6 +472,39 @@ export default React.memo(function CodeEditor({
       };
     });
     exts.push(minimapExt);
+
+    // CodeMirror Lint Gutter & Native Lezer AST Syntax Linter
+    exts.push(lintGutter());
+
+    const cmLezerLinter = linter((view) => {
+      const diagnostics: Diagnostic[] = [];
+      const tree = syntaxTree(view.state);
+
+      tree.iterate({
+        enter(node) {
+          if (node.type.isError || node.name === "⚠" || node.name === "Error") {
+            const from = Math.max(0, node.from);
+            const to = Math.min(
+              view.state.doc.length,
+              node.to > node.from ? node.to : node.from + 1
+            );
+            diagnostics.push({
+              from,
+              to,
+              severity: "error",
+              message: "Cú pháp không hợp lệ (Syntax Error)",
+            });
+          }
+        },
+      });
+
+      if (filePath) {
+        globalErrorStore.setFileError(filePath, diagnostics.length);
+      }
+      setMonacoErrorCount(diagnostics.length);
+      return diagnostics;
+    });
+    exts.push(cmLezerLinter);
 
     // Syntax Highlighting
     const langExt = getCodeMirrorLanguageExtension(filePath);
@@ -713,6 +767,24 @@ export default React.memo(function CodeEditor({
   // ── Simple keyword completion để Monaco hiện suggest popup ──
   // Không cần backend, không scan, chạy hoàn toàn trên frontend
   const handleBeforeMount = (monaco: any) => {
+    // Enable syntax validation & diagnostics for Monaco languages
+    if (monaco.languages?.typescript) {
+      monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({
+        noSemanticValidation: false,
+        noSyntaxValidation: false,
+      });
+      monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({
+        noSemanticValidation: false,
+        noSyntaxValidation: false,
+      });
+    }
+    if (monaco.languages?.json) {
+      monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
+        validate: true,
+        allowComments: true,
+      });
+    }
+
     const keywords: { [lang: string]: string[] } = {
       typescript: [
         "function",
@@ -1056,6 +1128,27 @@ export default React.memo(function CodeEditor({
     editorRef.current = editor;
     monacoRef.current = monacoInstance;
 
+    // Sync Monaco Native Marker Errors for Header Badge
+    const syncMonacoMarkers = () => {
+      const model = editor.getModel();
+      if (!model) return;
+      const markers = monacoInstance.editor.getModelMarkers({ resource: model.uri });
+      const errors = markers.filter((m: any) => m.severity === monacoInstance.MarkerSeverity.Error);
+      setMonacoErrorCount(errors.length);
+      if (filePath) {
+        globalErrorStore.setFileError(filePath, errors.length);
+      }
+    };
+
+    const markerListener = monacoInstance.editor.onDidChangeMarkers(() => {
+      syncMonacoMarkers();
+    });
+    setTimeout(syncMonacoMarkers, 500);
+
+    editor.onDidDispose(() => {
+      if (markerListener) markerListener.dispose();
+    });
+
     // ── Add context menu action: Sparkles AI Code Suggestion (Alt + \) ──
     editor.addAction({
       id: "ai-code-completion-trigger",
@@ -1299,8 +1392,8 @@ export default React.memo(function CodeEditor({
     <div className="code-editor-container">
       <div className="code-editor-header">
         <div className="file-info">
-          <FileCode size={14} className="file-icon" />
-          <span className="file-name">{fileName}</span>
+          <FileCode size={14} className={`file-icon ${monacoErrorCount > 0 ? "has-error" : ""}`} />
+          <span className={`file-name ${monacoErrorCount > 0 ? "has-error" : ""}`}>{fileName}</span>
           {isDirty && <span className="dirty-dot" title="Unsaved changes" />}
           {isUntracked && (
             <span className="untracked-badge" title="File chưa được commit">

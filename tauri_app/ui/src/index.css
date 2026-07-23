@@ -9290,3 +9290,72 @@ body.is-resizing-h, body.is-resizing-h * {
 .multi-agent-show-more-btn:hover {
     text-decoration: underline;
 }
+
+/* ── Code Error Highlighting & Linting Styles (Monaco & CodeMirror / Edit Minor) ── */
+.code-error-line-highlight {
+  background-color: rgba(239, 68, 68, 0.15) !important;
+  border-left: 3px solid #ef4444 !important;
+}
+
+/* Hide red dot markers at beginning of lines/gutter */
+.code-error-glyph-margin {
+  display: none !important;
+}
+
+/* CodeMirror Error Line & Squiggly Underline */
+.cm-error-line {
+  background-color: rgba(239, 68, 68, 0.14) !important;
+}
+
+.cm-lintRange-error {
+  background-image: repeating-linear-gradient(135deg, #ef4444, #ef4444 3px, transparent 3px, transparent 6px) !important;
+  background-position: bottom left !important;
+  background-size: 100% 2px !important;
+  background-repeat: repeat-x !important;
+  border-bottom: 1.5px dotted #ef4444 !important;
+}
+
+.cm-lint-marker-error {
+  display: none !important;
+}
+
+/* Red Filename Highlight when file has errors */
+.file-name.has-error {
+  color: #ef4444 !important;
+  font-weight: 600 !important;
+}
+
+.file-icon.has-error {
+  color: #ef4444 !important;
+}
+
+.editor-tab.has-error {
+  color: #ef4444 !important;
+}
+
+.editor-tab.has-error .tab-name {
+  color: #ef4444 !important;
+  font-weight: 600 !important;
+}
+
+/* Error badge header indicator */
+.error-count-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.18);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #f87171;
+  margin-right: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.error-count-badge:hover {
+  background: rgba(239, 68, 68, 0.28);
+}
+

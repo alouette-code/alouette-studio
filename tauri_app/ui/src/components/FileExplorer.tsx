@@ -9,13 +9,13 @@ import {
   ChevronDown,
   Code,
   Braces,
-  Pencil,
   CircleDot,
   FilePlus,
   FolderPlus,
   RotateCw,
   Database,
 } from "lucide-react";
+import { globalErrorStore } from "../services/errorStore";
 
 interface FileNode {
   name: string;
@@ -230,47 +230,85 @@ function TreeNode({
               }
             }}
           />
-        ) : (
-          <span
-            className="tree-node-name"
-            style={{
-              color:
-                gitStatus === "modified"
+        ) : (() => {
+          const errCount = globalErrorStore.getErrorCount(node.path, node.is_dir);
+          const hasSyntaxError = errCount > 0;
+
+          return (
+            <span
+              className={`tree-node-name ${hasSyntaxError ? "has-error" : ""}`}
+              style={{
+                color: hasSyntaxError
+                  ? "#ef4444"
+                  : gitStatus === "modified"
                   ? "var(--git-modified, #eab308)"
                   : gitStatus === "untracked" || gitStatus === "added"
                     ? "var(--git-added, #10b981)"
                     : "inherit",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {node.name}
-          </span>
-        )}
-        {gitStatus && (
-          <span
-            style={{
-              display: "inline-flex",
-              marginLeft: "auto",
-              marginRight: "6px",
-              opacity: 0.8,
-            }}
-            title={gitStatus === "modified" ? "Modified" : "Untracked"}
-          >
-            {gitStatus === "modified" ? (
-              <Pencil
-                size={10}
-                style={{ color: "var(--git-modified, #eab308)" }}
-              />
-            ) : (
-              <CircleDot
-                size={10}
-                style={{ color: "var(--git-added, #10b981)" }}
-              />
-            )}
-          </span>
-        )}
+                fontWeight: hasSyntaxError ? 600 : "normal",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {node.name}
+            </span>
+          );
+        })()}
+
+        {(() => {
+          const errCount = globalErrorStore.getErrorCount(node.path, node.is_dir);
+          const hasSyntaxError = errCount > 0;
+
+          if (!hasSyntaxError && !gitStatus) return null;
+
+          return (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                marginLeft: "auto",
+                marginRight: "6px",
+                gap: "4px",
+              }}
+            >
+              {hasSyntaxError && (
+                <span
+                  style={{
+                    fontSize: "11px",
+                    fontWeight: 600,
+                    color: "#ef4444",
+                    lineHeight: 1,
+                  }}
+                  title={`${errCount} lỗi code`}
+                >
+                  {errCount}
+                </span>
+              )}
+              {gitStatus && (
+                <span
+                  style={{
+                    display: "inline-flex",
+                    opacity: 0.8,
+                  }}
+                  title={gitStatus === "modified" ? "Modified" : "Untracked"}
+                >
+                  {gitStatus === "modified" ? (
+                    <CircleDot
+                      size={10}
+                      style={{ color: "var(--git-modified, #eab308)" }}
+                    />
+                  ) : (
+                    <CircleDot
+                      size={10}
+                      style={{ color: "var(--git-added, #10b981)" }}
+                    />
+                  )}
+                </span>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {node.is_dir && isOpen && (
@@ -345,6 +383,14 @@ export default function FileExplorer({
   const [gitFileStatuses, setGitFileStatuses] = useState<{
     [relPath: string]: string;
   }>({});
+  const [, forceRender] = useState(0);
+
+  useEffect(() => {
+    const unsubscribe = globalErrorStore.subscribe(() => {
+      forceRender((n) => n + 1);
+    });
+    return unsubscribe;
+  }, []);
 
   // Context Menu State
   const [contextMenu, setContextMenu] = useState<{
