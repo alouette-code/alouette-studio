@@ -985,14 +985,22 @@ export default function TerminalPanel({
         } catch {}
       });
 
-      // ResizeObserver for fit
+      // ResizeObserver for fit - debounced to prevent lag during resize
+      let fitTimeout: number | null = null;
       const ro = new ResizeObserver(() => {
-        try {
-          fit.fit();
-        } catch {}
+        if (fitTimeout !== null) clearTimeout(fitTimeout);
+        fitTimeout = window.setTimeout(() => {
+          try {
+            fit.fit();
+          } catch {}
+          fitTimeout = null;
+        }, 32); // 32ms debounce (~30fps updates)
       });
       ro.observe(container);
-      inst.disposers.push(() => ro.disconnect());
+      inst.disposers.push(() => {
+        ro.disconnect();
+        if (fitTimeout !== null) clearTimeout(fitTimeout);
+      });
 
       // Focus on mount + force initial paint
       requestAnimationFrame(() => {
