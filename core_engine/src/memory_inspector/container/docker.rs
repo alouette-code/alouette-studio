@@ -9,16 +9,59 @@ impl super::ExecutionProvider for DockerDriver {
         let status = Command::new("docker")
             .arg("info")
             .output()
-            .await
-            .map_err(|e| e.to_string())?;
+            .await;
 
-        if !status.status.success() {
-            return Err("Docker daemon is not running or accessible.".to_string());
+        let is_running = match &status {
+            Ok(out) => out.status.success(),
+            Err(_) => false,
+        };
+
+        if is_running {
+            return Ok(());
         }
-        Ok(())
+
+        // Delegate to DockerClient ensure_started() which executes at most 1 consolidated elevation prompt
+        if let Ok(client) = crate::docker_engine::client::DockerClient::new() {
+            if client.ensure_started().await.is_ok() {
+                return Ok(());
+            }
+        }
+
+        Err("Docker daemon is not running. Failed to auto-start Docker service automatically.".to_string())
     }
 
     async fn create_sandbox(&self, config: &InspectionConfig, name: &str) -> Result<(), String> {
+        if config.image.trim().is_empty() {
+            return Err("Docker image name cannot be empty.".to_string());
+        }
+
+        // Pre-flight check: Verify if image exists locally, or pull it automatically
+        let inspect_output = Command::new("docker")
+            .args(["image", "inspect", &config.image])
+            .output()
+            .await;
+
+        let image_exists = match inspect_output {
+            Ok(out) => out.status.success(),
+            Err(_) => false,
+        };
+
+        if !image_exists {
+            let pull_output = Command::new("docker")
+                .args(["pull", &config.image])
+                .output()
+                .await;
+
+            let pull_success = match pull_output {
+                Ok(out) => out.status.success(),
+                Err(_) => false,
+            };
+
+            if !pull_success {
+                return Err(format!("Docker image '{}' does not exist locally and failed to pull from registry.", config.image));
+            }
+        }
+
         let mem_str = format!("{}m", config.initial_ram_mb);
         
         let mut args = vec!["run".to_string(), "-d".to_string(), "--name".to_string(), name.to_string(), "-m".to_string(), mem_str];
@@ -152,7 +195,30 @@ impl super::ExecutionProvider for DockerDriver {
 
         if !output.status.success() {
             let err_msg = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("Failed to create docker sandbox: {}", err_msg));
+            return Err(format!("Failed to create docker sandbox: {}", err_msg.trim()));
+        }
+
+        // Post-launch check: Ensure container hasn't exited immediately
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        let check_running = Command::new("docker")
+            .args(["inspect", "-f", "{{.State.Running}}", name])
+            .output()
+            .await;
+
+        if let Ok(check_out) = check_running {
+            let is_running_str = String::from_utf8_lossy(&check_out.stdout);
+            if !is_running_str.trim().eq_ignore_ascii_case("true") {
+                let logs_output = Command::new("docker").args(["logs", "--tail", "10", name]).output().await;
+                let logs_str = match logs_output {
+                    Ok(l) => {
+                        let out = String::from_utf8_lossy(&l.stdout).to_string() + &String::from_utf8_lossy(&l.stderr).to_string();
+                        if out.trim().is_empty() { "Container exited immediately without output.".to_string() } else { out }
+                    }
+                    Err(_) => "Container exited immediately.".to_string(),
+                };
+                let _ = Command::new("docker").args(["rm", "-f", name]).status().await;
+                return Err(format!("Container '{}' exited immediately after launch: {}", config.image, logs_str.trim()));
+            }
         }
 
         // Launch APM Sidecar
@@ -364,6 +430,8 @@ impl super::ExecutionProvider for DockerDriver {
             crash_imminent: false,
             status: "Running".to_string(),
             activities,
+            drift_rate_kb_per_sec: None,
+            regression_r2: None,
         })
     }
 

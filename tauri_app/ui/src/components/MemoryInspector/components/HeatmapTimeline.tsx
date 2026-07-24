@@ -8,11 +8,14 @@ interface HeatmapProps {
 export function HeatmapTimeline({ data, currentTask }: HeatmapProps) {
     // If there is a diagnosis, show the detailed culprit report instead of the heatmap
     if (currentTask?.final_diagnosis) {
+        const isStealthy = currentTask.final_diagnosis === 'StealthyDrift';
+        const diagnosisLabel = isStealthy ? 'StealthyDrift (Micro-Leak via Linear Regression)' : currentTask.final_diagnosis;
+
         return (
             <div className="inspector-heatmap-container" style={{ display: 'flex', flexDirection: 'column' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <h3 className="chart-title" style={{ margin: 0, color: 'var(--color-warning)' }}>
-                        Auto-Diagnosis Report: {currentTask.final_diagnosis}
+                    <h3 className="chart-title" style={{ margin: 0, color: isStealthy ? '#f59e0b' : 'var(--color-warning)' }}>
+                        Auto-Diagnosis Report: {diagnosisLabel}
                     </h3>
                 </div>
                 

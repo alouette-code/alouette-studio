@@ -5,8 +5,8 @@ import {
   Check,
   AlertCircle,
   RefreshCw,
-  FilePlus,
   Sparkles,
+  CircleDot,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import Editor from "@monaco-editor/react";
@@ -1724,10 +1724,28 @@ export default React.memo(function CodeEditor({
     <div className="code-editor-container">
       <div className="code-editor-header">
         <div className="file-info">
-          {isDirty && <span className="dirty-dot" title="Unsaved changes" />}
+          {isDirty && (
+            <span title="Chưa lưu thay đổi" style={{ display: "inline-flex", alignItems: "center" }}>
+              <CircleDot
+                size={11}
+                style={{
+                  color: "var(--git-modified, #eab308)",
+                  marginRight: 6,
+                  flexShrink: 0,
+                }}
+              />
+            </span>
+          )}
           {isUntracked && (
-            <span className="untracked-badge" title="File chưa được commit">
-              <FilePlus size={10} />
+            <span title="File chưa được commit" style={{ display: "inline-flex", alignItems: "center" }}>
+              <CircleDot
+                size={11}
+                style={{
+                  color: "var(--git-added, #10b981)",
+                  marginRight: 6,
+                  flexShrink: 0,
+                }}
+              />
             </span>
           )}
           <span className="file-path">{filePath}</span>

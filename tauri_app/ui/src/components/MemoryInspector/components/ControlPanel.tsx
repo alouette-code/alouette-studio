@@ -54,17 +54,21 @@ export function ControlPanel({ isActive, onStart, onStop }: ControlPanelProps) {
     };
 
     useEffect(() => {
-        // Fetch all local docker images
-        invoke('docker_list_images')
-            .then((images: any) => {
-                if (Array.isArray(images)) {
-                    // Filter out sha256 and <none>
-                    const localImages = images.filter(img => img && !img.includes('sha256:') && !img.includes('<none>'));
-                    const uniqueImages = Array.from(new Set([...availableImages, ...localImages]));
-                    setAvailableImages(uniqueImages);
-                }
-            })
-            .catch(console.error);
+        // Auto-ensure Docker daemon is started on mount
+        invoke('docker_ensure_started')
+            .catch(err => console.warn("Docker auto-start trigger:", err))
+            .finally(() => {
+                invoke('docker_list_images')
+                    .then((images: any) => {
+                        if (Array.isArray(images)) {
+                            // Filter out sha256 and <none>
+                            const localImages = images.filter(img => img && !img.includes('sha256:') && !img.includes('<none>'));
+                            const uniqueImages = Array.from(new Set([...availableImages, ...localImages]));
+                            setAvailableImages(uniqueImages);
+                        }
+                    })
+                    .catch(console.error);
+            });
     }, []);
 
     const handleStart = () => {

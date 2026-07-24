@@ -160,13 +160,13 @@ const LogsTab = ({ containerId, since, onClear }: { containerId: string, since: 
   );
 };
 
-const TerminalTab = ({ containerId }: { containerId: string }) => {
+const TerminalTab = ({ containerId, isRunning }: { containerId: string; isRunning: boolean }) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const execIdRef = useRef<string | null>(null);
   const termInstance = useRef<Terminal | null>(null);
 
   useEffect(() => {
-    if (!terminalRef.current) return;
+    if (!isRunning || !terminalRef.current) return;
 
     const term = new Terminal({
       theme: { background: '#1e1e1e', foreground: '#cccccc' },
@@ -195,8 +195,13 @@ const TerminalTab = ({ containerId }: { containerId: string }) => {
             term.write(event.payload.data);
           }
         });
-      } catch (e) {
-        term.write(`\r\nFailed to attach terminal: ${e}\r\n`);
+      } catch (e: any) {
+        const errStr = String(e);
+        if (errStr.includes("409") || errStr.includes("is not running")) {
+          term.write("\r\n\x1b[33m[Notice] Container is currently stopped. Click 'Start' above to run container before attaching terminal.\x1b[0m\r\n");
+        } else {
+          term.write(`\r\n\x1b[31mFailed to attach terminal: ${e}\x1b[0m\r\n`);
+        }
       }
     };
     initTerminal();
@@ -210,7 +215,19 @@ const TerminalTab = ({ containerId }: { containerId: string }) => {
       term.dispose();
       termInstance.current = null;
     };
-  }, [containerId]);
+  }, [containerId, isRunning]);
+
+  if (!isRunning) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', color: THEME.textMuted, gap: '12px', padding: '24px', textAlign: 'center' }}>
+        <DockerIcon size={36} style={{ color: 'var(--color-accent)', opacity: 0.9, marginRight: 0 }} />
+        <div style={{ fontSize: '13px', fontWeight: 'bold', color: THEME.textMain }}>Container is currently stopped</div>
+        <div style={{ fontSize: '12px', maxWidth: '360px', lineHeight: 1.5 }}>
+          Click the <strong style={{ color: THEME.success }}><Play size={10} style={{ display: 'inline', margin: '0 2px' }} /> Start</strong> button above to launch container <code>{containerId.substring(0, 12)}</code> before opening the terminal shell.
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ position: 'relative', width: '100%', height: '100%' }}>
@@ -498,7 +515,13 @@ export default function DockerManager() {
                       key={`logs-${getC(currentContainer).id}`} 
                     />
                   )}
-                  {manageTab === "terminal" && <TerminalTab containerId={getC(currentContainer).id} key={`term-${getC(currentContainer).id}`} />}
+                  {manageTab === "terminal" && (
+                    <TerminalTab 
+                      containerId={getC(currentContainer).id} 
+                      isRunning={getC(currentContainer).state === 'running'} 
+                      key={`term-${getC(currentContainer).id}-${getC(currentContainer).state}`} 
+                    />
+                  )}
                   {manageTab === "settings" && (
                     <div style={{ padding: '24px', height: '100%', overflowY: 'auto' }}>
                        <h3 style={{ color: THEME.textMain, marginBottom: '16px' }}>Container Inspect Data</h3>

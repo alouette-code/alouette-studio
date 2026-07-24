@@ -52,7 +52,7 @@ export function useMemoryInspector() {
     }, []);
 
     useEffect(() => {
-        if (state.status === 'Finished' || state.status === 'Error' || (state as any).error) {
+        if (state.status === 'Finished' || state.status === 'Error' || state.status.startsWith('Error') || (state as any).error) {
             setIsActive(false);
             fetchTaskHistory(); // refresh history to get final diagnosis
         }

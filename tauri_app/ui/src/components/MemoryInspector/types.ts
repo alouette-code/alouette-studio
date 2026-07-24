@@ -13,9 +13,11 @@ export interface TelemetryData {
     gc_events_detected: number;
     crash_imminent: boolean;
     activities?: ProcessActivity[];
+    drift_rate_kb_per_sec?: number;
+    regression_r2?: number;
 }
 
-export type Diagnosis = 'CacheEviction' | 'StubbornLeak' | 'Unknown';
+export type Diagnosis = 'CacheEviction' | 'StubbornLeak' | 'StealthyDrift' | 'Unknown';
 
 export interface InspectorState {
     status: 'Idle' | 'PreFlightChecks' | 'Isolating' | 'BaselineProfiling' | 'StressTesting' | 'SmartInspection' | 'GeneratingReport' | 'Finished' | 'Error';

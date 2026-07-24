@@ -65,6 +65,56 @@ impl HeuristicEngine {
             self.current_sample_interval_ms = 2000;
         }
     }
+
+    /// Calculates Linear Regression over time series telemetry data.
+    /// Returns Option<(drift_rate_kb_per_sec, r2_correlation_coefficient)>
+    pub fn calculate_linear_regression(&self) -> Option<(f64, f64)> {
+        if self.history.len() < 8 {
+            return None;
+        }
+
+        let n = self.history.len() as f64;
+        let first_t = self.history[0].timestamp as f64;
+
+        let mut sum_t = 0.0;
+        let mut sum_y = 0.0;
+        let mut sum_tt = 0.0;
+        let mut sum_yy = 0.0;
+        let mut sum_ty = 0.0;
+
+        for point in &self.history {
+            let t = (point.timestamp as f64) - first_t;
+            let y = point.memory_usage_mb;
+            sum_t += t;
+            sum_y += y;
+            sum_tt += t * t;
+            sum_yy += y * y;
+            sum_ty += t * y;
+        }
+
+        let mean_t = sum_t / n;
+        let mean_y = sum_y / n;
+
+        let var_t = sum_tt - n * mean_t * mean_t;
+        let var_y = sum_yy - n * mean_y * mean_y;
+        let cov_ty = sum_ty - n * mean_t * mean_y;
+
+        if var_t <= 0.0001 {
+            return None;
+        }
+
+        let slope_mb_per_sec = cov_ty / var_t;
+        let drift_rate_kb_per_sec = slope_mb_per_sec * 1024.0;
+
+        let r2 = if var_y > 0.000001 {
+            let r = cov_ty / (var_t.sqrt() * var_y.sqrt());
+            (r * r).min(1.0).max(0.0)
+        } else {
+            0.0
+        };
+
+        Some((drift_rate_kb_per_sec, r2))
+    }
 }
 
 impl super::Profiler for HeuristicEngine {
@@ -77,7 +127,7 @@ impl super::Profiler for HeuristicEngine {
     }
 
     fn analyze(&self) -> Diagnosis {
-        if self.history.len() < 10 {
+        if self.history.len() < 8 {
             return Diagnosis::Unknown;
         }
 
@@ -93,12 +143,21 @@ impl super::Profiler for HeuristicEngine {
             }
         }
 
+        let reg = self.calculate_linear_regression();
+
         if drops > 3 && increases > 3 {
             // Saw-tooth pattern
             Diagnosis::CacheEviction
         } else if increases > self.history.len() / 2 && drops == 0 {
             // Monotonic increase
             Diagnosis::StubbornLeak
+        } else if let Some((drift_kb_s, r2)) = reg {
+            // Stealthy Drift: Strong positive linear correlation (R^2 >= 0.70) and positive drift (> 0.005 KB/s)
+            if r2 >= 0.70 && drift_kb_s > 0.005 {
+                Diagnosis::StealthyDrift
+            } else {
+                Diagnosis::Unknown
+            }
         } else {
             Diagnosis::Unknown
         }
