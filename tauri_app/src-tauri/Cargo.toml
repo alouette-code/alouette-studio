@@ -38,7 +38,7 @@ regex-lite = "0.1"
 url = "2"
 quick-xml = "0.40"
 jsonschema = "0.46"
-rig-core = { version = "0.38", features = ["derive"] }
+rig-core = { version = "0.40.0", features = ["derive"] }
 langchain-rust = "4.4.0"
 async-trait = "0.1"
 futures-util = "0.3.32"

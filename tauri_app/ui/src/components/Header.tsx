@@ -621,7 +621,7 @@ export default function Header({
         <button
           className="btn-header-logo-right"
           onClick={() => handleFileAction("open-empty-window")}
-          title="Mở AI Agent (Cửa sổ mới)"
+          title="AI Agent Windows"
         >
           <Snail size={13} />
         </button>

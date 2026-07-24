@@ -95,7 +95,7 @@ pub struct AgentLoopConfig {
 impl Default for AgentLoopConfig {
     fn default() -> Self {
         Self {
-            max_iterations: 25,
+            max_iterations: 100,
             auto_approve_reads: true,
             auto_approve_writes: false,
             auto_approve_all: false,
@@ -1784,6 +1784,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     fn execute_scan_subdirectory(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let path = tool.arguments["path"]
             .as_str()
+            .or_else(|| tool.arguments["file"].as_str())
+            .or_else(|| tool.arguments["dirPath"].as_str())
+            .or_else(|| tool.arguments["directory"].as_str())
+            .or_else(|| tool.arguments["dir"].as_str())
             .ok_or_else(|| "Missing 'path' argument".to_string())?;
         let tree = self.skill_engine.scan_subdirectory(path)?;
         Ok(tree.tree_string)
@@ -1814,7 +1818,10 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     fn execute_extract_symbol(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let file = tool.arguments["file"]
             .as_str()
-            .ok_or_else(|| "Missing 'file' argument".to_string())?;
+            .or_else(|| tool.arguments["path"].as_str())
+            .or_else(|| tool.arguments["file_path"].as_str())
+            .or_else(|| tool.arguments["filePath"].as_str())
+            .ok_or_else(|| "Missing 'file' or 'path' argument".to_string())?;
         let symbol = tool.arguments["symbol"]
             .as_str()
             .or_else(|| tool.arguments["name"].as_str())
@@ -1865,14 +1872,30 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     fn execute_read_file_range(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let file = tool.arguments["file"]
             .as_str()
-            .ok_or_else(|| "Missing 'file' argument".to_string())?;
+            .or_else(|| tool.arguments["path"].as_str())
+            .or_else(|| tool.arguments["file_path"].as_str())
+            .or_else(|| tool.arguments["filePath"].as_str())
+            .or_else(|| tool.arguments["target_file"].as_str())
+            .or_else(|| tool.arguments["targetFile"].as_str())
+            .ok_or_else(|| "Missing 'file' or 'path' argument".to_string())?;
+
         let start = tool.arguments["start_line"]
             .as_u64()
-            .ok_or_else(|| "Missing 'start_line' argument".to_string())?
-            as usize;
+            .or_else(|| tool.arguments["startLine"].as_u64())
+            .or_else(|| tool.arguments["StartLine"].as_u64())
+            .or_else(|| tool.arguments["start"].as_u64())
+            .or_else(|| tool.arguments["start_line"].as_i64().map(|v| v as u64))
+            .or_else(|| tool.arguments["start_line"].as_str().and_then(|s| s.parse::<u64>().ok()))
+            .unwrap_or(1) as usize;
+
         let end = tool.arguments["end_line"]
             .as_u64()
-            .ok_or_else(|| "Missing 'end_line' argument".to_string())? as usize;
+            .or_else(|| tool.arguments["endLine"].as_u64())
+            .or_else(|| tool.arguments["EndLine"].as_u64())
+            .or_else(|| tool.arguments["end"].as_u64())
+            .or_else(|| tool.arguments["end_line"].as_i64().map(|v| v as u64))
+            .or_else(|| tool.arguments["end_line"].as_str().and_then(|s| s.parse::<u64>().ok()))
+            .unwrap_or(100) as usize;
 
         self.skill_engine.read_file_range(file, start, end)
     }
@@ -2050,7 +2073,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         // Kiểm tra max iterations
         if session.iteration_count >= session.max_iterations {
             session.state = AgentState::Finished(format!(
-                "Đạt giới hạn vòng lặp ({} iterations)",
+                "Reached maximum limit ({} iterations). Do you want to continue execution?",
                 session.max_iterations
             ));
             if let AgentState::Finished(ref text) = session.state {

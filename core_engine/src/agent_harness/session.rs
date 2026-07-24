@@ -63,7 +63,7 @@ impl SessionEntry {
                 history: Vec::new(),
                 state: AgentState::Idle,
                 iteration_count: 0,
-                max_iterations: 25,
+                max_iterations: 100,
                 mode: HarnessMode::Standard,
                 plan: None,
                 autonomous_state: None,

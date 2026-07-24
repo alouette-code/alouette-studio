@@ -294,7 +294,7 @@ pub async fn agent_send_message(
     let auto_approve_reads = true;
     let auto_approve_writes = is_write_mode || is_autonomous;
     let auto_approve_all = is_autonomous;
-    let max_iterations: u32 = 25;
+    let max_iterations: u32 = 100;
 
     // Save approval policy for later (agent_approve_tool)
     {
@@ -326,6 +326,11 @@ pub async fn agent_send_message(
             autonomous_state: None,
             token_budget: 5_000_000,
         });
+
+        // Auto-extend max_iterations if session reached previous limit
+        if session.iteration_count >= session.max_iterations {
+            session.max_iterations = session.iteration_count + 100;
+        }
 
         // Reset state to Idle for new message (unless awaiting approval)
         if !matches!(session.state, AgentState::AwaitingApproval(_)) {
@@ -459,6 +464,7 @@ pub async fn agent_send_message(
                         "agent-iteration",
                         serde_json::json!({
                             "iteration": iteration,
+                            "max_iterations": max_iterations,
                             "thought": thought.clone(),
                             "tool_name": tool_name.clone(),
                             "tool_result": tool_result.clone(),
@@ -1078,6 +1084,9 @@ pub async fn agent_approve_tool(
     let temperature = model_config.temperature;
     let top_p = model_config.top_p;
     let saved_session_id = session.session_id.clone();
+    if session.iteration_count >= session.max_iterations {
+        session.max_iterations = session.iteration_count + 100;
+    }
     let max_iterations = session.max_iterations;
 
     // ─── STATE MACHINE: Tick loop (tiếp tục từ ExecutingTool hoặc Thinking) ─────

@@ -19,11 +19,11 @@ pub fn agent_log(window: Option<&tauri::WebviewWindow>, msg: &str) {
     }
 }
 
-/// Convert ChatMessage history to OpenAI-compatible message JSON array
+/// Convert ChatMessage history to OpenAI-compatible message JSON array,
+/// ensuring strict OpenAI / DeepSeek tool call sequence compliance.
 fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Value> {
-    let mut messages: Vec<Value> = Vec::new();
-
-    messages.push(json!({ "role": "system", "content": system_prompt }));
+    let mut raw_messages: Vec<Value> = Vec::new();
+    raw_messages.push(json!({ "role": "system", "content": system_prompt }));
 
     for msg in history {
         let role = match msg.role.as_str() {
@@ -35,7 +35,9 @@ fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Valu
 
         match &msg.content {
             MessageContent::Text(text) => {
-                messages.push(json!({ "role": role, "content": text }));
+                if !text.trim().is_empty() {
+                    raw_messages.push(json!({ "role": role, "content": text }));
+                }
             }
             MessageContent::ToolCalls(tcs, text_opt) => {
                 let tc_json: Vec<Value> = tcs
@@ -52,7 +54,7 @@ fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Valu
                         })
                     })
                     .collect();
-                messages.push(json!({
+                raw_messages.push(json!({
                     "role": "assistant",
                     "content": text_opt,
                     "tool_calls": tc_json
@@ -64,7 +66,7 @@ fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Valu
                 result,
                 ..
             } => {
-                messages.push(json!({
+                raw_messages.push(json!({
                     "role": "tool",
                     "tool_call_id": tool_call_id,
                     "name": tool_name,
@@ -74,7 +76,65 @@ fn build_messages_json(system_prompt: &str, history: &[ChatMessage]) -> Vec<Valu
         }
     }
 
-    messages
+    // ─── SANITIZE TOOL CALL SEQUENCE ───────────────────────────────
+    // Re-order / repair messages so every assistant message with tool_calls is followed
+    // IMMEDIATELY by tool messages for ALL tool_call_ids, before any user message.
+    let mut clean_messages: Vec<Value> = Vec::new();
+    let mut i = 0;
+    while i < raw_messages.len() {
+        let msg = &raw_messages[i];
+        
+        if msg["role"] == "assistant" && msg.get("tool_calls").and_then(|v| v.as_array()).map_or(false, |arr| !arr.is_empty()) {
+            let tool_calls = msg["tool_calls"].as_array().unwrap().clone();
+            clean_messages.push(msg.clone());
+            i += 1;
+
+            let mut matched_tool_results: std::collections::HashMap<String, Value> = std::collections::HashMap::new();
+            let mut pending_user_msgs: Vec<Value> = Vec::new();
+
+            let mut j = i;
+            while j < raw_messages.len() {
+                let next_msg = &raw_messages[j];
+                if next_msg["role"] == "tool" {
+                    if let Some(call_id) = next_msg.get("tool_call_id").and_then(|v| v.as_str()) {
+                        matched_tool_results.insert(call_id.to_string(), next_msg.clone());
+                    }
+                    j += 1;
+                } else if next_msg["role"] == "user" {
+                    pending_user_msgs.push(next_msg.clone());
+                    j += 1;
+                } else {
+                    break;
+                }
+            }
+
+            for tc in &tool_calls {
+                let tc_id = tc["id"].as_str().unwrap_or("unknown");
+                if let Some(res_msg) = matched_tool_results.remove(tc_id) {
+                    clean_messages.push(res_msg);
+                } else {
+                    let tc_name = tc.get("function").and_then(|f| f.get("name")).and_then(|n| n.as_str()).unwrap_or("tool");
+                    clean_messages.push(json!({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "name": tc_name,
+                        "content": "Tool execution completed or skipped."
+                    }));
+                }
+            }
+
+            for user_msg in pending_user_msgs {
+                clean_messages.push(user_msg);
+            }
+
+            i = j;
+        } else {
+            clean_messages.push(msg.clone());
+            i += 1;
+        }
+    }
+
+    clean_messages
 }
 
 /// Build conversation text for fallback providers

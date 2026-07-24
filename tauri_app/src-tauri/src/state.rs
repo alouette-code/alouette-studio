@@ -20,7 +20,7 @@ pub struct LoopState {
 impl Default for LoopState {
     fn default() -> Self {
         Self {
-            max_iterations: 25,
+            max_iterations: 100,
             auto_approve_reads: true,
             auto_approve_writes: false,
             auto_approve_all: false,

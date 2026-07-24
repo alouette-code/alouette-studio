@@ -432,8 +432,8 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
     }
     setToast({
       message: nextVal
-        ? "✓ Đã bật mô hình tích hợp Alouette Open"
-        : "✕ Đã tắt mô hình tích hợp Alouette Open",
+        ? "✓ Enabled Alouette Open integrated model"
+        : "✕ Disabled Alouette Open integrated model",
       type: nextVal ? "success" : "info",
     });
   };
@@ -598,7 +598,7 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                     name: modelName,
                     context: `${Math.round(detail.context_limit / 1000)}k`,
                     vision: detail.supports_vision,
-                    desc: `Mô hình ${modelName} nạp động từ file ai_config.yml.`,
+                    desc: `${modelName} model dynamically loaded from ai_config.yml.`,
                   };
                 },
               ),
@@ -749,8 +749,8 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
               className="admin-panel-desc"
               style={{ margin: "2px 0 0 0", fontSize: "12px" }}
             >
-              Quản lý và kích hoạt các nhà cung cấp mô hình AI mặc định và tùy
-              chỉnh độc lập.
+              Manage and activate default and custom independent AI model
+              providers.
             </p>
           </div>
         </div>
@@ -784,9 +784,8 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
               margin: 0,
             }}
           >
-            Mô hình AI tích hợp sâu chạy ngầm phục vụ tác vụ tự trị và các tính
-            năng lõi của hệ thống Alouette (Không hiển thị ở giao diện AI Agent
-            chat).
+            Deeply integrated background AI model for autonomous tasks and core
+            system features of Alouette (Hidden from AI Agent chat UI).
           </p>
         </div>
 
@@ -830,7 +829,7 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                   borderRadius: "3px",
                 }}
               >
-                MÔ HÌNH LÕI TÍCH HỢP
+                INTEGRATED CORE MODEL
               </span>
             </div>
 
@@ -842,12 +841,12 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                 lineHeight: "1.4",
               }}
             >
-              Mã máy:{" "}
+              Model ID:{" "}
               <strong style={{ color: "var(--text-primary)" }}>
                 alouette_open-A1
               </strong>{" "}
-              (Context: 40k) • Chuyên biệt cho xử lý logic hệ thống, tự động hóa
-              quy trình và phân tích ngầm.
+              (Context: 40k) • Specialized for system logic processing, workflow
+              automation, and background analysis.
             </p>
           </div>
 
@@ -869,7 +868,7 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                     : "var(--text-secondary)",
                 }}
               >
-                {alouetteOpenEnabled ? "Đang bật" : "Đã tắt"}
+                {alouetteOpenEnabled ? "Enabled" : "Disabled"}
               </span>
               <CustomCheckbox
                 checked={alouetteOpenEnabled}
@@ -902,8 +901,8 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
             Alouette Agent Default Models
           </h3>
           <p style={{ fontSize: "11.5px", color: "var(--text-secondary)" }}>
-            Các nhà cung cấp AI kết nối trực tiếp qua Alouette Server trung tâm.
-            Không cần cấu hình API Key cá nhân.
+            AI providers directly connected via central Alouette Server. No
+            personal API Key configuration required.
           </p>
         </div>
 
@@ -1003,7 +1002,7 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                         }}
                       >
                         {activeProviderModels.length}/{model.models.length}{" "}
-                        model đang bật
+                        model(s) enabled
                       </span>
                     </div>
                   </div>
@@ -1024,7 +1023,7 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                           : "var(--text-secondary)",
                       }}
                     >
-                      {isProviderActive ? "Đang bật" : "Đã tắt"}
+                      {isProviderActive ? "Enabled" : "Disabled"}
                     </span>
                     <CustomCheckbox
                       checked={isProviderActive}
@@ -1074,12 +1073,12 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                           fontWeight: 600,
                         }}
                       >
-                        API Key cho {model.provider}
+                        API Key for {model.provider}
                       </label>
                       <input
                         type="password"
                         className="admin-input"
-                        placeholder={`Nhập API Key cho ${model.provider}...`}
+                        placeholder={`Enter API Key for ${model.provider}...`}
                         value={providerApiKeys[model.id] || ""}
                         onChange={(e) =>
                           handleApiKeyChange(model.id, e.target.value)
@@ -1184,7 +1183,7 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                                   : "var(--text-secondary)",
                               }}
                             >
-                              {isSubModelActive ? "Đang bật" : "Đã tắt"}
+                              {isSubModelActive ? "Enabled" : "Disabled"}
                             </span>
                             <CustomCheckbox
                               checked={isSubModelActive}
@@ -3082,7 +3081,7 @@ function SystemSection() {
           color: "var(--text-secondary)",
         }}
       >
-        Đang tải cấu hình hệ thống...
+        Loading system configuration...
       </div>
     );
   }
@@ -3113,7 +3112,7 @@ function SystemSection() {
           className="admin-panel-desc"
           style={{ margin: "4px 0 0 0", fontSize: "12px" }}
         >
-          Cấu hình tối ưu hóa hệ thống, tự khởi động và kiểm soát tài nguyên.
+          Configure system optimization, auto-start, and resource control.
         </p>
       </div>
 
@@ -3129,7 +3128,7 @@ function SystemSection() {
               fontWeight: 600,
             }}
           >
-            Ứng Dụng & Khởi Động
+            APPLICATION & AUTO-START
           </div>
           <div
             style={{ display: "flex", flexDirection: "column", gap: "16px" }}
@@ -3153,7 +3152,7 @@ function SystemSection() {
                     fontWeight: 500,
                   }}
                 >
-                  Giữ app sống khi lỡ tay tắt
+                  Keep app running when closed
                 </span>
               </div>
               <span
@@ -3164,8 +3163,8 @@ function SystemSection() {
                   lineHeight: "1.4",
                 }}
               >
-                Khi nhấn nút đóng cửa sổ, ứng dụng sẽ thu nhỏ xuống thanh hệ
-                thống (System Tray) thay vì thoát hoàn toàn.
+                When clicking close window, the app will minimize to the System
+                Tray instead of exiting completely.
               </span>
             </div>
 
@@ -3188,7 +3187,7 @@ function SystemSection() {
                     fontWeight: 500,
                   }}
                 >
-                  Tự khởi động theo OS
+                  Auto-start with OS
                 </span>
               </div>
               <span
@@ -3199,7 +3198,7 @@ function SystemSection() {
                   lineHeight: "1.4",
                 }}
               >
-                Tự động khởi chạy ứng dụng cùng hệ thống khi máy tính khởi động.
+                Automatically launch the app with system when computer boots up.
               </span>
             </div>
           </div>
@@ -3220,7 +3219,7 @@ function SystemSection() {
                 fontWeight: 600,
               }}
             >
-              Kiểm Soát Tài Nguyên & Restart
+              RESOURCE CONTROL & RESTART
             </div>
 
             <div
@@ -3252,7 +3251,7 @@ function SystemSection() {
                     fontWeight: 500,
                   }}
                 >
-                  Giới hạn tài nguyên phần cứng
+                  Limit hardware resource usage
                 </span>
               </div>
 
@@ -3360,7 +3359,7 @@ function SystemSection() {
                     fontWeight: 500,
                   }}
                 >
-                  Tự restart app định kỳ
+                  Periodically restart app
                 </span>
               </div>
 
@@ -3377,7 +3376,7 @@ function SystemSection() {
                 <span
                   style={{ fontSize: "12px", color: "var(--text-primary)" }}
                 >
-                  Chu kỳ:
+                  Interval:
                 </span>
                 <input
                   type="number"
@@ -3399,7 +3398,7 @@ function SystemSection() {
                 <span
                   style={{ fontSize: "12px", color: "var(--text-secondary)" }}
                 >
-                  giờ
+                  hours
                 </span>
               </div>
             </div>
@@ -3416,13 +3415,13 @@ function SystemSection() {
               fontWeight: 600,
             }}
           >
-            Trình Soạn Thảo Text Editor (Code Engine)
+            TEXT EDITOR (CODE ENGINE)
           </div>
           <div
             style={{ display: "flex", flexDirection: "column", gap: "14px" }}
           >
             <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-              Lựa chọn thư viện trình soạn thảo mã nguồn mặc định cho ứng dụng:
+              Select default code editor engine for the application:
             </span>
             <div
               style={{
@@ -3434,7 +3433,7 @@ function SystemSection() {
               <label
                 style={{
                   display: "flex",
-                  alignItems: "flex-start",
+                  alignItems: "center",
                   gap: "10px",
                   padding: "12px",
                   borderRadius: "6px",
@@ -3458,22 +3457,17 @@ function SystemSection() {
                   onChange={() =>
                     updateSettings({ ...settings, editor_engine: "monaco" })
                   }
-                  style={{ marginTop: "2px", accentColor: "var(--color-accent)" }}
+                  style={{ accentColor: "var(--color-accent)" }}
                 />
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
-                    Monaco Editor (VS Code)
-                  </span>
-                  <span style={{ fontSize: "11px", color: "var(--text-secondary)", lineHeight: "1.3" }}>
-                    Trình soạn thảo mặc định siêu mạnh mẽ từ Microsoft VS Code, hỗ trợ full Intellisense, AI Suggestion & CodeRAG.
-                  </span>
-                </div>
+                <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
+                  Monaco Editor (VS Code)
+                </span>
               </label>
 
               <label
                 style={{
                   display: "flex",
-                  alignItems: "flex-start",
+                  alignItems: "center",
                   gap: "10px",
                   padding: "12px",
                   borderRadius: "6px",
@@ -3497,16 +3491,11 @@ function SystemSection() {
                   onChange={() =>
                     updateSettings({ ...settings, editor_engine: "codemirror" })
                   }
-                  style={{ marginTop: "2px", accentColor: "var(--color-accent)" }}
+                  style={{ accentColor: "var(--color-accent)" }}
                 />
-                <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
-                    CodeMirror Engine
-                  </span>
-                  <span style={{ fontSize: "11px", color: "var(--text-secondary)", lineHeight: "1.3" }}>
-                    Thư viện trình soạn thảo siêu nhẹ, khởi động cực nhanh, tối ưu hóa bộ nhớ RAM và hiệu năng cho máy cấu hình nhẹ.
-                  </span>
-                </div>
+                <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)" }}>
+                  CodeMirror Engine
+                </span>
               </label>
             </div>
           </div>

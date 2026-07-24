@@ -273,10 +273,14 @@ pub fn all_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "read_file_range",
-            description: "Read a specific range of lines from a file. Typically used AFTER extract_symbol told you the exact line numbers.",
+            description: "Read a specific range of lines from a file. Accepts 'path' or 'file', 'start_line', and 'end_line'.",
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Path or relative path to the file."
+                    },
                     "file": {
                         "type": "string",
                         "description": "Relative path to the file."
@@ -290,7 +294,7 @@ pub fn all_tools() -> Vec<ToolDef> {
                         "description": "Last line number (1-based, exclusive) to read."
                     }
                 },
-                "required": ["file", "start_line", "end_line"]
+                "required": ["start_line", "end_line"]
             }),
         },
         ToolDef {

@@ -362,7 +362,7 @@ async fn handle_forward_client(
 
 async fn handle_socks5_forward(
     client_stream: &mut TcpStream,
-    initial_buf: &[u8],
+    _initial_buf: &[u8],
     params: Arc<SimulationParams>,
 ) -> Result<(), String> {
     // 1. SOCKS5 Handshake / Auth Negotiation

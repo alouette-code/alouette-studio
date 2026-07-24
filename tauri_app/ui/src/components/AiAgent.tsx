@@ -41,6 +41,8 @@ import {
   Brain,
   Plug,
   ChartBarStacked,
+  Play,
+  AlertTriangle,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -183,10 +185,15 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
           )}
           {getToolIconComponent(tool.name)}
           <span
+            title={extractToolDetails(tool.args).rawPath || tool.args || tool.name}
             style={{
               fontSize: "9.5px",
               fontWeight: 600,
               color: "var(--text-primary)",
+              maxWidth: "260px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {getFriendlyToolNameStatic(tool.name, tool.args)}
@@ -201,7 +208,7 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
               setRejected(true);
               onReject(index);
             }}
-            title="Từ chối"
+            title="Reject"
             style={{
               padding: "2px",
               background: "transparent",
@@ -223,7 +230,7 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
               setApproved(true);
               onApprove(index);
             }}
-            title="Đồng ý chạy"
+            title="Approve"
             style={{
               padding: "2px",
               background: "var(--border-strong, #374151)",
@@ -248,24 +255,10 @@ function ToolCardItem({ tool, index, onApprove, onReject }: ToolCardItemProps) {
           style={{
             borderTop: "1px solid var(--border-primary)",
             background: "var(--bg-primary)",
-            padding: "4px 6px",
+            padding: "6px 8px",
           }}
         >
-          <pre
-            style={{
-              margin: 0,
-              fontFamily: "var(--font-mono)",
-              fontSize: "9px",
-              color: "var(--text-secondary)",
-              whiteSpace: "pre-wrap",
-              wordBreak: "break-all",
-              lineHeight: "1.4",
-              maxHeight: "100px",
-              overflowY: "auto",
-            }}
-          >
-            {tool.args}
-          </pre>
+          <ToolArgsPreview name={tool.name} argsStr={tool.args} />
         </div>
       )}
     </div>
@@ -280,6 +273,12 @@ function getToolIconComponent(name: string): React.ReactNode {
     case "read_file_range":
       return <FileText size={size} style={style} />;
     case "write_file":
+    case "write_to_file":
+    case "replace_file_content":
+    case "multi_replace_file_content":
+    case "replace_in_file":
+    case "create_file":
+    case "edit_file":
       return <Pencil size={size} style={style} />;
     case "execute_command":
       return <Terminal size={size} style={style} />;
@@ -302,42 +301,295 @@ function getToolIconComponent(name: string): React.ReactNode {
   }
 }
 
-function getFriendlyToolNameStatic(name: string, argsStr?: string): string {
-  if (name === "execute_command" && argsStr) {
+interface ToolDetails {
+  rawPath?: string;
+  path?: string;
+  command?: string;
+  pattern?: string;
+  symbol?: string;
+  startLine?: number;
+  endLine?: number;
+  linesText?: string;
+  isFullFile?: boolean;
+}
+
+function extractToolDetails(argsStr?: string | object): ToolDetails {
+  if (!argsStr) return {};
+  let obj: any = argsStr;
+  if (typeof argsStr === "string") {
     try {
-      const parsed = JSON.parse(argsStr);
-      if (parsed.command) {
-        return `Chạy lệnh: ${parsed.command}`;
-      }
+      obj = JSON.parse(argsStr);
     } catch (e) {
-      // ignore
+      return {};
     }
   }
+  if (!obj || typeof obj !== "object") return {};
+
+  const rawPath = obj.path || obj.filePath || obj.targetFile || obj.target_file || obj.TargetFile || obj.file_path || obj.file || obj.uri || obj.filename || obj.dirPath || "";
+  let cleanPath = "";
+  if (rawPath && typeof rawPath === "string") {
+    const parts = rawPath.split(/[/\\]/).filter(Boolean);
+    if (parts.length > 2) {
+      cleanPath = parts.slice(-2).join("/");
+    } else {
+      cleanPath = parts.join("/");
+    }
+  }
+
+  let startLine: number | undefined = undefined;
+  let endLine: number | undefined = undefined;
+
+  if (typeof obj.start_line === "number") startLine = obj.start_line;
+  else if (typeof obj.startLine === "number") startLine = obj.startLine;
+  else if (typeof obj.StartLine === "number") startLine = obj.StartLine;
+
+  if (typeof obj.end_line === "number") endLine = obj.end_line;
+  else if (typeof obj.endLine === "number") endLine = obj.endLine;
+  else if (typeof obj.EndLine === "number") endLine = obj.EndLine;
+
+  const chunks = obj.replacement_chunks || obj.ReplacementChunks;
+  let chunkCount = 0;
+  if (Array.isArray(chunks) && chunks.length > 0) {
+    chunkCount = chunks.length;
+    if (startLine === undefined && chunks[0]) {
+      const c = chunks[0];
+      startLine = c.start_line ?? c.startLine ?? c.StartLine;
+    }
+    if (endLine === undefined && chunks[chunks.length - 1]) {
+      const c = chunks[chunks.length - 1];
+      endLine = c.end_line ?? c.endLine ?? c.EndLine;
+    }
+  }
+
+  let linesText = "";
+  let isFullFile = false;
+
+  if (chunkCount > 1) {
+    linesText = `(${chunkCount} chunks: Lines ${startLine ?? "?"}-${endLine ?? "?"})`;
+  } else if (startLine !== undefined && endLine !== undefined) {
+    linesText = `(Lines ${startLine}-${endLine})`;
+  } else if (startLine !== undefined) {
+    linesText = `(From Line ${startLine})`;
+  } else if (rawPath) {
+    linesText = `(Full File)`;
+    isFullFile = true;
+  }
+
+  return {
+    rawPath: typeof rawPath === "string" ? rawPath : "",
+    path: cleanPath || (typeof rawPath === "string" ? rawPath : ""),
+    command: typeof obj.command === "string" ? obj.command : (typeof obj.cmd === "string" ? obj.cmd : undefined),
+    pattern: typeof (obj.pattern || obj.query) === "string" ? (obj.pattern || obj.query) : undefined,
+    symbol: typeof obj.symbol === "string" ? obj.symbol : undefined,
+    startLine,
+    endLine,
+    linesText,
+    isFullFile,
+  };
+}
+
+function getFriendlyToolNameStatic(name: string, argsStr?: string): string {
+  const details = extractToolDetails(argsStr);
+
   switch (name) {
     case "read_file":
     case "read_file_range":
-      return "Đọc tệp tin";
+      return details.path
+        ? `Read: ${details.path} ${details.linesText}`.trim()
+        : "Read File";
     case "write_file":
-      return "Ghi tệp tin";
+    case "write_to_file":
+    case "replace_file_content":
+    case "multi_replace_file_content":
+    case "replace_in_file":
+    case "create_file":
+    case "edit_file":
+      return details.path
+        ? `Write: ${details.path} ${details.linesText}`.trim()
+        : "Write File";
     case "execute_command":
-      return "Chạy lệnh terminal";
+      return details.command ? `Run: ${details.command}` : "Execute Command";
     case "search_files":
-      return "Tìm kiếm tệp";
+      return details.pattern ? `Search Files: ${details.pattern}` : (details.path ? `Search in: ${details.path}` : "Search Files");
     case "scan_directory_tree":
     case "scan_subdirectory":
-      return "Quét thư mục";
+      return details.path ? `Scan Dir: ${details.path}` : "Scan Directory";
     case "extract_symbol":
     case "search_symbol":
-      return "Truy xuất mã nguồn";
+      return details.symbol ? `Inspect Code: ${details.symbol}` : "Inspect Code";
     case "save_memory":
-      return "Lưu ký ức";
+      return "Save Memory";
     case "search_memory":
-      return "Tìm kiếm ký ức";
+      return "Search Memory";
     case "check_port":
-      return "Kiểm tra cổng mạng";
+      return "Check Port";
     default:
+      if (details.path) return `${name}: ${details.path} ${details.linesText}`.trim();
+      if (details.command) return `${name}: ${details.command}`;
       return name;
   }
+}
+
+function ToolArgsPreview({ name, argsStr, resultStr }: { name: string; argsStr?: string; resultStr?: string }) {
+  if ((!argsStr || argsStr === "{}") && !resultStr) return null;
+
+  let obj: any = null;
+  if (argsStr) {
+    try {
+      obj = JSON.parse(argsStr);
+    } catch (e) {
+      obj = null;
+    }
+  }
+
+  const isExecCommand = ["execute_command", "run_command", "shell_execute", "run_terminal_cmd"].includes(name);
+
+  if (isExecCommand) {
+    const cmd = obj?.command || obj?.cmd || obj?.CommandLine || obj?.commandLine || obj?.args || (typeof argsStr === "string" ? argsStr : "");
+    const output = resultStr || obj?.output || obj?.result || obj?.stdout;
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "9.5px", fontFamily: "var(--font-mono)" }}>
+        {cmd && (
+          <div>
+            <div style={{ color: "var(--text-muted)", fontWeight: 600, fontSize: "9px", marginBottom: "3px" }}>Command:</div>
+            <pre style={{ margin: 0, color: "#4ade80", background: "#090d16", border: "1px solid rgba(74, 222, 128, 0.2)", padding: "5px 8px", borderRadius: "4px", whiteSpace: "pre-wrap", wordBreak: "break-all", fontWeight: 600 }}>
+              <span style={{ color: "#38bdf8", marginRight: "6px", userSelect: "none" }}>$</span>
+              {cmd}
+            </pre>
+          </div>
+        )}
+
+        {output && (
+          <div style={{ marginTop: "2px" }}>
+            <div style={{ color: "var(--text-muted)", fontWeight: 600, fontSize: "9px", marginBottom: "3px" }}>Terminal Output:</div>
+            <pre style={{ margin: 0, color: "#e2e8f0", background: "#0d1117", border: "1px solid var(--border-primary)", padding: "6px 8px", borderRadius: "4px", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: "250px", overflowY: "auto", lineHeight: "1.4" }}>
+              {output}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const isWriteFile = ["write_file", "write_to_file", "replace_file_content", "multi_replace_file_content", "replace_in_file", "create_file", "edit_file"].includes(name);
+  const isReadFile = ["read_file", "read_file_range"].includes(name);
+
+  if (obj && (isWriteFile || isReadFile)) {
+    const rawPath = obj.path || obj.filePath || obj.targetFile || obj.target_file || obj.TargetFile || obj.file_path || obj.file || obj.uri || obj.filename || "";
+    const startLine = obj.start_line ?? obj.startLine ?? obj.StartLine;
+    const endLine = obj.end_line ?? obj.endLine ?? obj.EndLine;
+    const targetContent = obj.target_content || obj.targetContent || obj.TargetContent;
+    const replacementContent = obj.replacement_content || obj.replacementContent || obj.ReplacementContent || obj.content || obj.code_content || obj.codeContent || obj.CodeContent;
+    const chunks = obj.replacement_chunks || obj.ReplacementChunks;
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: "6px", fontSize: "9.5px", fontFamily: "var(--font-mono)" }}>
+        {rawPath && (
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "var(--text-primary)" }}>
+            <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>File:</span>
+            <span style={{ wordBreak: "break-all", background: "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: "3px", color: "#e2e8f0" }}>{rawPath}</span>
+          </div>
+        )}
+
+        {/* Line info */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "var(--text-secondary)" }}>
+          <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>Line Range:</span>
+          {startLine !== undefined && endLine !== undefined ? (
+            <span style={{ color: "#60a5fa", fontWeight: 600 }}>Line {startLine} ➔ Line {endLine}</span>
+          ) : startLine !== undefined ? (
+            <span style={{ color: "#60a5fa", fontWeight: 600 }}>From Line {startLine} onwards</span>
+          ) : (
+            <span style={{ color: "#eab308", fontWeight: 600 }}>Full File Write / Overwrite</span>
+          )}
+        </div>
+
+        {/* Chunks if multi replace */}
+        {Array.isArray(chunks) && chunks.length > 0 && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "2px" }}>
+            <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>Target Chunks ({chunks.length} chunks):</span>
+            {chunks.map((chk: any, idx: number) => {
+              const sL = chk.start_line ?? chk.startLine ?? chk.StartLine;
+              const eL = chk.end_line ?? chk.endLine ?? chk.EndLine;
+              const tC = chk.target_content ?? chk.targetContent ?? chk.TargetContent;
+              const rC = chk.replacement_content ?? chk.replacementContent ?? chk.ReplacementContent;
+              return (
+                <div key={idx} style={{ background: "rgba(0,0,0,0.2)", border: "1px solid var(--border-primary)", borderRadius: "4px", padding: "4px 6px" }}>
+                  <div style={{ color: "#60a5fa", fontSize: "9px", marginBottom: "2px", fontWeight: 600 }}>
+                    Chunk {idx + 1}: Lines {sL ?? "?"} ➔ {eL ?? "?"}
+                  </div>
+                  {tC && (
+                    <pre style={{ margin: "2px 0", color: "#f87171", background: "rgba(239, 68, 68, 0.08)", padding: "3px 6px", borderRadius: "3px", whiteSpace: "pre-wrap", maxHeight: "80px", overflowY: "auto" }}>
+                      - {tC}
+                    </pre>
+                  )}
+                  {rC && (
+                    <pre style={{ margin: "2px 0", color: "#4ade80", background: "rgba(34, 197, 94, 0.08)", padding: "3px 6px", borderRadius: "3px", whiteSpace: "pre-wrap", maxHeight: "100px", overflowY: "auto" }}>
+                      + {rC}
+                    </pre>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Single Target Content vs Replacement Content */}
+        {!chunks && (targetContent || replacementContent) && (
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "2px" }}>
+            {targetContent && (
+              <div>
+                <span style={{ color: "#f87171", fontSize: "9px", fontWeight: 600 }}>Original Content (-):</span>
+                <pre style={{ margin: "2px 0 0 0", color: "#f87171", background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.2)", padding: "4px 6px", borderRadius: "3px", whiteSpace: "pre-wrap", maxHeight: "100px", overflowY: "auto" }}>
+                  {targetContent}
+                </pre>
+              </div>
+            )}
+            {replacementContent && (
+              <div>
+                <span style={{ color: "#4ade80", fontSize: "9px", fontWeight: 600 }}>New Content (+):</span>
+                <pre style={{ margin: "2px 0 0 0", color: "#4ade80", background: "rgba(34, 197, 94, 0.08)", border: "1px solid rgba(34, 197, 94, 0.2)", padding: "4px 6px", borderRadius: "3px", whiteSpace: "pre-wrap", maxHeight: "150px", overflowY: "auto" }}>
+                  {replacementContent}
+                </pre>
+              </div>
+            )}
+          </div>
+        )}
+
+        {resultStr && (
+          <div style={{ marginTop: "4px" }}>
+            <span style={{ color: "var(--text-muted)", fontSize: "9px", fontWeight: 600 }}>Output Result:</span>
+            <pre style={{ margin: "2px 0 0 0", color: "#e2e8f0", background: "#0d1117", border: "1px solid var(--border-primary)", padding: "4px 6px", borderRadius: "3px", whiteSpace: "pre-wrap", maxHeight: "150px", overflowY: "auto" }}>
+              {resultStr}
+            </pre>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: "4px", fontSize: "9px", fontFamily: "var(--font-mono)" }}>
+      {obj && (
+        <pre style={{ margin: 0, color: "var(--text-secondary)", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: "140px", overflowY: "auto" }}>
+          {JSON.stringify(obj, null, 2)}
+        </pre>
+      )}
+      {!obj && argsStr && (
+        <pre style={{ margin: 0, color: "var(--text-secondary)", whiteSpace: "pre-wrap", wordBreak: "break-all", maxHeight: "140px", overflowY: "auto" }}>
+          {argsStr}
+        </pre>
+      )}
+      {resultStr && (
+        <div style={{ marginTop: "4px" }}>
+          <span style={{ color: "var(--text-muted)", fontWeight: 600 }}>Result Output:</span>
+          <pre style={{ margin: "2px 0 0 0", color: "#e2e8f0", background: "#0d1117", border: "1px solid var(--border-primary)", padding: "4px 6px", borderRadius: "3px", whiteSpace: "pre-wrap", maxHeight: "150px", overflowY: "auto" }}>
+            {resultStr}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Single Tool Request Card (compact, expandable) ────────────────────
@@ -400,10 +652,15 @@ function SingleToolRequestCard({
           )}
           {getToolIconComponent(item.toolName || "")}
           <span
+            title={extractToolDetails(item.args).rawPath || item.args || item.toolName || ""}
             style={{
               fontSize: "9.5px",
               fontWeight: 600,
               color: "var(--text-primary)",
+              maxWidth: "260px",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
             }}
           >
             {getFriendlyToolNameStatic(item.toolName || "", item.args)}
@@ -416,25 +673,16 @@ function SingleToolRequestCard({
 
       {/* Expanded args */}
       {expanded && item.args && item.args !== "{}" && (
-        <pre
+        <div
           style={{
-            margin: 0,
-            padding: "4px 6px",
+            borderTop: "1px solid var(--border-primary)",
             background: "var(--bg-primary)",
-            border: "1px solid var(--border-primary)",
+            padding: "6px 8px",
             borderRadius: "4px",
-            fontFamily: "var(--font-mono)",
-            fontSize: "9px",
-            color: "var(--text-secondary)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-            lineHeight: "1.4",
-            maxHeight: "120px",
-            overflowY: "auto",
           }}
         >
-          {item.args}
-        </pre>
+          <ToolArgsPreview name={item.toolName || ""} argsStr={item.args} />
+        </div>
       )}
 
       {/* Actions */}
@@ -463,7 +711,7 @@ function SingleToolRequestCard({
               lineHeight: "18px",
             }}
           >
-            <X size={9} /> Từ chối
+            <X size={9} /> Reject
           </button>
           <button
             onClick={() => onApprove(item.id)}
@@ -482,7 +730,7 @@ function SingleToolRequestCard({
               lineHeight: "18px",
             }}
           >
-            <Check size={9} /> Đồng ý chạy
+            <Check size={9} /> Approve
           </button>
         </div>
       )}
@@ -499,7 +747,7 @@ function SingleToolRequestCard({
             gap: "3px",
           }}
         >
-          <Check size={9} /> Đã chấp thuận
+          <Check size={9} /> Approved
         </div>
       )}
 
@@ -516,7 +764,7 @@ function SingleToolRequestCard({
             fontStyle: "italic",
           }}
         >
-          <X size={9} /> Đã từ chối
+          <X size={9} /> Rejected
         </div>
       )}
     </div>
@@ -650,7 +898,7 @@ export default function AiAgent({
     errorText: string;
   } | null>(null);
   const [loopIterations, setLoopIterations] = useState<number>(0);
-  const [totalIterations, setTotalIterations] = useState<number>(25);
+  const [totalIterations, setTotalIterations] = useState<number>(100);
   const [activeThought, setActiveThought] = useState<string | null>(null);
 
   const [inputVal, setInputVal] = useState("");
@@ -1417,6 +1665,9 @@ export default function AiAgent({
 
         setActiveThought(data.thought || null);
         setLoopIterations(data.iteration || 0);
+        if (data.max_iterations) {
+          setTotalIterations(data.max_iterations);
+        }
 
         if (data.tool_name) {
           const status = data.tool_result
@@ -1882,25 +2133,46 @@ export default function AiAgent({
         setSessionId(response.session_id);
       }
 
-      // Batch response: cập nhật tool result và hiển thị tools còn lại
+      // Batch response: cập nhật tool result và hiển thị tools còn lại (nếu là batch cũ) hoặc thêm batchMsg mới (nếu là batch mới)
       if (response.reply_type === "tool_batch_request" && response.tools) {
-        setChatHistory((prev) =>
-          prev.map((item) => {
-            if (item.id === id) {
-              // Đánh dấu tool vừa được duyệt
-              const updatedTools = response.tools!.map((t) => ({
-                ...t,
-                status: "waiting" as const,
-              }));
-              return {
-                ...item,
-                tools: updatedTools,
-                toolResult: response.tool_result,
-              };
-            }
-            return item;
-          }),
-        );
+        const tools: ToolItem[] = response.tools.map((t: any) => ({
+          name: t.name,
+          args: t.args,
+          pending_id: t.pending_id,
+          status: "waiting" as const,
+        }));
+
+        setChatHistory((prev) => {
+          const isUpdatingPartialBatch = toolIndex !== undefined;
+          const exists = isUpdatingPartialBatch && prev.some((item) => item.id === id && item.type === "tool_batch_request");
+          if (exists) {
+            return prev.map((item) => {
+              if (item.id === id) {
+                return {
+                  ...item,
+                  tools,
+                  toolResult: response.tool_result,
+                };
+              }
+              return item;
+            });
+          } else {
+            const updatedHistory = prev.map((item) =>
+              item.id === id ? { ...item, toolStatus: "approved" as const } : item
+            );
+            const batchMsg: ChatItem = {
+              id: `batch_${Date.now()}`,
+              type: "tool_batch_request",
+              sender: "agent",
+              tools,
+              timestamp: new Date().toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            };
+            return [...updatedHistory, batchMsg];
+          }
+        });
         return;
       }
 
@@ -1918,7 +2190,9 @@ export default function AiAgent({
             return item;
           }),
         );
-      } else if (response.reply_type === "tool_request") {
+      }
+
+      if (response.reply_type === "tool_request") {
         const toolMsg: ChatItem = {
           id: (response as any).pending_id || Date.now().toString(),
           type: "tool_request",
@@ -2061,23 +2335,62 @@ export default function AiAgent({
         setSessionId(response.session_id);
       }
 
-      // Batch response: cập nhật danh sách tools còn lại
+      // Batch response: cập nhật danh sách tools còn lại (nếu là batch cũ) hoặc thêm batchMsg mới (nếu là batch mới)
       if (response.reply_type === "tool_batch_request" && response.tools) {
-        setChatHistory((prev) =>
-          prev.map((item) => {
-            if (item.id === id) {
-              const updatedTools = response.tools!.map((t) => ({
-                ...t,
-                status: "waiting" as const,
-              }));
-              return {
-                ...item,
-                tools: updatedTools,
-              };
-            }
-            return item;
+        const tools: ToolItem[] = response.tools.map((t: any) => ({
+          name: t.name,
+          args: t.args,
+          pending_id: t.pending_id,
+          status: "waiting" as const,
+        }));
+
+        setChatHistory((prev) => {
+          const isUpdatingPartialBatch = toolIndex !== undefined;
+          const exists = isUpdatingPartialBatch && prev.some((item) => item.id === id && item.type === "tool_batch_request");
+          if (exists) {
+            return prev.map((item) => {
+              if (item.id === id) {
+                return {
+                  ...item,
+                  tools,
+                };
+              }
+              return item;
+            });
+          } else {
+            const updatedHistory = prev.map((item) =>
+              item.id === id ? { ...item, toolStatus: "rejected" as const } : item
+            );
+            const batchMsg: ChatItem = {
+              id: `batch_${Date.now()}`,
+              type: "tool_batch_request",
+              sender: "agent",
+              tools,
+              timestamp: new Date().toLocaleTimeString([], {
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            };
+            return [...updatedHistory, batchMsg];
+          }
+        });
+        return;
+      }
+
+      if ((response as any).reply_type === "tool_request") {
+        const toolMsg: ChatItem = {
+          id: (response as any).pending_id || Date.now().toString(),
+          type: "tool_request",
+          sender: "agent",
+          toolName: (response as any).tool_name,
+          args: (response as any).args,
+          toolStatus: "waiting",
+          timestamp: new Date().toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
           }),
-        );
+        };
+        setChatHistory((prev) => [...prev, toolMsg]);
         return;
       }
 
@@ -2085,7 +2398,7 @@ export default function AiAgent({
         id: Date.now().toString(),
         type: "text",
         sender: "agent",
-        text: `✕ ${response.text || "Từ chối thực thi công cụ."}`,
+        text: `✕ ${response.text || "Tool execution rejected."}`,
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -2735,48 +3048,7 @@ export default function AiAgent({
                       marginLeft: "4px",
                     }}
                   >
-                    {item.args && (
-                      <div>
-                        <div style={{ fontSize: "10px", color: "var(--text-muted)", marginBottom: "2px" }}>Tham số đầu vào:</div>
-                        <pre
-                          style={{
-                            margin: 0,
-                            padding: "4px 8px",
-                            background: "transparent",
-                            borderLeft: "1px solid var(--border-primary)",
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "10px",
-                            color: "var(--text-secondary)",
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-all",
-                          }}
-                        >
-                          {item.args}
-                        </pre>
-                      </div>
-                    )}
-                    {item.toolResult && (
-                      <div>
-                        <div style={{ fontSize: "10px", color: "var(--text-muted)", marginBottom: "2px" }}>Kết quả trả về:</div>
-                        <pre
-                          style={{
-                            margin: 0,
-                            padding: "4px 8px",
-                            background: "transparent",
-                            borderLeft: "1px solid var(--border-primary)",
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "10px",
-                            color: "var(--text-secondary)",
-                            whiteSpace: "pre-wrap",
-                            wordBreak: "break-all",
-                            maxHeight: "150px",
-                            overflowY: "auto",
-                          }}
-                        >
-                          {item.toolResult}
-                        </pre>
-                      </div>
-                    )}
+                    <ToolArgsPreview name={item.toolName || ""} argsStr={item.args} resultStr={item.toolResult} />
                   </div>
                 )}
               </div>
@@ -2828,7 +3100,7 @@ export default function AiAgent({
                         letterSpacing: "0.04em",
                       }}
                     >
-                      Yêu cầu chạy {tools.length} công cụ
+                      APPROVAL REQUESTED FOR {tools.length} TOOLS
                     </span>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
@@ -2851,7 +3123,7 @@ export default function AiAgent({
                         gap: "4px"
                       }}
                     >
-                      <Check size={9} /> Duyệt tất cả
+                      <Check size={9} /> Approve All
                     </button>
                   </div>
                 </div>
@@ -2991,7 +3263,41 @@ export default function AiAgent({
                         <span className="agent-typing-dot" style={{ width: "5px", height: "5px", borderRadius: "50%", background: "var(--text-muted)", display: "inline-block" }} />
                       </div>
                     ) : (
-                      <SafeMarkdown content={item.text || ""} />
+                      <>
+                        <SafeMarkdown content={item.text || ""} />
+
+                        {item.sender === "agent" && item.text && (item.text.includes("iterations)") || item.text.includes("maximum limit") || item.text.includes("giới hạn vòng lặp")) && (
+                          <div style={{ background: "rgba(234, 179, 8, 0.08)", border: "1px solid rgba(234, 179, 8, 0.3)", borderRadius: "6px", padding: "10px 12px", marginTop: "8px", display: "flex", flexDirection: "column", gap: "8px" }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: "6px", color: "#eab308", fontWeight: 600, fontSize: "11px" }}>
+                              <AlertTriangle size={14} />
+                              <span>Đã Đạt Giới Hạn Vòng Lặp (Max Iterations Reached)</span>
+                            </div>
+                            <div style={{ fontSize: "11px", color: "var(--text-secondary)" }}>
+                              Agent đã hoàn thành giới hạn vòng lặp cho nhiệm vụ này. Bạn có muốn tiếp tục chạy thêm 100 vòng lặp nữa không?
+                            </div>
+                            <button
+                              onClick={() => handleSendMessage("Tiếp tục công việc đang làm (Continue execution for another 100 iterations)")}
+                              style={{
+                                alignSelf: "flex-start",
+                                padding: "6px 14px",
+                                fontSize: "10.5px",
+                                fontWeight: 600,
+                                background: "#eab308",
+                                color: "#000",
+                                border: "none",
+                                borderRadius: "4px",
+                                cursor: "pointer",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: "6px",
+                                marginTop: "2px"
+                              }}
+                            >
+                              <Play size={12} /> Tiếp Tục Thực Thi (+100 vòng lặp)
+                            </button>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
