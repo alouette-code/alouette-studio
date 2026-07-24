@@ -9369,3 +9369,22 @@ body.is-resizing-h, body.is-resizing-h * {
   background: rgba(239, 68, 68, 0.28);
 }
 
+
+
+/* Smooth Resizing Overrides */
+body.is-resizing * {
+    pointer-events: none !important;
+}
+
+body.is-resizing .zone-1,
+body.is-resizing .zone-2,
+body.is-resizing .zone-3,
+body.is-resizing .zone-4,
+body.is-resizing .zone-5,
+body.is-resizing .zone-file-explorer,
+body.is-resizing .col-left,
+body.is-resizing .col-center,
+body.is-resizing .col-right {
+    contain: strict !important;
+    overflow: hidden !important;
+}

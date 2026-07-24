@@ -1308,12 +1308,34 @@ export default function App() {
   const handleLeftResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     setIsDraggingLeft(true);
+    let currentWidth = leftSidebarWidth;
+    let animationFrameId: number | null = null;
+    
+    document.body.classList.add("is-resizing");
+    
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9998";
+    overlay.style.cursor = "ew-resize";
+    document.body.appendChild(overlay);
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(160, Math.min(450, moveEvent.clientX));
-      setLeftSidebarWidth(newWidth);
+      if (animationFrameId !== null) return;
+      animationFrameId = requestAnimationFrame(() => {
+        const newWidth = Math.max(160, Math.min(450, moveEvent.clientX));
+        currentWidth = newWidth;
+        document.documentElement.style.setProperty("--left-sidebar-width", `${newWidth}px`);
+        animationFrameId = null;
+      });
     };
+    
     const handleMouseUp = () => {
       setIsDraggingLeft(false);
+      setLeftSidebarWidth(currentWidth);
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      document.body.classList.remove("is-resizing");
+      overlay.remove();
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
@@ -1325,15 +1347,37 @@ export default function App() {
   const handleRightResizeStart = (e: React.MouseEvent) => {
     e.preventDefault();
     setIsDraggingRight(true);
+    let currentWidth = rightSidebarWidth;
+    let animationFrameId: number | null = null;
+    
+    document.body.classList.add("is-resizing");
+    
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9998";
+    overlay.style.cursor = "ew-resize";
+    document.body.appendChild(overlay);
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const newWidth = Math.max(
-        280,
-        Math.min(600, window.innerWidth - moveEvent.clientX),
-      );
-      setRightSidebarWidth(newWidth);
+      if (animationFrameId !== null) return;
+      animationFrameId = requestAnimationFrame(() => {
+        const newWidth = Math.max(
+          280,
+          Math.min(600, window.innerWidth - moveEvent.clientX),
+        );
+        currentWidth = newWidth;
+        document.documentElement.style.setProperty("--right-sidebar-width", `${newWidth}px`);
+        animationFrameId = null;
+      });
     };
+    
     const handleMouseUp = () => {
       setIsDraggingRight(false);
+      setRightSidebarWidth(currentWidth);
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      document.body.classList.remove("is-resizing");
+      overlay.remove();
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
@@ -1347,15 +1391,37 @@ export default function App() {
     if (!tabListRef.current) return;
     setIsDraggingTabList(true);
     const tabListRect = tabListRef.current.getBoundingClientRect();
+    let currentHeight = tabListHeight;
+    let animationFrameId: number | null = null;
+    
+    document.body.classList.add("is-resizing");
+    
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9998";
+    overlay.style.cursor = "ns-resize";
+    document.body.appendChild(overlay);
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const newHeight = Math.max(
-        80,
-        Math.min(400, moveEvent.clientY - tabListRect.top),
-      );
-      setTabListHeight(newHeight);
+      if (animationFrameId !== null) return;
+      animationFrameId = requestAnimationFrame(() => {
+        const newHeight = Math.max(
+          80,
+          Math.min(400, moveEvent.clientY - tabListRect.top),
+        );
+        currentHeight = newHeight;
+        document.documentElement.style.setProperty("--tab-list-height", `${newHeight}px`);
+        animationFrameId = null;
+      });
     };
+    
     const handleMouseUp = () => {
       setIsDraggingTabList(false);
+      setTabListHeight(currentHeight);
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      document.body.classList.remove("is-resizing");
+      overlay.remove();
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
@@ -1369,15 +1435,37 @@ export default function App() {
     if (!monitorRef.current) return;
     setIsDraggingMonitor(true);
     const monitorRect = monitorRef.current.getBoundingClientRect();
+    let currentHeight = monitorHeight;
+    let animationFrameId: number | null = null;
+    
+    document.body.classList.add("is-resizing");
+    
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9998";
+    overlay.style.cursor = "ns-resize";
+    document.body.appendChild(overlay);
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const newHeight = Math.max(
-        100,
-        Math.min(500, moveEvent.clientY - monitorRect.top),
-      );
-      setMonitorHeight(newHeight);
+      if (animationFrameId !== null) return;
+      animationFrameId = requestAnimationFrame(() => {
+        const newHeight = Math.max(
+          100,
+          Math.min(500, moveEvent.clientY - monitorRect.top),
+        );
+        currentHeight = newHeight;
+        document.documentElement.style.setProperty("--monitor-height", `${newHeight}px`);
+        animationFrameId = null;
+      });
     };
+    
     const handleMouseUp = () => {
       setIsDraggingMonitor(false);
+      setMonitorHeight(currentHeight);
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      document.body.classList.remove("is-resizing");
+      overlay.remove();
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
@@ -1391,21 +1479,45 @@ export default function App() {
     if (!configRef.current) return;
     setIsDraggingConfig(true);
     const configRect = configRef.current.getBoundingClientRect();
+    let currentHeight = configHeight;
+    let animationFrameId: number | null = null;
+    
+    document.body.classList.add("is-resizing");
+    
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    overlay.style.inset = "0";
+    overlay.style.zIndex = "9998";
+    overlay.style.cursor = "ns-resize";
+    document.body.appendChild(overlay);
+
     const handleMouseMove = (moveEvent: MouseEvent) => {
-      const newHeight = Math.max(
-        120,
-        Math.min(450, moveEvent.clientY - configRect.top),
-      );
-      setConfigHeight(newHeight);
+      if (animationFrameId !== null) return;
+      animationFrameId = requestAnimationFrame(() => {
+        const newHeight = Math.max(
+          120,
+          Math.min(450, moveEvent.clientY - configRect.top),
+        );
+        currentHeight = newHeight;
+        document.documentElement.style.setProperty("--config-height", `${newHeight}px`);
+        animationFrameId = null;
+      });
     };
+    
     const handleMouseUp = () => {
       setIsDraggingConfig(false);
+      setConfigHeight(currentHeight);
+      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
+      document.body.classList.remove("is-resizing");
+      overlay.remove();
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
     window.addEventListener("mousemove", handleMouseMove);
     window.addEventListener("mouseup", handleMouseUp);
   };
+
+
 
   if (windowLabel === "ping_window") {
     return <PingZero />;
@@ -1474,7 +1586,7 @@ export default function App() {
         <div
           className="workspace-grid"
           style={{
-            gridTemplateColumns: `${isLeftSidebarOpen ? leftSidebarWidth : 0}px 1fr ${isRightSidebarOpen ? rightSidebarWidth : 0}px`,
+            gridTemplateColumns: `${isLeftSidebarOpen ? `var(--left-sidebar-width, ${leftSidebarWidth}px)` : "0px"} 1fr ${isRightSidebarOpen ? `var(--right-sidebar-width, ${rightSidebarWidth}px)` : "0px"}`,
             position: "relative",
           }}
         >
@@ -1495,7 +1607,7 @@ export default function App() {
             ref={tabListRef}
             className="zone zone-1"
             style={{
-              flex: `0 0 ${tabListHeight}px`,
+              flex: `0 0 var(--tab-list-height, ${tabListHeight}px)`,
               borderBottom: "1px solid var(--border-primary)",
               position: "relative",
             }}
@@ -1615,7 +1727,7 @@ export default function App() {
                 ref={monitorRef}
                 className="zone zone-2"
                 style={{
-                  flex: isBottomPanelOpen ? `0 0 ${monitorHeight}px` : 1,
+                  flex: isBottomPanelOpen ? `0 0 var(--monitor-height, ${monitorHeight}px)` : 1,
                   borderBottom: isBottomPanelOpen
                     ? "1px solid var(--border-primary)"
                     : "none",
@@ -2000,7 +2112,7 @@ export default function App() {
                   ref={configRef}
                   className="zone zone-3"
                   style={{
-                    flex: `0 0 ${configHeight}px`,
+                    flex: `0 0 var(--config-height, ${configHeight}px)`,
                     borderBottom: "1px solid var(--border-primary)",
                     position: "relative",
                   }}

@@ -3276,7 +3276,7 @@ export default function AiAgent({
                               Agent đã hoàn thành giới hạn vòng lặp cho nhiệm vụ này. Bạn có muốn tiếp tục chạy thêm 100 vòng lặp nữa không?
                             </div>
                             <button
-                              onClick={() => handleSendMessage("Tiếp tục công việc đang làm (Continue execution for another 100 iterations)")}
+                              onClick={() => triggerSendMessage("Tiếp tục công việc đang làm (Continue execution for another 100 iterations)")}
                               style={{
                                 alignSelf: "flex-start",
                                 padding: "6px 14px",
