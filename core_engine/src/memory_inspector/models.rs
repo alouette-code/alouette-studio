@@ -62,6 +62,10 @@ pub struct TelemetryData {
     pub crash_imminent: bool,
     pub status: String,
     pub activities: Vec<ProcessActivity>,
+    #[serde(default)]
+    pub drift_rate_kb_per_sec: Option<f64>,
+    #[serde(default)]
+    pub regression_r2: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -83,6 +87,7 @@ pub struct ProfilingResult {
 pub enum Diagnosis {
     CacheEviction,
     StubbornLeak,
+    StealthyDrift,
     Unknown,
 }
 

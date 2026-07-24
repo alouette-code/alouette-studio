@@ -85,7 +85,9 @@ impl EbpfTracer {
                                                 pid: pid.to_string(),
                                                 details: l.clone(),
                                             }
-                                        ]
+                                        ],
+                                        drift_rate_kb_per_sec: None,
+                                        regression_r2: None,
                                     };
                                     let _ = tx.send(data).await;
                                 }

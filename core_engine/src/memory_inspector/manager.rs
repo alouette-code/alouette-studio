@@ -240,6 +240,16 @@ impl MemoryInspectorManager {
             InspectorState::Error(e) => format!("Error: {}", e),
         };
 
+        // Calculate real-time linear regression & crash status
+        let mut engine = HeuristicEngine::new();
+        let history = self.pipeline.get_recent(100).await;
+        for d in history.iter().rev() {
+            engine.record_telemetry(d.clone());
+        }
+
+        let reg_stats = engine.calculate_linear_regression();
+        let is_crash_imm = engine.is_crash_imminent();
+
         let mut telemetry = self.pipeline.get_recent(1).await.get(0).cloned().unwrap_or_else(|| TelemetryData {
             timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
             memory_usage_mb: 0.0,
@@ -249,8 +259,16 @@ impl MemoryInspectorManager {
             crash_imminent: false,
             status: status_str.clone(),
             activities: vec![],
+            drift_rate_kb_per_sec: None,
+            regression_r2: None,
         });
         telemetry.status = status_str.clone();
+        telemetry.crash_imminent = is_crash_imm;
+
+        if let Some((drift, r2)) = reg_stats {
+            telemetry.drift_rate_kb_per_sec = Some(drift);
+            telemetry.regression_r2 = Some(r2);
+        }
 
         if let Some(task_id) = &self.current_task_id {
             if let Some(task) = self.tasks.get_mut(task_id) {
