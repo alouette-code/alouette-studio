@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { FileDevIcon } from "./FileDevIcon";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -8,7 +9,6 @@ import {
   ChevronRight,
   ChevronDown,
   Code,
-  Braces,
   CircleDot,
   FilePlus,
   FolderPlus,
@@ -114,20 +114,7 @@ function TreeNode({
       return <Code size={13} style={{ color: "#ef4444" }} className="tree-node-icon file has-error" />;
     }
 
-    const lowerName = fileName.toLowerCase();
-    if (lowerName.endsWith(".json")) {
-      return <Braces size={13} style={{ color: "#f59e0b" }} />;
-    }
-    if (
-      lowerName.endsWith(".js") ||
-      lowerName.endsWith(".ts") ||
-      lowerName.endsWith(".tsx") ||
-      lowerName.endsWith(".jsx") ||
-      lowerName.endsWith(".rs")
-    ) {
-      return <Code size={13} style={{ color: "#3a86ff" }} />;
-    }
-    return <File size={13} className="tree-node-icon file" />;
+    return <FileDevIcon fileName={fileName} fallbackIcon={<File size={13} className="tree-node-icon file" />} />;
   };
 
   const handleRowClick = async () => {

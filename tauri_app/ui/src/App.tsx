@@ -33,6 +33,7 @@ import TerminalPanel from "./components/TerminalPanel";
 import ProcessManager from "./components/ProcessManager";
 import AdminPanel from "./components/AdminPanel";
 import FileExplorer from "./components/FileExplorer";
+import FileDevIcon from "./components/FileDevIcon";
 import ExtensionPanel from "./components/ExtensionPanel";
 import ExtensionDetailsTab from "./components/ExtensionDetailsTab";
 import PublishExtensionTab from "./components/PublishExtensionTab";
@@ -1723,7 +1724,7 @@ export default function App() {
                                       }}
                                     />
                                   ) : (
-                                    <FileCode size={12} className="tab-icon" />
+                                    <FileDevIcon fileName={path.split(/[\\/]/).pop() || path} size={12} />
                                   )}
                                   <span className="tab-name">
                                     {path === "__local_ai__"

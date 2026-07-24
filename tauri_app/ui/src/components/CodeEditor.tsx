@@ -1706,7 +1706,6 @@ export default React.memo(function CodeEditor({
   }, []);
 
   const isDirty = content !== originalContent;
-  const fileName = filePath ? filePath.split(/[\\/]/).pop() : "";
 
   if (!filePath) {
     return (
@@ -1725,8 +1724,6 @@ export default React.memo(function CodeEditor({
     <div className="code-editor-container">
       <div className="code-editor-header">
         <div className="file-info">
-          <FileCode size={14} className={`file-icon ${monacoErrorCount > 0 ? "has-error" : ""}`} />
-          <span className={`file-name ${monacoErrorCount > 0 ? "has-error" : ""}`}>{fileName}</span>
           {isDirty && <span className="dirty-dot" title="Unsaved changes" />}
           {isUntracked && (
             <span className="untracked-badge" title="File chưa được commit">
