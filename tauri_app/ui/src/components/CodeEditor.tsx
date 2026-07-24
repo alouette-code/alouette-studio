@@ -705,12 +705,12 @@ export default React.memo(function CodeEditor({
     setTimeout(doRestore, 100);
   }, [editorEngine, restoreCodeMirrorState, restoreMonacoState]);
 
-  // Restore cursor & view state whenever active filePath or content changes
+  // Restore cursor & view state whenever active filePath changes
   useEffect(() => {
     if (filePath) {
       restoreFileState(filePath);
     }
-  }, [filePath, content, restoreFileState]);
+  }, [filePath, restoreFileState]);
 
   // ── Notify App & File Explorer when error status changes for active file ──
   useEffect(() => {
@@ -822,18 +822,30 @@ export default React.memo(function CodeEditor({
     onChangePropRef.current = onChange;
   }, [onChange]);
 
+  const onChangeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const handleEditorChange = useCallback((val: string | undefined) => {
     const newVal = val || "";
     latestContentRef.current = newVal;
-    if (rafRef.current === null) {
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null;
-        const latest = latestContentRef.current;
-        setContent((prev) => (prev === latest ? prev : latest));
-      });
+    
+    if (editorEngine === "codemirror") {
+      if (rafRef.current === null) {
+        rafRef.current = requestAnimationFrame(() => {
+          rafRef.current = null;
+          const latest = latestContentRef.current;
+          setContent((prev) => (prev === latest ? prev : latest));
+        });
+      }
     }
-    if (onChangePropRef.current) onChangePropRef.current(newVal);
-  }, []);
+    
+    if (onChangeDebounceRef.current) clearTimeout(onChangeDebounceRef.current);
+    onChangeDebounceRef.current = setTimeout(() => {
+      if (editorEngine !== "codemirror") {
+        setContent(latestContentRef.current);
+      }
+      if (onChangePropRef.current) onChangePropRef.current(latestContentRef.current);
+    }, 200);
+  }, [editorEngine]);
 
 
 
@@ -1444,38 +1456,41 @@ export default React.memo(function CodeEditor({
       }
     });
 
+    let viewStateTimer: any = null;
+    const saveViewStateDebounced = () => {
+      if (viewStateTimer) clearTimeout(viewStateTimer);
+      viewStateTimer = setTimeout(() => {
+        if (filePathRef.current && editor) {
+          const pos = editor.getPosition();
+          if (pos) {
+            const viewState = editor.saveViewState();
+            editorStateStore.saveFileState(
+              filePathRef.current,
+              pos.lineNumber,
+              pos.column,
+              viewState
+            );
+          }
+        }
+      }, 500); // 500ms debounce to prevent layout thrashing on every keystroke
+    };
+
     // Save cursor position and view state on position change (user typing or mouse click only)
     const posListener = editor.onDidChangeCursorPosition((e: any) => {
-      if (filePathRef.current) {
-        if (e.source === "keyboard" || e.source === "mouse" || e.source === "api.command") {
-          const viewState = editor.saveViewState();
-          editorStateStore.saveFileState(
-            filePathRef.current,
-            e.position.lineNumber,
-            e.position.column,
-            viewState
-          );
-        }
+      if (e.source === "keyboard" || e.source === "mouse" || e.source === "api.command") {
+        saveViewStateDebounced();
       }
     });
 
     // Save view state on scroll change
     const scrollListener = editor.onDidScrollChange((e: any) => {
-      if (filePathRef.current && e.isExplicit) {
-        const pos = editor.getPosition();
-        if (pos) {
-          const viewState = editor.saveViewState();
-          editorStateStore.saveFileState(
-            filePathRef.current,
-            pos.lineNumber,
-            pos.column,
-            viewState
-          );
-        }
+      if (e.isExplicit) {
+        saveViewStateDebounced();
       }
     });
 
     editor.onDidDispose(() => {
+      if (viewStateTimer) clearTimeout(viewStateTimer);
       if (markerListener) markerListener.dispose();
       if (posListener) posListener.dispose();
       if (scrollListener) scrollListener.dispose();
@@ -1590,7 +1605,7 @@ export default React.memo(function CodeEditor({
     try {
       const latestContent = editorRef.current
         ? editorRef.current.getValue()
-        : content;
+        : latestContentRef.current;
       await invoke("write_file_content", {
         path: filePath,
         content: latestContent,
@@ -1617,7 +1632,7 @@ export default React.memo(function CodeEditor({
       if (selectedPath) {
         const latestContent = editorRef.current
           ? editorRef.current.getValue()
-          : content;
+          : latestContentRef.current;
         await invoke("write_file_content", {
           path: selectedPath,
           content: latestContent,
@@ -1641,7 +1656,7 @@ export default React.memo(function CodeEditor({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [content, filePath, saveStatus]);
+  }, [filePath, saveStatus]);
 
   // Window Custom Event Listeners
   useEffect(() => {
@@ -1663,7 +1678,7 @@ export default React.memo(function CodeEditor({
       }
     };
     const handleFilesSavedAll = () => {
-      setOriginalContent(content);
+      setOriginalContent(latestContentRef.current);
       setUnsavedChanges([]);
       setSaveStatus("success");
       setTimeout(() => setSaveStatus("idle"), 2000);
@@ -1680,7 +1695,7 @@ export default React.memo(function CodeEditor({
       window.removeEventListener("trigger-revert-active-file", handleTriggerRevert);
       window.removeEventListener("files-saved-all", handleFilesSavedAll);
     };
-  }, [content, filePath, saveStatus, originalContent]);
+  }, [filePath, saveStatus, originalContent]);
 
   // Auto Save Effect
   useEffect(() => {
