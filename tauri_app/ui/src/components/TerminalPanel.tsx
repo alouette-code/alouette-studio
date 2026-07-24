@@ -986,20 +986,22 @@ export default function TerminalPanel({
       });
 
       // ResizeObserver for fit - debounced to prevent lag during resize
-      let fitTimeout: number | null = null;
+      // ResizeObserver for fit - throttled with rAF for maximum smoothness during drag
+      // ResizeObserver for fit - throttled to 100ms to balance smoothness and layout updates
+      let fitThrottle: number | null = null;
       const ro = new ResizeObserver(() => {
-        if (fitTimeout !== null) clearTimeout(fitTimeout);
-        fitTimeout = window.setTimeout(() => {
+        if (fitThrottle !== null) return; // already queued
+        fitThrottle = window.setTimeout(() => {
           try {
             fit.fit();
           } catch {}
-          fitTimeout = null;
-        }, 32); // 32ms debounce (~30fps updates)
+          fitThrottle = null;
+        }, 100);
       });
       ro.observe(container);
       inst.disposers.push(() => {
         ro.disconnect();
-        if (fitTimeout !== null) clearTimeout(fitTimeout);
+        if (fitThrottle !== null) clearTimeout(fitThrottle);
       });
 
       // Focus on mount + force initial paint
