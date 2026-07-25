@@ -467,26 +467,34 @@ impl AgentHarness {
 
     fn get_coordinator_prompt(&self) -> String {
         "\n## Coordinator Mode\n\
-         You orchestrate work across multiple subagents.\n\n\
-         **Your Role:**\n\
-         - Direct workers to research, implement, and verify\n\
-         - Synthesize results and communicate with the user\n\
-         - Answer questions directly when possible\n\n\
-         **Parallelism is your superpower.** Launch independent workers concurrently.\n\n\
-         **Worker Prompts:** Be self-contained. Workers can't see your conversation.\n\
-         Always synthesize research findings yourself before directing follow-up work.\n\n\
+         You are the Master Orchestrator in a multi-agent system.\n\n\
+         **Task Division & Delegation:**\n\
+         You must strictly divide work into specialized roles. DO NOT perform coding or deep research yourself. Instead, spawn workers with clear roles:\n\
+         - **Research Agent**: Responsible exclusively for reading code, navigating directories, and understanding the architecture. (Uses read/search tools).\n\
+         - **Coder Agent**: Responsible exclusively for writing/modifying code based on the researcher's findings. (Uses edit/write tools).\n\
+         - **Verifier/Tester Agent**: Responsible for running tests and verifying the code works. (Uses terminal commands).\n\n\
+         **Your Responsibilities:**\n\
+         - Coordinate these agents. Pass the output of the Research Agent to the Coder Agent.\n\
+         - Synthesize results and communicate with the user.\n\
+         - Keep workers isolated to their specific tasks to prevent overlap.\n\n\
+         **Parallelism:** Launch independent workers concurrently when possible.\n\n\
+         **Worker Prompts:** Be self-contained. Workers can't see your conversation. Always synthesize research findings yourself before directing follow-up work.\n\n\
          **Worker Results** arrive as `<task-notification>` user-role messages.\n\n\
          **Decision: continue vs spawn fresh:**\n\
-         - Research explored exactly the files to edit → **Continue** the worker\n\
-         - Research was broad but implementation narrow → **Spawn fresh**\n\
+         - Research explored exactly the files to edit → **Continue** the worker as a Coder\n\
+         - Research was broad but implementation narrow → **Spawn fresh** Coder\n\
          - Correcting failure → **Continue** (worker has error context)\n\
-         - Verifying different worker's code → **Spawn fresh** (fresh eyes)\n"
+         - Verifying different worker's code → **Spawn fresh** Verifier (fresh eyes)\n"
             .to_string()
     }
 
     fn get_worker_prompt(&self) -> String {
         "\n## Worker Instructions\n\
-         You are executing a task assigned by the coordinator.\n\n\
+         You are a specialized worker executing a task assigned by the coordinator.\n\n\
+         **Role Clarity:** The coordinator has assigned you a specific role (e.g., Researcher, Coder, or Verifier). You MUST stick strictly to that role's responsibilities.\n\
+         - If you are a Researcher: DO NOT write or edit code. Only read, search, and analyze.\n\
+         - If you are a Coder: Focus on writing/editing code based on the context provided. Do not stray into deep research.\n\
+         - If you are a Verifier: Focus only on running tests and checking correctness.\n\n\
          **Scope:** Complete exactly what was asked. Don't fix unrelated issues.\n\
          - Commit changes with clear messages when done. Only stage files you changed.\n\
          - Do not spawn sub-agents.\n\
@@ -685,6 +693,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "save_memory" => self.execute_save_memory(tool),
             "search_memory" => self.execute_search_memory(tool),
             "compact_history" => self.execute_compact_history(tool),
+            "spawn_subagent" => self.execute_spawn_subagent(tool),
             // Skill tools
             "scan_directory_tree" => Ok(self.skill_engine.scan_directory_tree().tree_string),
             "scan_subdirectory" => self.execute_scan_subdirectory(tool),
@@ -1936,6 +1945,17 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
     // ─── Subagent Management ─────────────────────────────────────────────
 
+    pub fn execute_spawn_subagent(&mut self, tool: &parser::ToolCall) -> Result<String, String> {
+        let id = tool.arguments.get("id").and_then(|v| v.as_str()).unwrap_or("worker");
+        let role = tool.arguments.get("role").and_then(|v| v.as_str()).unwrap_or("Worker");
+        let prompt = tool.arguments.get("prompt").and_then(|v| v.as_str()).unwrap_or("");
+        
+        self.spawn_subagent(id, role, "A worker subagent", Some(role.to_string()), prompt);
+        
+        // Return a special marker that Tauri will intercept and execute asynchronously
+        Ok(format!("__SPAWN_SUBAGENT__||{}||{}||{}", id, role, prompt))
+    }
+
     /// Spawn a subagent for coordinator mode
     pub fn spawn_subagent(
         &mut self,
@@ -2006,7 +2026,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     //                    → Thinking (khi user reject)
     //
     /// Kiểm tra xem tool có auto-approve không dựa trên policy
-    fn tool_needs_approval(
+    pub(crate) fn tool_needs_approval(
         tool: &parser::ToolCall,
         auto_approve_all: bool,
         auto_approve_reads: bool,
@@ -2424,7 +2444,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         fs::read_to_string(&path).unwrap_or_else(|_| default.to_string())
     }
 
-    fn get_git_branch(&self) -> String {
+    pub(crate) fn get_git_branch(&self) -> String {
         let output = std::process::Command::new("git")
             .args(&["rev-parse", "--abbrev-ref", "HEAD"])
             .current_dir(&self.workspace_root)
@@ -2436,7 +2456,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         }
     }
 
-    fn get_git_status(&self) -> String {
+    pub(crate) fn get_git_status(&self) -> String {
         let output = std::process::Command::new("git")
             .args(&["status", "--short"])
             .current_dir(&self.workspace_root)

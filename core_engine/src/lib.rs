@@ -14,6 +14,7 @@ pub mod memory_inspector;
 pub mod docker_engine;
 pub mod agent_tools;
 pub mod extension_manager;
+pub mod multi_agent;
 
 
 // Re-export key structs for convenience

@@ -84,13 +84,13 @@ async fn wait_for_cancel(cancel_flag: std::sync::Arc<AtomicBool>) {
     }
 }
 
-enum TickExecutionResult {
+pub enum TickExecutionResult {
     Completed(TickResult),
     Cancelled,
     Timeout,
 }
 
-async fn run_tick<F, Fut>(
+pub async fn run_tick<F, Fut>(
     harness: &mut AgentHarness,
     session: &mut AgentSession,
     system_prompt: &str,
@@ -275,6 +275,7 @@ pub async fn agent_send_message(
         )
         .await;
     }
+
     let persistent_harness = app_state.agent_harness.clone();
     let mut harness = persistent_harness.lock().await;
     harness.set_workspace_root(&workspace);
@@ -321,7 +322,11 @@ pub async fn agent_send_message(
             state: AgentState::Idle,
             iteration_count: 0,
             max_iterations,
-            mode: HarnessMode::Standard,
+            mode: match mode.as_str() {
+                "multi_agent" => HarnessMode::Coordinator,
+                "autonomous" => HarnessMode::Autonomous,
+                _ => HarnessMode::Standard,
+            },
             plan: None,
             autonomous_state: None,
             token_budget: 5_000_000,

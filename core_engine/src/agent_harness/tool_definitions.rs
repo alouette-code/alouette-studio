@@ -12,6 +12,28 @@ pub struct ToolDef {
 pub fn all_tools() -> Vec<ToolDef> {
     vec![
         ToolDef {
+            name: "spawn_subagent",
+            description: "Spawn a worker subagent to complete a task. The worker runs in a separate context and uses its own tools to accomplish the goal.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "A unique identifier for this subagent (e.g. 'coder_1', 'researcher_alpha')"
+                    },
+                    "role": {
+                        "type": "string",
+                        "description": "The role of the subagent (e.g. 'Coder', 'Researcher', 'Verifier')"
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Detailed instructions on what the subagent must do."
+                    }
+                },
+                "required": ["id", "role", "prompt"]
+            }),
+        },
+        ToolDef {
             name: "vm_list",
             description: "List all virtual machines and their current status (e.g. running, stopped).",
             parameters: json!({

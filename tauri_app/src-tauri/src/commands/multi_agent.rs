@@ -1,12 +1,14 @@
 use crate::commands::agent::{
-    load_custom_ai_config, resolve_api_key, resolve_model_config, AgentResponse, LoopResult,
-    LoopResultIteration,
+    load_custom_ai_config, resolve_api_key, resolve_model_config, AgentResponse, run_tick, TickExecutionResult,
 };
 use crate::commands::rig_bridge;
-use core_engine::agent_harness::{ChatMessage, MessageContent};
+use core_engine::agent_harness::{AgentHarness, AgentSession, AgentState, ChatMessage, HarnessMode, MessageContent, TickResult};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tauri::{Emitter, WebviewWindow};
+use chrono::Local;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiAgentStepEvent {
@@ -27,11 +29,134 @@ fn user_msg(text: &str) -> ChatMessage {
     }
 }
 
-/// Execute Multi-Agent Team Collaboration Workflow
+async fn run_subagent_loop(
+    role_id: &str,
+    role_name: &str,
+    avatar: &str,
+    system_prompt: &str,
+    task_prompt: &str,
+    model: &str,
+    api_key: &str,
+    api_url: &str,
+    api_standard: &str,
+    temperature: f32,
+    top_p: f32,
+    thinking_mode: Option<String>,
+    window: &WebviewWindow,
+    active_cwd: &std::path::Path,
+) -> Result<String, String> {
+    let mut harness = AgentHarness::new(active_cwd.to_path_buf());
+    
+    let session_id = format!("{}_{}", role_id, Local::now().timestamp_millis());
+    let mut session = AgentSession {
+        session_id: session_id.clone(),
+        history: vec![user_msg(task_prompt)],
+        state: AgentState::Idle,
+        iteration_count: 0,
+        max_iterations: 15,
+        mode: HarnessMode::Standard,
+        plan: None,
+        autonomous_state: None,
+        token_budget: 1_000_000,
+    };
+
+    let cancel_flag = Arc::new(AtomicBool::new(false));
+    let mut final_text = String::new();
+
+    loop {
+        if cancel_flag.load(Ordering::SeqCst) {
+            break;
+        }
+
+        let llm_closure = {
+            let key = api_key.to_string();
+            let mdl = model.to_string();
+            let url = api_url.to_string();
+            let std = api_standard.to_string();
+            let w = window.clone();
+            let tm = thinking_mode.clone();
+            move |sys: String, hist: Vec<ChatMessage>| {
+                let key = key.clone();
+                let mdl = mdl.clone();
+                let url = url.clone();
+                let std = std.clone();
+                let w = w.clone();
+                let tm = tm.clone();
+                async move {
+                    rig_bridge::call_rig(&std, &key, &mdl, &url, temperature, top_p, &sys, &hist, tm.as_deref(), Some(&w)).await
+                }
+            }
+        };
+
+        let tick_res = run_tick(&mut harness, &mut session, system_prompt, cancel_flag.clone(), llm_closure).await;
+        
+        match tick_res {
+            TickExecutionResult::Completed(TickResult::Continue { thought, tool_name, tool_result, iteration }) => {
+                // Emit multi-agent-step to show activity
+                if let Some(ref t) = thought {
+                    let ev = MultiAgentStepEvent {
+                        session_id: session_id.clone(),
+                        step: iteration,
+                        agent_role: role_id.to_string(),
+                        agent_name: role_name.to_string(),
+                        avatar: avatar.to_string(),
+                        content: format!("Suy nghĩ: {}", t),
+                    };
+                    let _ = window.emit("multi-agent-step", &ev);
+                }
+                if let Some(ref tn) = tool_name {
+                    let ev = MultiAgentStepEvent {
+                        session_id: session_id.clone(),
+                        step: iteration,
+                        agent_role: role_id.to_string(),
+                        agent_name: role_name.to_string(),
+                        avatar: avatar.to_string(),
+                        content: format!("Đang chạy tool: {}", tn),
+                    };
+                    let _ = window.emit("multi-agent-step", &ev);
+                }
+            }
+            TickExecutionResult::Completed(TickResult::Finished { text, .. }) => {
+                final_text = text;
+                break;
+            }
+            TickExecutionResult::Completed(TickResult::WaitForApproval { .. }) => {
+                // Auto-approve or reject in multi-agent? We should probably auto-approve for simplicity, or return error.
+                // For MVP, if it hits wait for approval, we just abort or tell it it's approved.
+                // But run_tick already handles auto_approve = true for some tools.
+                // If it needs user approval, we just break.
+                final_text = "Halted: Tool requires user approval in Multi-Agent mode.".to_string();
+                break;
+            }
+            TickExecutionResult::Completed(TickResult::Error { message, .. }) => {
+                return Err(message);
+            }
+            TickExecutionResult::Cancelled => {
+                return Err("Cancelled".to_string());
+            }
+            TickExecutionResult::Timeout => {
+                return Err("Timeout".to_string());
+            }
+        }
+    }
+    
+    let ev = MultiAgentStepEvent {
+        session_id: session_id.clone(),
+        step: 999,
+        agent_role: role_id.to_string(),
+        agent_name: role_name.to_string(),
+        avatar: avatar.to_string(),
+        content: final_text.clone(),
+    };
+    let _ = window.emit("multi-agent-step", &ev);
+
+    Ok(final_text)
+}
+
 pub async fn run_multi_agent_workflow(
     message: String,
     model: String,
-    _active_cwd: Option<String>,
+    active_cwd: Option<String>,
     thinking_mode: Option<String>,
     window: WebviewWindow,
     session_id: String,
@@ -46,312 +171,94 @@ pub async fn run_multi_agent_workflow(
         "gemini-1.5-flash".to_string()
     };
     let api_key = resolve_api_key(&model_config)?;
-
     let std_name = model_config.api_standard.clone().unwrap_or_else(|| "openai".to_string());
-    let thinking_ref = thinking_mode.as_deref();
+    
+    let cwd = active_cwd.map(std::path::PathBuf::from).unwrap_or_else(|| std::env::current_dir().unwrap());
 
-    let mut iterations = Vec::new();
-    let mut combined_history_text = String::new();
+    // 1. Leader (Just text, no tools needed)
+    let leader_system = "Bạn là Trưởng Team (Leader 👑) điều phối đội ngũ phát triển phần mềm.\nTiếp nhận yêu cầu và phát biểu ngắn gọn giao việc cho Planner.";
+    let leader_res = rig_bridge::call_rig(
+        &std_name, &api_key, &model_to_use, &model_config.api_url, model_config.temperature, model_config.top_p,
+        leader_system, &[user_msg(&message)], thinking_mode.as_deref(), Some(&window)
+    ).await?;
+    let leader_text = leader_res.text.unwrap_or_default();
+    
+    let _ = window.emit("multi-agent-step", &MultiAgentStepEvent {
+        session_id: session_id.clone(),
+        step: 1,
+        agent_role: "leader".to_string(),
+        agent_name: "Leader".to_string(),
+        avatar: "👑".to_string(),
+        content: leader_text.clone()
+    });
 
-    let emit_step = |step: u32, role: &str, name: &str, avatar: &str, content: &str| {
+    // 2. Initialize the core_engine's Coordinator V2
+    let mut harness = AgentHarness::new(cwd.clone());
+    let mut coordinator = core_engine::multi_agent::orchestration::coordinator::Coordinator::new(&mut harness);
+    
+    // Set auto-approvals options from defaults (reads approved, writes/executes require approval)
+    coordinator.config.auto_approve_all = false;
+    coordinator.config.auto_approve_reads = true;
+    coordinator.config.auto_approve_writes = false;
+
+    // Define the LLM executor closure using Rig Bridge
+    let key = api_key.to_string();
+    let mdl = model_to_use.to_string();
+    let url = model_config.api_url.to_string();
+    let std = std_name.to_string();
+    let w = window.clone();
+    let tm = thinking_mode.clone();
+    let temp = model_config.temperature;
+    let top_p = model_config.top_p;
+
+    let llm_executor = move |sys: String, hist: Vec<ChatMessage>| {
+        let key = key.clone();
+        let mdl = mdl.clone();
+        let url = url.clone();
+        let std = std.clone();
+        let w = w.clone();
+        let tm = tm.clone();
+        async move {
+            let res = rig_bridge::call_rig(&std, &key, &mdl, &url, temp, top_p, &sys, &hist, tm.as_deref(), Some(&w)).await?;
+            Ok((res.text, res.tool_calls))
+        }
+    };
+
+    // Define the progress handler closure to stream updates back to the Tauri UI
+    let w_progress = window.clone();
+    let sess_id = session_id.clone();
+    let progress_handler = move |role_id: &str, role_name: &str, avatar: &str, step: u32, content: &str| {
         let event = MultiAgentStepEvent {
-            session_id: session_id.clone(),
+            session_id: sess_id.clone(),
             step,
-            agent_role: role.to_string(),
-            agent_name: name.to_string(),
+            agent_role: role_id.to_string(),
+            agent_name: role_name.to_string(),
             avatar: avatar.to_string(),
             content: content.to_string(),
         };
-        let _ = window.emit("multi-agent-step", &event);
-        let _ = window.emit(
-            "agent-console-log",
-            json!({
-                "message": format!("[MultiAgent] {}: {}", name, content.lines().next().unwrap_or("")),
-                "timestamp": chrono::Local::now().to_rfc3339(),
-            }),
-        );
+        let _ = w_progress.emit("multi-agent-step", &event);
     };
 
-    // ─── STEP 1: Leader Reception ───────────────────────────────────────────
-    let leader_system = "Bạn là Trưởng Team (Leader 👑) điều phối đội ngũ phát triển phần mềm Multi-Agent bao gồm: Leader, Planner (Lên Kế Hoạch), Plan Reviewer (Bắt Lỗi Kế Hoạch), Coder 1 (Developer Alpha), Coder 2 (Developer Beta).\n\
-Nhiệm vụ của bạn ở bước này:\n\
-- Tiếp nhận yêu cầu người dùng.\n\
-- Chào mừng và nêu ngắn gọn mục tiêu làm việc của cả đội ngũ.\n\
-- Yêu cầu Planner bắt đầu phân tích và đưa ra bản kế hoạch chi tiết.\n\
-Hãy phát biểu ngắn gọn, truyền cảm hứng và rõ ràng (dưới 150 từ).";
-
-    let leader_input = vec![user_msg(&format!("Yêu cầu người dùng: {}", message))];
-    let leader_res = rig_bridge::call_rig(
-        &std_name,
-        &api_key,
-        &model_to_use,
-        &model_config.api_url,
-        model_config.temperature,
-        model_config.top_p,
-        leader_system,
-        &leader_input,
-        thinking_ref,
-        Some(&window),
-    )
-    .await?;
-
-    let leader_text = leader_res.text.clone().unwrap_or_default();
-    emit_step(1, "leader", "Trưởng Team (Leader)", "👑", &leader_text);
-    combined_history_text.push_str(&format!("\n👑 Leader: {}\n", leader_text));
-    iterations.push(LoopResultIteration {
-        iteration: 1,
-        thought: None,
-        tool_name: Some("Leader_Initiate".to_string()),
-        tool_args: Some(json!({"role": "leader"}).to_string()),
-        tool_result: Some(leader_text.clone()),
-        tool_success: true,
-        timestamp: chrono::Local::now().to_rfc3339(),
-    });
-
-    // ─── STEP 2: Planner Drafts Plan ─────────────────────────────────────────
-    let planner_system = "Bạn là Kế Hoạch Viên (Software Architect / Planner 📋).\n\
-Nhiệm vụ của bạn:\n\
-- Dựa trên yêu cầu người dùng và lời mở đầu của Leader, hãy soạn thảo một bản kế hoạch kỹ thuật chi tiết (Step-by-step Technical Plan).\n\
-- Liệt kê rõ các bước, cấu trúc dự án, các module chính và công nghệ áp dụng.\n\
-Bản kế hoạch cần rõ ràng, khả thi để Plan Reviewer thẩm định.";
-
-    let planner_input = vec![user_msg(&format!(
-        "Yêu cầu ban đầu: {}\n\nThảo luận trước đó:\n{}",
-        message, combined_history_text
-    ))];
-
-    let planner_res = rig_bridge::call_rig(
-        &std_name,
-        &api_key,
-        &model_to_use,
-        &model_config.api_url,
-        model_config.temperature,
-        model_config.top_p,
-        planner_system,
-        &planner_input,
-        thinking_ref,
-        Some(&window),
-    )
-    .await?;
-
-    let planner_plan = planner_res.text.clone().unwrap_or_default();
-    emit_step(2, "planner", "Planner (Lên Kế Hoạch)", "📋", &planner_plan);
-    combined_history_text.push_str(&format!("\n📋 Planner (Draft Plan): {}\n", planner_plan));
-    iterations.push(LoopResultIteration {
-        iteration: 2,
-        thought: None,
-        tool_name: Some("Planner_DraftPlan".to_string()),
-        tool_args: Some(json!({"role": "planner"}).to_string()),
-        tool_result: Some(planner_plan.clone()),
-        tool_success: true,
-        timestamp: chrono::Local::now().to_rfc3339(),
-    });
-
-    // ─── STEP 3: Plan Reviewer Critique ──────────────────────────────────────
-    let reviewer_system = "Bạn là Chuyên Gia Bắt Lỗi & Thẩm Định Kế Hoạch (Plan Reviewer 🔍 / QA Specialist).\n\
-Nhiệm vụ của bạn:\n\
-- Phân tích kỹ bản kế hoạch của Planner.\n\
-- Chỉ ra các lỗ hổng logic, thiếu sót kịch bản, rủi ro bảo mật/hiệu năng hoặc edge cases.\n\
-- Đưa ra nhận xét cụ thể và góp ý tinh chỉnh.\n\
-- Kết thúc đánh giá bằng kết luận rõ ràng (ví dụ: '[APPROVED] Kế hoạch đã hoàn toàn ổn định!' hoặc '[NEEDS_REVISION] Cần bổ sung...').";
-
-    let reviewer_input = vec![user_msg(&format!(
-        "Yêu cầu người dùng: {}\n\nBản kế hoạch của Planner:\n{}",
-        message, planner_plan
-    ))];
-
-    let reviewer_res = rig_bridge::call_rig(
-        &std_name,
-        &api_key,
-        &model_to_use,
-        &model_config.api_url,
-        model_config.temperature,
-        model_config.top_p,
-        reviewer_system,
-        &reviewer_input,
-        thinking_ref,
-        Some(&window),
-    )
-    .await?;
-
-    let reviewer_review = reviewer_res.text.clone().unwrap_or_default();
-    emit_step(3, "reviewer", "Plan Reviewer (Bắt Lỗi Kế Hoạch)", "🔍", &reviewer_review);
-    combined_history_text.push_str(&format!("\n🔍 Reviewer Critique: {}\n", reviewer_review));
-    iterations.push(LoopResultIteration {
-        iteration: 3,
-        thought: None,
-        tool_name: Some("Reviewer_AuditPlan".to_string()),
-        tool_args: Some(json!({"role": "reviewer"}).to_string()),
-        tool_result: Some(reviewer_review.clone()),
-        tool_success: true,
-        timestamp: chrono::Local::now().to_rfc3339(),
-    });
-
-    // ─── STEP 4: Planner Finalizes & Assigns Tasks ─────────────────────────
-    let assignment_system = "Bạn là Kế Hoạch Viên (Planner 📋).\n\
-Nhận xét từ Plan Reviewer đã được đưa ra.\n\
-Nhiệm vụ của bạn ở bước này:\n\
-1. Cập nhật bản kế hoạch ổn định hoàn chỉnh (xác nhận '[APPROVED] Kế hoạch đã ổn!').\n\
-2. Chia bản kế hoạch thành 2 phần việc cụ thể và phân công rõ ràng:\n\
-   - **Nhiệm vụ cho Coder 1 (Developer Alpha 💻)**: (ví dụ: Core Logic, Backend Services, Data Structure, Setup)\n\
-   - **Nhiệm vụ cho Coder 2 (Developer Beta ⚡)**: (ví dụ: Frontend UI, Components, Styling, Integration)";
-
-    let assignment_input = vec![user_msg(&format!(
-        "Bản kế hoạch ban đầu:\n{}\n\nGóp ý của Reviewer:\n{}",
-        planner_plan, reviewer_review
-    ))];
-
-    let assignment_res = rig_bridge::call_rig(
-        &std_name,
-        &api_key,
-        &model_to_use,
-        &model_config.api_url,
-        model_config.temperature,
-        model_config.top_p,
-        assignment_system,
-        &assignment_input,
-        thinking_ref,
-        Some(&window),
-    )
-    .await?;
-
-    let assignment_text = assignment_res.text.clone().unwrap_or_default();
-    emit_step(4, "planner", "Planner (Phân Chia Nhiệm Vụ)", "📋", &assignment_text);
-    combined_history_text.push_str(&format!("\n📋 Planner (Final Plan & Assignment): {}\n", assignment_text));
-    iterations.push(LoopResultIteration {
-        iteration: 4,
-        thought: None,
-        tool_name: Some("Planner_AssignTasks".to_string()),
-        tool_args: Some(json!({"role": "planner"}).to_string()),
-        tool_result: Some(assignment_text.clone()),
-        tool_success: true,
-        timestamp: chrono::Local::now().to_rfc3339(),
-    });
-
-    // ─── STEP 5: Coder 1 Executes ─────────────────────────────────────────────
-    let coder1_system = "Bạn là Lập Trình Viên Alpha (Coder 1 💻).\n\
-Hãy viết mã nguồn / triển khai phần nhiệm vụ lập trình được Planner phân công cho Coder 1.\n\
-Viết code hoàn chỉnh, chuẩn mực, tối ưu và sạch đẹp.";
-
-    let coder1_input = vec![user_msg(&format!(
-        "Bản phân công nhiệm vụ của Planner:\n{}\n\nHãy thực hiện phần việc của Coder 1.",
-        assignment_text
-    ))];
-
-    let coder1_res = rig_bridge::call_rig(
-        &std_name,
-        &api_key,
-        &model_to_use,
-        &model_config.api_url,
-        model_config.temperature,
-        model_config.top_p,
-        coder1_system,
-        &coder1_input,
-        thinking_ref,
-        Some(&window),
-    )
-    .await?;
-
-    let coder1_code = coder1_res.text.clone().unwrap_or_default();
-    emit_step(5, "coder1", "Coder 1 (Developer Alpha)", "💻", &coder1_code);
-    combined_history_text.push_str(&format!("\n💻 Coder 1 Output:\n{}\n", coder1_code));
-    iterations.push(LoopResultIteration {
-        iteration: 5,
-        thought: None,
-        tool_name: Some("Coder1_Execute".to_string()),
-        tool_args: Some(json!({"role": "coder1"}).to_string()),
-        tool_result: Some(coder1_code.clone()),
-        tool_success: true,
-        timestamp: chrono::Local::now().to_rfc3339(),
-    });
-
-    // ─── STEP 6: Coder 2 Executes ─────────────────────────────────────────────
-    let coder2_system = "Bạn là Lập Trình Viên Beta (Coder 2 ⚡).\n\
-Hãy viết mã nguồn / triển khai phần nhiệm vụ bổ trợ được Planner phân công cho Coder 2.\n\
-Đảm bảo kết quả tương thích với phần việc của Coder 1 và đáp ứng đầy đủ bài toán.";
-
-    let coder2_input = vec![user_msg(&format!(
-        "Bản phân công của Planner:\n{}\n\nKết quả từ Coder 1:\n{}\n\nHãy thực hiện phần việc của Coder 2.",
-        assignment_text, coder1_code
-    ))];
-
-    let coder2_res = rig_bridge::call_rig(
-        &std_name,
-        &api_key,
-        &model_to_use,
-        &model_config.api_url,
-        model_config.temperature,
-        model_config.top_p,
-        coder2_system,
-        &coder2_input,
-        thinking_ref,
-        Some(&window),
-    )
-    .await?;
-
-    let coder2_code = coder2_res.text.clone().unwrap_or_default();
-    emit_step(6, "coder2", "Coder 2 (Developer Beta)", "⚡", &coder2_code);
-    combined_history_text.push_str(&format!("\n⚡ Coder 2 Output:\n{}\n", coder2_code));
-    iterations.push(LoopResultIteration {
-        iteration: 6,
-        thought: None,
-        tool_name: Some("Coder2_Execute".to_string()),
-        tool_args: Some(json!({"role": "coder2"}).to_string()),
-        tool_result: Some(coder2_code.clone()),
-        tool_success: true,
-        timestamp: chrono::Local::now().to_rfc3339(),
-    });
-
-    // ─── STEP 7: Leader Synthesis & Final Report ──────────────────────────────
-    let summary_system = "Bạn là Trưởng Team (Leader 👑).\n\
-Toàn bộ đội ngũ (Planner, Reviewer, Coder 1, Coder 2) đã hoàn thành công việc.\n\
-Nhiệm vụ của bạn:\n\
-- Tổng hợp lại toàn bộ kết quả sản phẩm thành bản báo cáo tổng kết hoàn chỉnh, chuyên nghiệp và ngắn gọn cho người dùng.\n\
-- Tổng hợp mã nguồn hoàn chỉnh (kết hợp Coder 1 và Coder 2) và hướng dẫn chạy/sử dụng nếu có.";
-
-    let summary_input = vec![user_msg(&format!(
-        "Yêu cầu ban đầu của người dùng: {}\n\nKết quả thực hiện của cả đội ngũ:\n{}",
-        message, combined_history_text
-    ))];
-
-    let summary_res = rig_bridge::call_rig(
-        &std_name,
-        &api_key,
-        &model_to_use,
-        &model_config.api_url,
-        model_config.temperature,
-        model_config.top_p,
-        summary_system,
-        &summary_input,
-        thinking_ref,
-        Some(&window),
-    )
-    .await?;
-
-    let final_report = summary_res.text.clone().unwrap_or_default();
-    emit_step(7, "leader", "Trưởng Team (Báo Cáo Tổng Kết)", "👑", &final_report);
-
-    let loop_result = LoopResult {
-        iterations,
-        final_text: Some(final_report.clone()),
-        total_iterations: 7,
-        tool_calls_made: 7,
-        stopped_early: false,
-        stop_reason: None,
-    };
-
-    Ok(AgentResponse {
-        session_id,
-        reply_type: "loop_result".to_string(),
-        text: Some(final_report),
-        tool_name: None,
-        args: None,
-        tools: None,
-        pending_id: None,
-        iteration: Some(7),
-        total_iterations: Some(7),
-        tool_result: None,
-        approved_tool_index: None,
-        loop_result: Some(loop_result),
-    })
+    // Run the workflow
+    match coordinator.run_workflow(&message, llm_executor, progress_handler).await {
+        Ok(final_text) => {
+            Ok(AgentResponse {
+                session_id,
+                reply_type: "loop_result".to_string(),
+                text: Some(final_text),
+                tool_name: None,
+                args: None,
+                tools: None,
+                pending_id: None,
+                iteration: None,
+                total_iterations: None,
+                tool_result: None,
+                approved_tool_index: None,
+                loop_result: None,
+            })
+        }
+        Err(e) => {
+            Err(format!("Lỗi Multi-Agent V2: {}", e))
+        }
+    }
 }
