@@ -272,6 +272,20 @@ impl AgentHarness {
     pub fn new<P: AsRef<Path>>(workspace_root: P) -> Self {
         let canonical_root = fs::canonicalize(&workspace_root)
             .unwrap_or_else(|_| workspace_root.as_ref().to_path_buf());
+
+        // Initialize .alouette directory and context.md for every project
+        let alouette_dir = canonical_root.join(".alouette");
+        if !alouette_dir.exists() {
+            let _ = fs::create_dir_all(&alouette_dir);
+            let context_file = alouette_dir.join("context.md");
+            if !context_file.exists() {
+                let context_content = "# Alouette Studio Context\n\n\
+                Đây là thư mục và tệp dùng để lưu trữ context, nhân quả, ghi chú và các thông tin quan trọng của dự án.\n\
+                Việc ghi chú ở đây giúp agent AI (Planner/Thư Ký/Coder) đọc nhanh được hiện trạng của dự án mà không cần phải tốn token quét toàn bộ code base mỗi lần khởi động.\n\n\
+                (Agent: Hãy tự do cập nhật file này nếu có thêm thông tin quan trọng cần nhớ trong tương lai.)\n";
+                let _ = fs::write(context_file, context_content);
+            }
+        }
         let telemetry = telemetry::TelemetryManager::new(&canonical_root);
         let memory_manager = memory::MemoryManager::new(&canonical_root);
 

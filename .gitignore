@@ -67,5 +67,5 @@ server.js
 proxy_server.js
 *proxy*.js
 
-
+.alouette/
 package-lock.json

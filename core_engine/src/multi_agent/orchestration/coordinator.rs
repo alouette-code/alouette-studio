@@ -36,6 +36,7 @@ impl<'a> Coordinator<'a> {
     }
 
     /// Khởi chạy chuỗi Workflow hoàn chỉnh với một Closure đóng vai trò LLM
+    /// Khởi chạy chuỗi Workflow hoàn chỉnh với một Closure đóng vai trò LLM
     pub async fn run_workflow<F, Fut, P>(
         &mut self,
         task: &str,
@@ -46,6 +47,30 @@ impl<'a> Coordinator<'a> {
         F: FnMut(String, Vec<crate::agent_harness::ChatMessage>) -> Fut,
         Fut: std::future::Future<Output = Result<(Option<String>, Vec<ToolCall>), String>>,
         P: FnMut(&str, &str, &str, u32, &str), // role_id, role_name, avatar, step, content
+    {
+        let res = self.run_workflow_internal(task, &mut llm_executor, &mut progress_handler).await;
+        
+        let plan_path = self.harness.get_workspace_root().join("implementation_plan.md");
+        if res.is_err() || matches!(self.state, OrchestratorState::Finished(_)) {
+            if plan_path.exists() {
+                println!("[Coordinator] Cleaning up implementation_plan.md file...");
+                let _ = std::fs::remove_file(&plan_path);
+            }
+        }
+        res
+    }
+
+    /// Nội bộ thực thi Workflow
+    async fn run_workflow_internal<F, Fut, P>(
+        &mut self,
+        task: &str,
+        llm_executor: &mut F,
+        progress_handler: &mut P,
+    ) -> Result<String, MultiAgentError>
+    where
+        F: FnMut(String, Vec<crate::agent_harness::ChatMessage>) -> Fut,
+        Fut: std::future::Future<Output = Result<(Option<String>, Vec<ToolCall>), String>>,
+        P: FnMut(&str, &str, &str, u32, &str),
     {
         let plan_path = self.harness.get_workspace_root().join("implementation_plan.md");
         
@@ -64,13 +89,14 @@ impl<'a> Coordinator<'a> {
             // --- 1. PLANNING PHASE ---
             self.state = OrchestratorState::Planning;
             let planner_cfg = WorkerConfig {
-                role_id: "planner".to_string(),
-                role_name: "Planner".to_string(),
-                avatar: "📋".to_string(),
-                system_prompt: "Bạn là Kế Hoạch Viên (Planner 📋).\n\
+                role_id: "secretary".to_string(),
+                role_name: "Thư Ký".to_string(),
+                avatar: "👩‍💼".to_string(),
+                system_prompt: "Bạn là Thư Ký (Secretary 👩‍💼).\n\
                                 Nhiệm vụ của bạn là nghiên cứu cấu trúc dự án và lập kế hoạch chi tiết để giải quyết yêu cầu của người dùng.\n\
                                 Bạn được cấp phép sử dụng các công cụ nghiên cứu hệ thống, chạy lệnh terminal (như execute_command), và đọc tệp để tìm hiểu sâu về dự án.\n\
-                                Tuy nhiên, bạn KHÔNG ĐƯỢC PHÉP chỉnh sửa bất kỳ tệp mã nguồn nào ngoài việc tạo bản kế hoạch kỹ thuật tại tệp 'implementation_plan.md' trong thư mục dự án (sử dụng công cụ 'write_file').".to_string(),
+                                Bạn KHÔNG ĐƯỢC PHÉP chỉnh sửa bất kỳ tệp mã nguồn nào ngoài việc tạo bản kế hoạch kỹ thuật tại tệp 'implementation_plan.md' trong thư mục dự án (sử dụng công cụ 'write_file').\n\
+                                BẮT BUỘC: Ngay sau khi đã ghi thành công bản kế hoạch vào tệp 'implementation_plan.md', bạn phải dừng lại, báo cáo tóm tắt kế hoạch kỹ thuật vừa tạo và KẾT THÚC lượt chạy của mình (không gọi thêm bất kỳ công cụ nào khác như spawn_subagent hay save_memory). Trả lời ngắn gọn và hoàn thành công việc.".to_string(),
                 allowed_tools: vec![
                     "scan_directory_tree".to_string(),
                     "scan_subdirectory".to_string(),
@@ -102,11 +128,11 @@ impl<'a> Coordinator<'a> {
                     "browser_type_hardware".to_string(),
                     "read_screen_fallback".to_string(),
                 ],
-                max_iterations: 10,
+                max_iterations: 30,
                 ..Default::default()
             };
             
-            let res = self.run_worker(planner_cfg, task.to_string(), &mut llm_executor, &mut progress_handler).await?;
+            let res = self.run_worker(planner_cfg, task.to_string(), llm_executor, progress_handler).await?;
             self.memory.set("plan", res.clone()).await;
             
             // Tạm dừng ở đây, báo về cho người dùng duyệt kế hoạch
@@ -128,7 +154,8 @@ impl<'a> Coordinator<'a> {
             system_prompt: "Bạn là Lập Trình Viên (Coder 💻).\n\
                             Nhiệm vụ của bạn là đọc bản kế hoạch kỹ thuật trong tệp 'implementation_plan.md' và thực hiện viết/sửa đổi mã nguồn tương ứng để hoàn thành yêu cầu.\n\
                             Hãy sử dụng các công cụ ghi/sửa tệp được cấp (như write_file, replace_in_file).\n\
-                            Tuyệt đối KHÔNG sử dụng công cụ 'execute_command' vì vai trò của bạn không được cấp quyền chạy lệnh hệ thống.".to_string(),
+                            Tuyệt đối KHÔNG sử dụng công cụ 'execute_command' vì vai trò của bạn không được cấp quyền chạy lệnh hệ thống.\n\
+                            BẮT BUỘC: Khi đã hoàn thành viết và chỉnh sửa toàn bộ các mã nguồn theo kế hoạch, hãy báo cáo danh sách các tệp đã sửa đổi và KẾT THÚC lượt chạy của mình (không gọi thêm bất kỳ công cụ nào khác).".to_string(),
             allowed_tools: vec![
                 "write_file".to_string(),
                 "replace_in_file".to_string(),
@@ -144,11 +171,11 @@ impl<'a> Coordinator<'a> {
                 "save_memory".to_string(),
                 "search_memory".to_string(),
             ],
-            max_iterations: 15,
+            max_iterations: 50,
             ..Default::default()
         };
 
-        let code_result = self.run_worker(coder_cfg, coder_task, &mut llm_executor, &mut progress_handler).await?;
+        let code_result = self.run_worker(coder_cfg, coder_task, llm_executor, progress_handler).await?;
         self.memory.set("code_summary", code_result.clone()).await;
 
         // --- 3. VERIFYING PHASE ---
@@ -164,7 +191,7 @@ impl<'a> Coordinator<'a> {
             avatar: "🔍".to_string(),
             system_prompt: "Bạn là Người Kiểm Thử/Xác Minh (Verifier 🔍).\n\
                             Nhiệm vụ của bạn là chạy các lệnh kiểm thử hoặc test suite cần thiết (sử dụng công cụ 'execute_command') để xác minh xem các thay đổi mã nguồn của Coder có hoạt động chính xác và không gây lỗi cho hệ thống hay không.\n\
-                            Hãy đọc và báo cáo kết quả kiểm tra rõ ràng.".to_string(),
+                            BẮT BUỘC: Sau khi đã chạy xong các lệnh kiểm thử và nhận được kết quả, hãy báo cáo kết quả kiểm tra rõ ràng và KẾT THÚC lượt chạy.".to_string(),
             allowed_tools: vec![
                 "execute_command".to_string(),
                 "scan_directory_tree".to_string(),
@@ -179,11 +206,8 @@ impl<'a> Coordinator<'a> {
             ..Default::default()
         };
 
-        let verify_result = self.run_worker(verifier_cfg, verifier_task, &mut llm_executor, &mut progress_handler).await?;
+        let verify_result = self.run_worker(verifier_cfg, verifier_task, llm_executor, progress_handler).await?;
         self.memory.set("verify_summary", verify_result.clone()).await;
-
-        // Hoàn thành xuất sắc, xóa file kế hoạch tạm để lần chạy kế tiếp bắt đầu lại từ đầu
-        let _ = std::fs::remove_file(&plan_path);
 
         self.state = OrchestratorState::Finished("Workflow hoàn thành".to_string());
         Ok(format!("Plan: {}\n\nCode Result: {}\n\nVerification: {}", plan_result, code_result, verify_result))
@@ -247,7 +271,7 @@ impl<'a> Coordinator<'a> {
                         // 1. Kiểm tra giới hạn quyền Tool (Role-based Tool Limits)
                         if !session.is_tool_allowed(&tool.name) {
                             let err_msg = format!("Lỗi bảo mật: Tool '{}' không được cấp phép cho vai trò '{}'.", tool.name, config.role_name);
-                            session.append_tool_result("blocked_id".to_string(), tool.name.clone(), err_msg.clone(), false);
+                            session.append_tool_result(tool.call_id.clone().unwrap_or_default(), tool.name.clone(), err_msg.clone(), false);
                             progress_handler(&config.role_id, &config.role_name, &config.avatar, session.iteration_count, &err_msg);
                             continue;
                         }
@@ -283,10 +307,10 @@ impl<'a> Coordinator<'a> {
 
                         match router.execute(&session_id, tool).await {
                             Ok(res) => {
-                                session.append_tool_result("exec_id".to_string(), tool.name.clone(), res, true);
+                                session.append_tool_result(tool.call_id.clone().unwrap_or_default(), tool.name.clone(), res, true);
                             }
                             Err(e) => {
-                                session.append_tool_result("exec_id".to_string(), tool.name.clone(), format!("Tool Error: {}", e), false);
+                                session.append_tool_result(tool.call_id.clone().unwrap_or_default(), tool.name.clone(), format!("Tool Error: {}", e), false);
                             }
                         }
                     }
