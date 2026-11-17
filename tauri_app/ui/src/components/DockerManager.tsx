@@ -76,22 +76,36 @@ const useContainerStats = (containerId: string | null) => {
   const [stats, setStats] = useState({ cpu: 0, ram: 0 });
 
   useEffect(() => {
-    if (!containerId) return;
-    
-    let unlisten: any;
-    invoke("docker_stream_stats", { id: containerId }).catch(console.error);
+    if (!containerId) {
+      setStats({ cpu: 0, ram: 0 });
+      return;
+    }
+
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
 
     listen("docker_stats", (event: any) => {
-      if (event.payload.id === containerId) {
+      if (!cancelled && event.payload.id === containerId) {
         setStats({
           cpu: event.payload.stats.cpu_percent || 0,
           ram: (event.payload.stats.memory_usage_bytes || 0) / (1024 * 1024)
         });
       }
-    }).then(un => unlisten = un).catch(console.error);
+    })
+      .then((un) => {
+        if (cancelled) {
+          un();
+        } else {
+          unlisten = un;
+          invoke("docker_stream_stats", { id: containerId }).catch(console.error);
+        }
+      })
+      .catch(console.error);
 
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
+      invoke("docker_stop_stats_stream").catch(() => {});
     };
   }, [containerId]);
 
@@ -117,26 +131,38 @@ const LogsTab = ({ containerId, since, onClear }: { containerId: string, since: 
     term.open(terminalRef.current);
     try { fitAddon.fit(); } catch (e) { console.warn(e); }
 
-    let unlisten: any;
-    invoke("docker_stream_logs", { id: containerId, since }).catch(console.error);
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
     listen("docker_log", (event: any) => {
-      if (event.payload.id === containerId) {
+      if (!cancelled && event.payload.id === containerId) {
         let msg = event.payload.message;
-        msg = msg.replace(/ (INFO|info) /g, '\x1b[32m$1\x1b[0m');
-        msg = msg.replace(/ (WARN|warn|WARNING|warning) /g, '\x1b[33m$1\x1b[0m');
-        msg = msg.replace(/ (ERROR|error|ERR|err) /g, '\x1b[31m$1\x1b[0m');
-        msg = msg.replace(/ (DEBUG|debug) /g, '\x1b[34m$1\x1b[0m');
-        msg = msg.replace(/ \d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?Z? /g, '\x1b[36m$&\x1b[0m');
+        msg = msg.replace(/\b(INFO|info)\b/g, '\x1b[32m$1\x1b[0m');
+        msg = msg.replace(/\b(WARN|warn|WARNING|warning)\b/g, '\x1b[33m$1\x1b[0m');
+        msg = msg.replace(/\b(ERROR|error|ERR|err)\b/g, '\x1b[31m$1\x1b[0m');
+        msg = msg.replace(/\b(DEBUG|debug)\b/g, '\x1b[34m$1\x1b[0m');
+        msg = msg.replace(/\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?Z?/g, '\x1b[36m$&\x1b[0m');
         term.write(msg);
       }
-    }).then(un => unlisten = un).catch(console.error);
+    })
+      .then((un) => {
+        if (cancelled) {
+          un();
+        } else {
+          unlisten = un;
+          invoke("docker_stream_logs", { id: containerId, since }).catch(console.error);
+        }
+      })
+      .catch(console.error);
 
     const handleResize = () => { try { fitAddon.fit(); } catch (e) {} };
     window.addEventListener('resize', handleResize);
 
     return () => {
+      cancelled = true;
       window.removeEventListener('resize', handleResize);
       if (unlisten) unlisten();
+      invoke("docker_stop_logs_stream").catch(() => {});
       term.dispose();
       termInstance.current = null;
     };
@@ -180,22 +206,49 @@ const TerminalTab = ({ containerId, isRunning }: { containerId: string; isRunnin
     term.open(terminalRef.current);
     try { fitAddon.fit(); } catch (e) { console.warn(e); }
 
-    let unlisten: any;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    const syncSize = () => {
+      try {
+        fitAddon.fit();
+        if (execIdRef.current && term.cols > 0 && term.rows > 0) {
+          invoke("docker_resize_terminal", {
+            execId: execIdRef.current,
+            cols: term.cols,
+            rows: term.rows,
+          }).catch(() => {});
+        }
+      } catch (e) {}
+    };
+
     const initTerminal = async () => {
       try {
+        const un = await listen("docker_terminal_out", (event: any) => {
+          if (!cancelled && event.payload.exec_id === execIdRef.current) {
+            term.write(event.payload.data);
+          }
+        });
+        if (cancelled) {
+          un();
+          return;
+        }
+        unlisten = un;
+
         const execId: string = await invoke("docker_exec_terminal", { id: containerId });
+        if (cancelled) {
+          invoke("docker_close_terminal", { execId }).catch(() => {});
+          return;
+        }
         execIdRef.current = execId;
+        syncSize();
+
         term.onData(async (data) => {
           if (execIdRef.current) {
             await invoke("docker_write_terminal", { execId: execIdRef.current, data }).catch(console.error);
           }
         });
-        unlisten = await listen("docker_terminal_out", (event: any) => {
-          if (event.payload.exec_id === execIdRef.current) {
-            term.write(event.payload.data);
-          }
-        });
       } catch (e: any) {
+        if (cancelled) return;
         const errStr = String(e);
         if (errStr.includes("409") || errStr.includes("is not running")) {
           term.write("\r\n\x1b[33m[Notice] Container is currently stopped. Click 'Start' above to run container before attaching terminal.\x1b[0m\r\n");
@@ -206,12 +259,16 @@ const TerminalTab = ({ containerId, isRunning }: { containerId: string; isRunnin
     };
     initTerminal();
 
-    const handleResize = () => { try { fitAddon.fit(); } catch (e) {} };
-    window.addEventListener('resize', handleResize);
+    window.addEventListener('resize', syncSize);
 
     return () => {
-      window.removeEventListener('resize', handleResize);
+      cancelled = true;
+      window.removeEventListener('resize', syncSize);
       if (unlisten) unlisten();
+      if (execIdRef.current) {
+        invoke("docker_close_terminal", { execId: execIdRef.current }).catch(() => {});
+        execIdRef.current = null;
+      }
       term.dispose();
       termInstance.current = null;
     };
@@ -266,12 +323,16 @@ export default function DockerManager() {
   const [cImage, setCImage] = useState("");
   const [cCmd, setCCmd] = useState("");
   const [cRam, setCRam] = useState(512);
+  const [creating, setCreating] = useState(false);
+  const checkingRef = useRef(false);
 
   const [manageTab, setManageTab] = useState<"logs" | "terminal" | "settings">("logs");
   const [clearedLogsAt, setClearedLogsAt] = useState<Record<string, number>>({});
   const currentStats = useContainerStats(activeView === "manage" ? selectedId : null);
 
   const checkDaemon = async () => {
+    if (checkingRef.current) return;
+    checkingRef.current = true;
     setCheckingDaemon(true);
     try {
       await invoke("docker_ensure_started");
@@ -284,6 +345,7 @@ export default function DockerManager() {
       setDaemonError(String(e));
     } finally {
       setCheckingDaemon(false);
+      checkingRef.current = false;
     }
   };
 
@@ -302,19 +364,26 @@ export default function DockerManager() {
 
   useEffect(() => {
     checkDaemon();
+  }, []);
+
+  useEffect(() => {
+    if (!daemonRunning) return;
     const interval = setInterval(() => {
-      if (daemonRunning) loadContainers(false);
+      loadContainers(false);
     }, 5000);
     return () => clearInterval(interval);
   }, [daemonRunning]);
 
   const handleCreate = async () => {
-    if (!cImage) return alert("Image name is required");
+    const trimmedImage = cImage.trim();
+    if (!trimmedImage) return alert("Image name is required");
+    setCreating(true);
     try {
+      const trimmedCmd = cCmd.trim();
       const config = {
-        name: cName || null,
-        image: cImage,
-        cmd: cCmd ? cCmd.split(" ") : null,
+        name: cName.trim() || null,
+        image: trimmedImage,
+        cmd: trimmedCmd ? trimmedCmd.split(/\s+/) : null,
         env: null,
         port_bindings: null,
         binds: null,
@@ -330,6 +399,8 @@ export default function DockerManager() {
       setActiveView("manage");
     } catch (err: any) {
       alert("Failed to create container: " + err);
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -577,15 +648,15 @@ export default function DockerManager() {
                     </div>
                     <div>
                       <label style={labelStyle}>Command (Optional)</label>
-                      <input type="text" value={cCmd} onChange={e => setCCmd(e.target.value)} style={inputStyle} placeholder="npm start" />
+                      <input type="text" value={cCmd} onChange={e => setCCmd(e.target.value)} style={inputStyle} placeholder="Leave empty for image default" />
                     </div>
                     <div>
                       <label style={labelStyle}>Memory Limit (MB)</label>
                       <input type="number" value={cRam} onChange={e => setCRam(Number(e.target.value))} style={inputStyle} />
                     </div>
                     
-                    <button onClick={handleCreate} style={{ ...btnStyle, backgroundColor: THEME.accent, color: '#fff', fontWeight: 'bold', justifyContent: 'center', marginTop: '8px' }}>
-                      <Play size={14} /> Deploy
+                    <button onClick={handleCreate} disabled={creating} style={{ ...btnStyle, backgroundColor: THEME.accent, color: '#fff', fontWeight: 'bold', justifyContent: 'center', marginTop: '8px', opacity: creating ? 0.7 : 1 }}>
+                      <Play size={14} /> {creating ? "Deploying..." : "Deploy"}
                     </button>
                   </div>
                 </div>

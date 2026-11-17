@@ -790,17 +790,98 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         }
     }
 
+    fn resolve_browser_executable(&self) -> Option<PathBuf> {
+        if let Ok(env_path) = std::env::var("ALOUETTE_CHROME_PATH") {
+            let p = PathBuf::from(env_path.trim());
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+
+        let bin_name = if cfg!(target_os = "windows") { "chrome.exe" } else { "chrome" };
+        let local_candidates = [
+            self.workspace_root.join("chrome").join(bin_name),
+            self.workspace_root.join("app_data").join("alouette_toolchains").join("chrome").join(bin_name),
+        ];
+        for cand in local_candidates {
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            for env_key in ["PROGRAMFILES", "PROGRAMFILES(X86)", "LOCALAPPDATA"] {
+                if let Ok(base) = std::env::var(env_key) {
+                    let b = PathBuf::from(base);
+                    for rel in [
+                        r"Google\Chrome\Application\chrome.exe",
+                        r"Chromium\Application\chrome.exe",
+                        r"Microsoft\Edge\Application\msedge.exe",
+                    ] {
+                        let p = b.join(rel);
+                        if p.is_file() {
+                            return Some(p);
+                        }
+                    }
+                }
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            for p in [
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                "/Applications/Chromium.app/Contents/MacOS/Chromium",
+                "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            ] {
+                let pb = PathBuf::from(p);
+                if pb.is_file() {
+                    return Some(pb);
+                }
+            }
+        }
+
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            for p in [
+                "/usr/bin/google-chrome",
+                "/usr/bin/google-chrome-stable",
+                "/usr/bin/chromium",
+                "/usr/bin/chromium-browser",
+                "/snap/bin/chromium",
+                "/usr/bin/microsoft-edge",
+            ] {
+                let pb = PathBuf::from(p);
+                if pb.is_file() {
+                    return Some(pb);
+                }
+            }
+        }
+
+        None
+    }
+
+    fn resolve_browser_profile_dir(&self) -> PathBuf {
+        if let Some(proj) = directories::ProjectDirs::from("com", "alouette", "AlouetteStudio") {
+            return proj.data_local_dir().join("chrome_profile");
+        }
+        std::env::temp_dir().join("alouette_chrome_profile")
+    }
+
     async fn execute_open_browser(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let url = tool.arguments.get("url").and_then(|v| v.as_str()).unwrap_or("https://google.com");
-        let profile_path = "/home/nhatanh/projet/alouette_studio/chrome_profile";
+        let chrome_exe = self.resolve_browser_executable().ok_or_else(|| {
+            "No Chrome/Chromium/Edge binary found. Install Chrome or set ALOUETTE_CHROME_PATH.".to_string()
+        })?;
+        let profile_path = self.resolve_browser_profile_dir();
 
         // Tạo profile nếu chưa có
-        let _ = std::fs::create_dir_all(profile_path);
+        let _ = std::fs::create_dir_all(&profile_path);
 
-        // Khởi chạy Google Chrome thay vì Google Chrome
-        let child = tokio::process::Command::new("/home/nhatanh/projet/alouette_studio/chrome/chrome")
+        let child = tokio::process::Command::new(&chrome_exe)
             .arg(format!("--remote-debugging-port={}", 9222))
-            .arg(format!("--user-data-dir={}", profile_path))
+            .arg(format!("--user-data-dir={}", profile_path.display()))
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
             .arg("--no-sandbox")
@@ -816,7 +897,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         match child {
             Ok(_) => {
                 tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
-                Ok(format!("Opened Google Chrome at {}", url))
+                Ok(format!("Opened Chrome ({}) at {}", chrome_exe.display(), url))
             },
             Err(e) => Err(format!("Failed to open browser: {}", e))
         }

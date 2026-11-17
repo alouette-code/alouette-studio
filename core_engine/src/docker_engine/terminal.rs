@@ -1,5 +1,5 @@
 use bollard::Docker;
-use bollard::exec::{CreateExecOptions, StartExecOptions, StartExecResults};
+use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
 use futures_util::StreamExt;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -28,6 +28,23 @@ pub async fn write_to_terminal(exec_id: &str, data: String) -> Result<(), String
     }
 }
 
+pub async fn close_terminal(exec_id: &str) {
+    TERMINAL_INPUTS.lock().await.remove(exec_id);
+}
+
+pub async fn resize_terminal(docker: &Docker, exec_id: &str, cols: u16, rows: u16) -> Result<(), String> {
+    docker
+        .resize_exec(
+            exec_id,
+            ResizeExecOptions {
+                height: rows,
+                width: cols,
+            },
+        )
+        .await
+        .map_err(|e| format!("Failed to resize exec: {}", e))
+}
+
 pub async fn spawn_terminal<F>(
     docker: &Docker,
     container_id: &str,
@@ -36,13 +53,17 @@ pub async fn spawn_terminal<F>(
 where
     F: FnMut(TerminalOutput) + Send + 'static,
 {
-    // Create exec
+    // Prefer bash when available, falling back to /bin/sh
     let exec_options = CreateExecOptions {
         attach_stdout: Some(true),
         attach_stderr: Some(true),
         attach_stdin: Some(true),
         tty: Some(true),
-        cmd: Some(vec!["/bin/sh"]),
+        cmd: Some(vec![
+            "/bin/sh",
+            "-c",
+            "command -v bash >/dev/null 2>&1 && exec bash || exec sh",
+        ]),
         ..Default::default()
     };
 

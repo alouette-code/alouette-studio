@@ -150,10 +150,15 @@ export default function PingZero() {
     },
   ]);
   const [activeTabId, setActiveTabId] = useState<string>("tab_1");
+  const activeTabIdRef = useRef<string>("tab_1");
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTabTitle, setEditingTabTitle] = useState<string>("");
   const [runnerModalOpen, setRunnerModalOpen] = useState(false);
   const [isRunningCollection, setIsRunningCollection] = useState(false);
+  const [runnerParallel, setRunnerParallel] = useState(true);
   const [runnerTitle, setRunnerTitle] = useState("");
   const [runnerResults, setRunnerResults] = useState<
     {
@@ -227,9 +232,10 @@ export default function PingZero() {
   const [reqTab, setReqTab] = useState<ReqTab>("params");
   const [resTab, setResTab] = useState<ResTab>("body");
 
-  /* ---- Loading & Response ---- */
-  const [isLoading, setIsLoading] = useState(false);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  /* ---- Loading & Response (per-tab concurrent) ---- */
+  const [loadingTabs, setLoadingTabs] = useState<Record<string, boolean>>({});
+  const isLoading = !!loadingTabs[activeTabId];
+  const abortControllersRef = useRef<Record<string, AbortController>>({});
   const [response, setResponse] = useState<ApiResponse | null>(null);
   const [reqError, setReqError] = useState<string | null>(null);
   const [scriptLogs, setScriptLogs] = useState<string[]>([]);
@@ -589,7 +595,7 @@ export default function PingZero() {
     setRunnerModalOpen(true);
     setIsRunningCollection(true);
 
-    for (const item of items) {
+    const runOneItem = async (item: CollectionItem) => {
       const req = item.request!;
       const resolvedUrl = substituteEnvVars(req.url);
       const resolvedBody = req.body ? substituteEnvVars(req.body) : "";
@@ -679,7 +685,18 @@ export default function PingZero() {
           },
         ]);
       }
-    }
+    };
+
+    const concurrency = runnerParallel ? Math.min(5, items.length) : 1;
+    let cursor = 0;
+    const workers = Array.from({ length: concurrency }, async () => {
+      while (cursor < items.length) {
+        const idx = cursor++;
+        await runOneItem(items[idx]);
+      }
+    });
+    await Promise.all(workers);
+
     setIsRunningCollection(false);
     syncWorkspaceToDisk();
   };
@@ -927,16 +944,20 @@ export default function PingZero() {
      Send Request
      ===================================================================== */
   const handleSend = async () => {
-    if (!url.trim()) {
+    const originTabId = activeTabId;
+    const reqUrlSnapshot = url;
+    const reqMethodSnapshot = method;
+    const reqBodyTypeSnapshot = bodyType;
+
+    if (!reqUrlSnapshot.trim()) {
       setReqError("URL cannot be empty");
       return;
     }
 
-    // Create abort controller
     const controller = new AbortController();
-    abortControllerRef.current = controller;
+    abortControllersRef.current[originTabId] = controller;
 
-    setIsLoading(true);
+    setLoadingTabs((prev) => ({ ...prev, [originTabId]: true }));
     setReqError(null);
     setResponse(null);
     setSchemaValidation(null);
@@ -1016,19 +1037,21 @@ export default function PingZero() {
     }
 
     // Validate JSON body
-    if (bodyType === "json" && finalBody.trim()) {
+    if (reqBodyTypeSnapshot === "json" && finalBody.trim()) {
       try {
         JSON.parse(finalBody);
       } catch {
-        setReqError("Invalid JSON in Request Body");
-        setIsLoading(false);
+        if (activeTabIdRef.current === originTabId) {
+          setReqError("Invalid JSON in Request Body");
+        }
+        setLoadingTabs((prev) => ({ ...prev, [originTabId]: false }));
         return;
       }
     }
 
     // Check if cancelled before sending
     if (controller.signal.aborted) {
-      setIsLoading(false);
+      setLoadingTabs((prev) => ({ ...prev, [originTabId]: false }));
       return;
     }
 
@@ -1128,35 +1151,41 @@ export default function PingZero() {
         }
       }
 
-      setResponse(responseData);
+      if (controller.signal.aborted) return;
+
+      if (activeTabIdRef.current === originTabId) {
+        setResponse(responseData);
+        setReqError(null);
+        if (responseData.testResults && responseData.testResults.length > 0) {
+          setResTab("tests");
+        } else {
+          setResTab("body");
+        }
+      }
+
       setTabs((prev) =>
         prev.map((t) =>
-          t.id === activeTabId
+          t.id === originTabId
             ? {
                 ...t,
-                title: t.customTitle ? t.title : deriveTabTitle(url),
-                method,
-                url,
+                title: t.customTitle ? t.title : deriveTabTitle(reqUrlSnapshot),
+                method: reqMethodSnapshot,
+                url: reqUrlSnapshot,
                 response: responseData,
+                reqError: null,
               }
             : t,
         ),
       );
 
-      if (responseData.testResults && responseData.testResults.length > 0) {
-        setResTab("tests");
-      } else {
-        setResTab("body");
-      }
-
       // Add to history
       const historyItem: HistoryItem = {
         id: Math.random().toString(36).substring(7),
-        method,
-        url: url.trim(),
+        method: reqMethodSnapshot,
+        url: reqUrlSnapshot.trim(),
         headers: finalHeaders,
-        body: bodyType !== "none" ? finalBody : "",
-        bodyType,
+        body: reqBodyTypeSnapshot !== "none" ? finalBody : "",
+        bodyType: reqBodyTypeSnapshot,
         timestamp: Date.now(),
         auth:
           authType !== "none"
@@ -1195,28 +1224,38 @@ export default function PingZero() {
       const updatedHistory = [historyItem, ...history.slice(0, 49)];
       saveHistory(updatedHistory);
     } catch (err: any) {
-      if (
-        err?.toString()?.includes("Aborted") ||
-        err?.toString()?.includes("abort")
-      ) {
-        setReqError("Request was cancelled by user");
-      } else {
-        setReqError(err.toString());
+      if (controller.signal.aborted) return;
+      const errMsg =
+        err?.toString()?.includes("Aborted") || err?.toString()?.includes("abort")
+          ? "Request was cancelled by user"
+          : err.toString();
+
+      if (activeTabIdRef.current === originTabId) {
+        setReqError(errMsg);
       }
+      setTabs((prev) =>
+        prev.map((t) => (t.id === originTabId ? { ...t, reqError: errMsg } : t)),
+      );
     } finally {
-      setIsLoading(false);
-      abortControllerRef.current = null;
+      setLoadingTabs((prev) => ({ ...prev, [originTabId]: false }));
+      delete abortControllersRef.current[originTabId];
     }
   };
 
   /* ---- Cancel Request ---- */
   const handleCancel = () => {
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
-      abortControllerRef.current = null;
+    const controller = abortControllersRef.current[activeTabId];
+    if (controller) {
+      controller.abort();
+      delete abortControllersRef.current[activeTabId];
     }
-    setIsLoading(false);
+    setLoadingTabs((prev) => ({ ...prev, [activeTabId]: false }));
     setReqError("Request cancelled by user");
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId ? { ...t, reqError: "Request cancelled by user" } : t,
+      ),
+    );
   };
 
   /* =====================================================================
@@ -1942,6 +1981,18 @@ export default function PingZero() {
                   >
                     {tabMethod}
                   </span>
+                  {loadingTabs[tab.id] && (
+                    <span
+                      title="Request in progress"
+                      style={{
+                        width: "6px",
+                        height: "6px",
+                        borderRadius: "50%",
+                        backgroundColor: "var(--color-accent)",
+                        flexShrink: 0,
+                      }}
+                    />
+                  )}
                   {isEditing ? (
                     <input
                       type="text"
@@ -4437,16 +4488,24 @@ export default function PingZero() {
               </button>
             </header>
             <div className="modal-body" style={{ maxHeight: "60vh", overflow: "auto", padding: "12px" }}>
-              <div style={{ display: "flex", gap: "12px", marginBottom: "10px", fontSize: "12px" }}>
-                <span>
-                  Status: <strong>{isRunningCollection ? "Running..." : "Completed"}</strong>
-                </span>
-                <span style={{ color: "#34d399" }}>
-                  Passed: <strong>{runnerResults.filter((r) => r.passed).length}</strong>
-                </span>
-                <span style={{ color: "#f87171" }}>
-                  Failed: <strong>{runnerResults.filter((r) => !r.passed).length}</strong>
-                </span>
+              <div style={{ display: "flex", gap: "12px", marginBottom: "10px", fontSize: "12px", alignItems: "center", justifyContent: "space-between" }}>
+                <div style={{ display: "flex", gap: "12px" }}>
+                  <span>
+                    Status: <strong>{isRunningCollection ? "Running..." : "Completed"}</strong>
+                  </span>
+                  <span style={{ color: "#34d399" }}>
+                    Passed: <strong>{runnerResults.filter((r) => r.passed).length}</strong>
+                  </span>
+                  <span style={{ color: "#f87171" }}>
+                    Failed: <strong>{runnerResults.filter((r) => !r.passed).length}</strong>
+                  </span>
+                </div>
+                <AlouetteCheckbox
+                  checked={runnerParallel}
+                  onChange={setRunnerParallel}
+                  disabled={isRunningCollection}
+                  label="Parallel (5x)"
+                />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 {runnerResults.map((r, idx) => (

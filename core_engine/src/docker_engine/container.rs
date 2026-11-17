@@ -10,7 +10,8 @@ use std::collections::HashMap;
 
 #[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
 pub struct DockerContainerConfig {
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
     pub image: String,
     pub cmd: Option<Vec<String>>,
     pub env: Option<Vec<String>>,
@@ -41,17 +42,45 @@ pub async fn create_container(
     docker: &Docker,
     config: DockerContainerConfig,
 ) -> Result<String, String> {
-    let image_options = Some(CreateImageOptions {
-        from_image: config.image.clone(),
-        ..Default::default()
-    });
-    
-    let mut stream = docker.create_image(image_options, None, None);
-    while let Ok(Some(_)) = stream.try_next().await {}
+    let image = config.image.trim().to_string();
+    if image.is_empty() {
+        return Err("Docker image name cannot be empty.".to_string());
+    }
+
+    // Only pull if the image is not already available locally
+    if docker.inspect_image(&image).await.is_err() {
+        let image_options = Some(CreateImageOptions {
+            from_image: image.clone(),
+            ..Default::default()
+        });
+
+        let mut stream = docker.create_image(image_options, None, None);
+        while let Some(info) = stream
+            .try_next()
+            .await
+            .map_err(|e| format!("Failed to pull image '{}': {}", image, e))?
+        {
+            if let Some(err) = info.error {
+                return Err(format!("Failed to pull image '{}': {}", image, err));
+            }
+        }
+    }
+
+    let container_name = config
+        .name
+        .as_deref()
+        .map(str::trim)
+        .unwrap_or("")
+        .to_string();
 
     let options = Some(CreateContainerOptions {
-        name: config.name.clone(),
+        name: container_name,
         platform: None,
+    });
+
+    let clean_cmd = config.cmd.and_then(|parts| {
+        let filtered: Vec<String> = parts.into_iter().filter(|s| !s.is_empty()).collect();
+        if filtered.is_empty() { None } else { Some(filtered) }
     });
 
     let host_config = HostConfig {
@@ -63,8 +92,8 @@ pub async fn create_container(
     };
 
     let container_config = Config {
-        image: Some(config.image),
-        cmd: config.cmd,
+        image: Some(image),
+        cmd: clean_cmd,
         env: config.env,
         host_config: Some(host_config),
         ..Default::default()

@@ -18,6 +18,8 @@ import {
   Project,
   LogLine,
 } from "../types";
+import AlouetteSelect from "./AlouetteSelect";
+import { AlouetteCheckbox } from "./AlouetteControls";
 
 interface TerminalPanelProps {
   theme?: "dark" | "light";
@@ -220,26 +222,18 @@ function SimplePing() {
         boxSizing: "border-box",
       }}
     >
-      <div style={{ display: "flex", gap: "8px" }}>
-        <select
-          value={method}
-          onChange={(e) => setMethod(e.target.value)}
-          style={{
-            background: "var(--bg-tertiary)",
-            color: "var(--text-primary)",
-            border: "1px solid var(--border-primary)",
-            borderRadius: "4px",
-            padding: "8px 12px",
-            fontSize: "13px",
-            outline: "none",
-          }}
-        >
-          <option value="GET">GET</option>
-          <option value="POST">POST</option>
-          <option value="PUT">PUT</option>
-          <option value="PATCH">PATCH</option>
-          <option value="DELETE">DELETE</option>
-        </select>
+      <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+        <div style={{ width: "110px" }}>
+          <AlouetteSelect
+            value={method}
+            onChange={(val) => setMethod(val)}
+            options={["GET", "POST", "PUT", "PATCH", "DELETE"].map((m) => ({
+              value: m,
+              label: m,
+            }))}
+            searchable={false}
+          />
+        </div>
 
         <input
           type="text"
@@ -647,6 +641,7 @@ export default function TerminalPanel({
         theme: activeTheme,
         convertEol: true,
         rows: 24,
+        scrollback: 5000,
         allowTransparency: false,
         disableStdin: false,
         screenReaderMode: false,
@@ -880,8 +875,9 @@ export default function TerminalPanel({
         }
 
         const isEnter = data.includes("\r") || data.includes("\n");
-        if (isEnter) {
-          // Read current line from screen
+        const isPureNewline = isEnter && /^[\r\n]+$/.test(data);
+        if (isPureNewline) {
+          // Read current line from screen only for plain Enter key so multi-line pastes stay intact.
           const activeBuffer = term.buffer.active;
           const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;
           const rawLine = activeBuffer.getLine(lineIndex);
@@ -896,7 +892,7 @@ export default function TerminalPanel({
             }
           }
           const command =
-            promptCharIndex !== -1 ? line.substring(promptCharIndex + 2) : line;
+            promptCharIndex !== -1 ? line.substring(promptCharIndex + 2) : "";
 
           invoke("sync_terminal_input_buf", {
             sessionId,
@@ -1030,31 +1026,7 @@ export default function TerminalPanel({
           });
         }
 
-        if (e.key === "Backspace") {
-          const activeBuffer = term.buffer.active;
-          const lineIndex = activeBuffer.baseY + activeBuffer.cursorY;
-          const line =
-            activeBuffer.getLine(lineIndex)?.translateToString(true) || "";
-
-          const promptChars = [">", "$", "#"];
-          let promptCharIndex = -1;
-          for (let i = line.length - 1; i >= 0; i--) {
-            if (promptChars.includes(line[i])) {
-              promptCharIndex = i;
-              break;
-            }
-          }
-
-          // Guard: If the line doesn't contain prompt char yet (e.g. still replaying/loading),
-          // or if the cursor is at or before the prompt boundary (CWD$ ), block Backspace!
-          if (
-            promptCharIndex === -1 ||
-            activeBuffer.cursorX <= promptCharIndex + 2
-          ) {
-            return false;
-          }
-        }
-        if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "v") {
+        if (e.ctrlKey && e.key.toLowerCase() === "v") {
           navigator.clipboard
             .readText()
             .then((text) => {
@@ -1068,28 +1040,7 @@ export default function TerminalPanel({
             .catch(() => {});
           return false;
         }
-        if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "v") {
-          navigator.clipboard
-            .readText()
-            .then((text) => {
-              if (text) {
-                invoke("write_to_terminal_session", {
-                  sessionId,
-                  input: text,
-                }).catch(() => {});
-              }
-            })
-            .catch(() => {});
-          return false;
-        }
-        if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === "c") {
-          const sel = term.getSelection();
-          if (sel) {
-            navigator.clipboard.writeText(sel).catch(() => {});
-            return false;
-          }
-        }
-        if (e.ctrlKey && !e.shiftKey && e.key.toLowerCase() === "c") {
+        if (e.ctrlKey && e.key.toLowerCase() === "c") {
           const sel = term.getSelection();
           if (sel) {
             navigator.clipboard.writeText(sel).catch(() => {});
@@ -1540,19 +1491,13 @@ export default function TerminalPanel({
                                   alignItems: "center",
                                   gap: "6px",
                                 }}
+                                onClick={(e) => e.stopPropagation()}
                               >
-                                <input
-                                  type="checkbox"
+                                <AlouetteCheckbox
                                   checked={isActive}
                                   onChange={() =>
                                     handleToggleTunnelProfile(t.id)
                                   }
-                                  onClick={(e) => e.stopPropagation()}
-                                  style={{
-                                    width: "12px",
-                                    height: "12px",
-                                    cursor: "pointer",
-                                  }}
                                 />
                                 <span
                                   className="sandbox-terminal-name"

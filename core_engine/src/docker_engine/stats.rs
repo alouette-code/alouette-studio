@@ -26,9 +26,29 @@ pub async fn stream_container_stats(
     while let Some(stats_result) = stream.next().await {
         match stats_result {
             Ok(stats) => {
-                let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64 - stats.precpu_stats.cpu_usage.total_usage as f64;
-                let system_cpu_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64 - stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
-                let online_cpus = stats.cpu_stats.online_cpus.unwrap_or(1) as f64;
+                let cpu_delta = stats
+                    .cpu_stats
+                    .cpu_usage
+                    .total_usage
+                    .saturating_sub(stats.precpu_stats.cpu_usage.total_usage) as f64;
+                let system_cpu_delta = stats
+                    .cpu_stats
+                    .system_cpu_usage
+                    .unwrap_or(0)
+                    .saturating_sub(stats.precpu_stats.system_cpu_usage.unwrap_or(0)) as f64;
+                let online_cpus = stats
+                    .cpu_stats
+                    .online_cpus
+                    .or_else(|| {
+                        stats
+                            .cpu_stats
+                            .cpu_usage
+                            .percpu_usage
+                            .as_ref()
+                            .map(|v| v.len() as u64)
+                    })
+                    .unwrap_or(1)
+                    .max(1) as f64;
                 
                 let mut cpu_percent = 0.0;
                 if system_cpu_delta > 0.0 && cpu_delta > 0.0 {

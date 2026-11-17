@@ -609,6 +609,12 @@ pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutp
 
 #[tauri::command]
 pub async fn dns_lookup(domain: String) -> Result<DnsResult, String> {
+    tokio::task::spawn_blocking(move || dns_lookup_blocking(domain))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
+fn dns_lookup_blocking(domain: String) -> Result<DnsResult, String> {
     use std::net::ToSocketAddrs;
     use std::process::Command;
 
@@ -623,15 +629,12 @@ pub async fn dns_lookup(domain: String) -> Result<DnsResult, String> {
                 if !ipv4.contains(&ip_str) {
                     ipv4.push(ip_str);
                 }
-            } else {
-                if !ipv6.contains(&ip_str) {
-                    ipv6.push(ip_str);
-                }
+            } else if !ipv6.contains(&ip_str) {
+                ipv6.push(ip_str);
             }
         }
     }
 
-    // Try nslookup for more DNS records
     let mut cname = None;
     let mut mx = Vec::new();
     let mut ns = Vec::new();
@@ -711,7 +714,13 @@ pub async fn dns_lookup(domain: String) -> Result<DnsResult, String> {
 
 #[tauri::command]
 pub async fn ping_host(host: String, count: Option<u32>) -> Result<PingResult, String> {
-    let count = count.unwrap_or(4).min(10);
+    tokio::task::spawn_blocking(move || ping_host_blocking(host, count))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
+fn ping_host_blocking(host: String, count: Option<u32>) -> Result<PingResult, String> {
+    let count = count.unwrap_or(4).clamp(1, 10);
     let sent: u32 = count;
     let mut received = 0u32;
     let mut times = Vec::new();
@@ -729,21 +738,9 @@ pub async fn ping_host(host: String, count: Option<u32>) -> Result<PingResult, S
                 let trimmed = line.trim();
                 if trimmed.contains("time=") || trimmed.contains("time<") {
                     received += 1;
-                    // Extract time value
                     if let Some(time_part) = trimmed.split("time=").nth(1) {
                         if let Some(ms_str) = time_part.split_whitespace().next() {
-                            let ms_str = ms_str.replace("ms", "").replace("m", "");
-                            if let Ok(ms) = ms_str.parse::<f64>() {
-                                times.push(ms);
-                            }
-                        }
-                    }
-                }
-                if trimmed.starts_with("Reply from") && trimmed.contains("time") {
-                    received += 1;
-                    if let Some(time_part) = trimmed.split("time=").nth(1) {
-                        if let Some(ms_str) = time_part.split_whitespace().next() {
-                            let ms_str = ms_str.replace("ms", "").replace("m", "");
+                            let ms_str = ms_str.replace("ms", "").replace('m', "");
                             if let Ok(ms) = ms_str.parse::<f64>() {
                                 times.push(ms);
                             }
@@ -760,7 +757,7 @@ pub async fn ping_host(host: String, count: Option<u32>) -> Result<PingResult, S
     {
         use std::process::Command;
         if let Ok(output) = Command::new("ping")
-            .args(["-c", &count.to_string(), &host])
+            .args(["-c", &count.to_string(), "-W", "2", &host])
             .output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -771,7 +768,7 @@ pub async fn ping_host(host: String, count: Option<u32>) -> Result<PingResult, S
                     received += 1;
                     if let Some(time_part) = trimmed.split("time=").nth(1) {
                         if let Some(ms_str) = time_part.split_whitespace().next() {
-                            let ms_str = ms_str.replace("ms", "").replace("m", "");
+                            let ms_str = ms_str.replace("ms", "").replace('m', "");
                             if let Ok(ms) = ms_str.parse::<f64>() {
                                 times.push(ms);
                             }
@@ -816,13 +813,20 @@ pub async fn ping_host(host: String, count: Option<u32>) -> Result<PingResult, S
 
 #[tauri::command]
 pub async fn ssl_certificate_info(host: String, port: Option<u16>) -> Result<SslCertInfo, String> {
-    use std::net::TcpStream;
+    tokio::task::spawn_blocking(move || ssl_certificate_info_blocking(host, port))
+        .await
+        .map_err(|e| format!("Task join error: {}", e))?
+}
+
+fn ssl_certificate_info_blocking(host: String, port: Option<u16>) -> Result<SslCertInfo, String> {
+    use std::io::Write;
+    use std::net::{TcpStream, ToSocketAddrs};
+    use std::process::{Command, Stdio};
     use std::time::Duration;
 
     let port = port.unwrap_or(443);
     let address = format!("{}:{}", host, port);
 
-    // Use openssl via command line for cert info
     let mut subject = "Unknown".to_string();
     let mut issuer = "Unknown".to_string();
     let mut valid_from = "Unknown".to_string();
@@ -833,24 +837,16 @@ pub async fn ssl_certificate_info(host: String, port: Option<u16>) -> Result<Ssl
 
     #[cfg(target_os = "windows")]
     {
-        // On Windows, try using PowerShell to get cert info
-        use std::process::Command;
         let ps_script = format!(
             "$req = [Net.HttpWebRequest]::Create('https://{}'); \
              $req.GetResponse(); \
              $cert = $req.ServicePoint.Certificate; \
              if ($cert) {{ \
-                 $subject = $cert.Subject; \
-                 $issuer = $cert.Issuer; \
-                 $exp = $cert.GetExpirationDateString(); \
-                 $start = $cert.GetEffectiveDateString(); \
-                 Write-Output \"SUBJECT=$subject\"; \
-                 Write-Output \"ISSUER=$issuer\"; \
-                 Write-Output \"START=$start\"; \
-                 Write-Output \"EXPIRES=$exp\"; \
+                 Write-Output \"SUBJECT=$($cert.Subject)\"; \
+                 Write-Output \"ISSUER=$($cert.Issuer)\"; \
+                 Write-Output \"START=$($cert.GetEffectiveDateString())\"; \
+                 Write-Output \"EXPIRES=$($cert.GetExpirationDateString())\"; \
                  Write-Output \"THUMBPRINT=$($cert.GetCertHashString())\"; \
-             }} else {{ \
-                 Write-Output 'NO_CERT'; \
              }}",
             host
         );
@@ -862,38 +858,20 @@ pub async fn ssl_certificate_info(host: String, port: Option<u16>) -> Result<Ssl
             let stdout = String::from_utf8_lossy(&output.stdout);
             for line in stdout.lines() {
                 let trimmed = line.trim();
-                if let Some(val) = trimmed.strip_prefix("SUBJECT=") {
-                    subject = val.to_string();
-                }
-                if let Some(val) = trimmed.strip_prefix("ISSUER=") {
-                    issuer = val.to_string();
-                }
-                if let Some(val) = trimmed.strip_prefix("START=") {
-                    valid_from = val.to_string();
-                }
-                if let Some(val) = trimmed.strip_prefix("EXPIRES=") {
-                    valid_to = val.to_string();
-                }
-                if let Some(val) = trimmed.strip_prefix("THUMBPRINT=") {
-                    fingerprint = val.to_string();
-                }
+                if let Some(val) = trimmed.strip_prefix("SUBJECT=") { subject = val.to_string(); }
+                if let Some(val) = trimmed.strip_prefix("ISSUER=") { issuer = val.to_string(); }
+                if let Some(val) = trimmed.strip_prefix("START=") { valid_from = val.to_string(); }
+                if let Some(val) = trimmed.strip_prefix("EXPIRES=") { valid_to = val.to_string(); }
+                if let Some(val) = trimmed.strip_prefix("THUMBPRINT=") { fingerprint = val.to_string(); }
             }
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     {
-        use std::process::Command;
         if let Ok(output) = Command::new("openssl")
-            .args([
-                "s_client",
-                "-connect",
-                &address,
-                "-servername",
-                &host,
-                "</dev/null",
-                "2>/dev/null",
-            ])
+            .args(["s_client", "-connect", &address, "-servername", &host])
+            .stdin(Stdio::null())
             .output()
         {
             let stdout = String::from_utf8_lossy(&output.stdout);
@@ -901,55 +879,76 @@ pub async fn ssl_certificate_info(host: String, port: Option<u16>) -> Result<Ssl
                 let trimmed = line.trim();
                 if trimmed.starts_with("subject=") {
                     subject = trimmed[8..].to_string();
-                }
-                if trimmed.starts_with("issuer=") {
+                } else if trimmed.starts_with("issuer=") {
                     issuer = trimmed[7..].to_string();
+                } else if let Some(proto) = trimmed.strip_prefix("Protocol  :") {
+                    tls_version = proto.trim().to_string();
+                } else if let Some(proto) = trimmed.strip_prefix("Protocol:") {
+                    tls_version = proto.trim().to_string();
                 }
-                if trimmed.contains("Not Before:") {
-                    valid_from = trimmed.trim().to_string();
-                }
-                if trimmed.contains("Not After :") || trimmed.contains("Not After:") {
-                    valid_to = trimmed.trim().to_string();
-                }
-                if trimmed.starts_with("SHA1 Fingerprint=") {
-                    fingerprint = trimmed[17..].to_string();
-                }
-                if trimmed.contains("TLS") && trimmed.contains("handshake") {
-                    tls_version = trimmed.to_string();
+            }
+
+            // Extract dates & fingerprint accurately via `openssl x509`
+            if let (Some(pem_start), Some(pem_end)) = (
+                stdout.find("-----BEGIN CERTIFICATE-----"),
+                stdout.find("-----END CERTIFICATE-----"),
+            ) {
+                let pem = &stdout[pem_start..pem_end + "-----END CERTIFICATE-----".len()];
+                if let Ok(mut x509_child) = Command::new("openssl")
+                    .args(["x509", "-noout", "-subject", "-issuer", "-dates", "-fingerprint", "-sha256"])
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::null())
+                    .spawn()
+                {
+                    if let Some(mut stdin) = x509_child.stdin.take() {
+                        let _ = stdin.write_all(pem.as_bytes());
+                    }
+                    if let Ok(x509_out) = x509_child.wait_with_output() {
+                        let x509_str = String::from_utf8_lossy(&x509_out.stdout);
+                        for line in x509_str.lines() {
+                            let t = line.trim();
+                            if let Some(v) = t.strip_prefix("subject=") { subject = v.trim().to_string(); }
+                            if let Some(v) = t.strip_prefix("issuer=") { issuer = v.trim().to_string(); }
+                            if let Some(v) = t.strip_prefix("notBefore=") { valid_from = v.trim().to_string(); }
+                            if let Some(v) = t.strip_prefix("notAfter=") { valid_to = v.trim().to_string(); }
+                            if let Some(v) = t.strip_prefix("SHA256 Fingerprint=") { fingerprint = v.trim().to_string(); }
+                        }
+                    }
                 }
             }
         }
     }
 
-    // Calculate days until expiration
     if valid_to != "Unknown" {
-        // Try to parse the date string
         let date_str = valid_to
             .replace("Not After :", "")
             .replace("Not After:", "")
             .trim()
             .to_string();
-        // Simple parsing
         if let Ok(exp_date) = chrono::NaiveDateTime::parse_from_str(
             &date_str,
             "%b %d %H:%M:%S %Y GMT",
         ) {
-            let now = chrono::Utc::now().naive_utc();
-            let today = now.date();
-            let midnight = chrono::NaiveDateTime::new(today, chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap());
+            let today = chrono::Utc::now().naive_utc().date();
+            let midnight = chrono::NaiveDateTime::new(
+                today,
+                chrono::NaiveTime::from_hms_opt(0, 0, 0).unwrap(),
+            );
             if let Ok(duration) = (exp_date - midnight).to_std() {
                 expires_in_days = duration.as_secs() / 86400;
             }
         }
     }
 
-    // Try to connect and measure TLS version
-    if let Ok(stream) = TcpStream::connect_timeout(
-        &address.parse().map_err(|_| "Invalid address".to_string())?,
-        Duration::from_secs(5),
-    ) {
-        let _ = stream.set_read_timeout(Some(Duration::from_secs(3)));
-        tls_version = format!("TLS 1.2/1.3 (connected to {})", address);
+    if tls_version == "Unknown" {
+        if let Ok(mut addrs) = address.to_socket_addrs() {
+            if let Some(sock_addr) = addrs.next() {
+                if TcpStream::connect_timeout(&sock_addr, Duration::from_secs(4)).is_ok() {
+                    tls_version = format!("TLS reachable ({})", sock_addr);
+                }
+            }
+        }
     }
 
     Ok(SslCertInfo {
@@ -962,6 +961,58 @@ pub async fn ssl_certificate_info(host: String, port: Option<u16>) -> Result<Ssl
         fingerprint,
         tls_version,
     })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ParallelDiagnosticResult {
+    pub target: String,
+    pub elapsed_ms: u64,
+    pub dns: Result<DnsResult, String>,
+    pub ping: Result<PingResult, String>,
+    pub ssl: Result<SslCertInfo, String>,
+}
+
+/// Runs DNS + Ping + SSL diagnostics concurrently across multiple targets using Tokio.
+#[tauri::command]
+pub async fn run_parallel_diagnostics(
+    targets: Vec<String>,
+    ping_count: Option<u32>,
+    ssl_port: Option<u16>,
+) -> Result<Vec<ParallelDiagnosticResult>, String> {
+    use futures_util::stream::{self, StreamExt};
+
+    let clean_targets: Vec<String> = targets
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .take(20)
+        .collect();
+
+    if clean_targets.is_empty() {
+        return Err("At least one host/domain is required.".to_string());
+    }
+
+    let results = stream::iter(clean_targets)
+        .map(|target| async move {
+            let started = Instant::now();
+            let (dns, ping, ssl) = tokio::join!(
+                dns_lookup(target.clone()),
+                ping_host(target.clone(), ping_count),
+                ssl_certificate_info(target.clone(), ssl_port),
+            );
+            ParallelDiagnosticResult {
+                target,
+                elapsed_ms: started.elapsed().as_millis() as u64,
+                dns,
+                ping,
+                ssl,
+            }
+        })
+        .buffer_unordered(8)
+        .collect::<Vec<_>>()
+        .await;
+
+    Ok(results)
 }
 
 // ============================================================================

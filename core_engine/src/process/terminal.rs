@@ -41,13 +41,17 @@ impl ProcessManager {
     }
 
     pub fn check_input_sandbox(&self, session_id: &str) -> Result<Option<String>, String> {
-        let buf = self
-            .input_buf
-            .get(session_id)
-            .ok_or_else(|| "No input buffer".to_string())?;
-        let trimmed = buf.trim();
-        if trimmed.is_empty() {
+        let Some(buf) = self.input_buf.get(session_id) else {
             return Ok(None);
+        };
+        Ok(self.check_command_sandbox(session_id, buf))
+    }
+
+    /// Evaluate a single command string against the session's workspace sandbox rules.
+    pub fn check_command_sandbox(&self, session_id: &str, command: &str) -> Option<String> {
+        let trimmed = command.trim();
+        if trimmed.is_empty() {
+            return None;
         }
 
         let cwd = self
@@ -62,19 +66,11 @@ impl ProcessManager {
             .map(|s| s.workspace_root.clone())
             .unwrap_or_else(|| cwd.clone());
 
-        eprintln!(
-            "[sandbox] Checking command: '{}' (cwd: {}, ws: {})",
-            trimmed,
-            cwd.display(),
-            ws.display()
-        );
-
-        let verdict = sandbox::check_command(trimmed, &cwd, &ws);
-        match verdict {
-            sandbox::Verdict::Allow => Ok(None),
+        match sandbox::check_command(trimmed, &cwd, &ws) {
+            sandbox::Verdict::Allow => None,
             sandbox::Verdict::Block { reason } => {
                 eprintln!("[sandbox] BLOCKED '{}': {}", trimmed, reason);
-                Ok(Some(reason))
+                Some(reason)
             }
         }
     }
@@ -226,8 +222,7 @@ impl ProcessManager {
 
         let mut sandbox_wrapper_path: Option<String> = None;
 
-        #[allow(unused_mut)]
-        let mut cmd = if cfg!(target_os = "windows") {
+        let cmd = if cfg!(target_os = "windows") {
             let prompt = r#"function global:prompt { "$((Get-Location).Path)> " }"#.to_string();
 
             let tmp_dir = std::env::temp_dir().join("alouette_term");
@@ -243,19 +238,16 @@ impl ProcessManager {
             c.arg(profile_path.to_string_lossy().to_string());
             c
         } else {
-            let shell = if std::path::Path::new("/bin/bash").exists() {
-                "bash"
-            } else {
-                "sh"
-            };
+            let shell = detect_default_shell();
 
             // ── Linux: Pre-spawn sandbox via wrapper script ──
             // Trên Linux, dùng sandbox wrapper thay vì shell trực tiếp
             // để inject ulimit (RLIMIT_AS) trước khi shell thật sự chạy.
             // portable-pty không hỗ trợ pre_exec, wrapper là giải pháp.
-            build_terminal_cmd(shell, block_internet, &mut sandbox_wrapper_path)
+            build_terminal_cmd(&shell, block_internet, &mut sandbox_wrapper_path)
         };
 
+        let mut cmd = cmd;
         if let Some(dir) = cwd {
             cmd.cwd(dir);
         }
@@ -273,6 +265,8 @@ impl ProcessManager {
             .slave
             .spawn_command(cmd)
             .map_err(|e| format!("Spawn {shell_name}: {e}"))?;
+        // Drop slave side in parent so PTY master observes EOF cleanly when the child exits.
+        drop(pty.slave);
         let pid = child.process_id().unwrap_or(0);
         eprintln!("[terminal] Spawned '{sid}' PID {pid}");
 
@@ -305,14 +299,25 @@ impl ProcessManager {
         std::thread::spawn(move || {
             let mut r = reader;
             let mut buf = [0u8; 4096];
+            let mut utf8 = Utf8StreamDecoder::new();
             loop {
                 match std::io::Read::read(&mut r, &mut buf) {
                     Ok(0) => {
+                        let tail = utf8.finish();
+                        if !tail.is_empty() {
+                            let _ = out_tx.send(TerminalOutput {
+                                session_id: sid_r.clone(),
+                                text: tail,
+                            });
+                        }
                         eprintln!("[terminal] '{sid_r}' EOF");
                         break;
                     }
                     Ok(n) => {
-                        let text = String::from_utf8_lossy(&buf[..n]).into_owned();
+                        let text = utf8.push(&buf[..n]);
+                        if text.is_empty() {
+                            continue;
+                        }
                         let _ = out_tx.send(TerminalOutput {
                             session_id: sid_r.clone(),
                             text: text.clone(),
@@ -335,8 +340,7 @@ impl ProcessManager {
             }
         });
 
-        let pty_ptr = Box::into_raw(Box::new(pty));
-        self._pty_pairs.insert(sid.clone(), pty_ptr as usize);
+        self.pty_masters.insert(sid.clone(), pty.master);
 
         // ── Tầng 2: OS-level sandbox (pre-spawn hoặc post-spawn) ──
         // Windows: Job Object post-spawn
@@ -412,9 +416,7 @@ impl ProcessManager {
         }
         self.input_buf.remove(session_id);
         self.sessions_cwd.remove(session_id);
-        if let Some(ptr) = self._pty_pairs.remove(session_id) {
-            let _ = unsafe { Box::from_raw(ptr as *mut portable_pty::PtyPair) };
-        }
+        self.pty_masters.remove(session_id);
         if let Some(path) = self._prompt_files.remove(session_id) {
             let _ = std::fs::remove_file(&path);
         }
@@ -422,9 +424,8 @@ impl ProcessManager {
     }
 
     pub fn resize_terminal(&self, session_id: &str, rows: u16, cols: u16) -> Result<(), String> {
-        if let Some(&ptr) = self._pty_pairs.get(session_id) {
-            let pty = unsafe { &*(ptr as *const portable_pty::PtyPair) };
-            pty.master
+        if let Some(master) = self.pty_masters.get(session_id) {
+            master
                 .resize(portable_pty::PtySize {
                     rows,
                     cols,
@@ -434,7 +435,7 @@ impl ProcessManager {
                 .map_err(|e| format!("Failed to resize PTY: {e}"))?;
             Ok(())
         } else {
-            Err(format!("PTY pair not found for session '{session_id}'"))
+            Err(format!("PTY master not found for session '{session_id}'"))
         }
     }
 }
@@ -515,6 +516,91 @@ pub async fn process_and_send_terminal_input(
         .map_err(|e| format!("Terminal send: {e}"))
 }
 
+/// Detect the user's preferred interactive shell on Unix (honoring `$SHELL` on macOS/Linux).
+pub fn detect_default_shell() -> String {
+    if let Ok(shell) = std::env::var("SHELL") {
+        let trimmed = shell.trim();
+        if !trimmed.is_empty() && std::path::Path::new(trimmed).exists() {
+            return trimmed.to_string();
+        }
+    }
+    for candidate in ["/bin/bash", "/bin/zsh", "/usr/bin/zsh", "/bin/sh"] {
+        if std::path::Path::new(candidate).exists() {
+            return candidate.to_string();
+        }
+    }
+    "sh".to_string()
+}
+
+/// Incremental UTF-8 decoder that buffers incomplete trailing multi-byte sequences
+/// across arbitrary `Read::read` chunk boundaries.
+pub struct Utf8StreamDecoder {
+    pending: Vec<u8>,
+}
+
+impl Default for Utf8StreamDecoder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Utf8StreamDecoder {
+    pub fn new() -> Self {
+        Self {
+            pending: Vec::with_capacity(4),
+        }
+    }
+
+    pub fn push(&mut self, chunk: &[u8]) -> String {
+        if chunk.is_empty() {
+            return String::new();
+        }
+        self.pending.extend_from_slice(chunk);
+        let mut out = String::new();
+
+        loop {
+            match std::str::from_utf8(&self.pending) {
+                Ok(valid) => {
+                    out.push_str(valid);
+                    self.pending.clear();
+                    break;
+                }
+                Err(err) => {
+                    let valid_up_to = err.valid_up_to();
+                    if valid_up_to > 0 {
+                        // Safety: `valid_up_to` is guaranteed valid UTF-8 by std::str::from_utf8.
+                        let valid_str =
+                            unsafe { std::str::from_utf8_unchecked(&self.pending[..valid_up_to]) };
+                        out.push_str(valid_str);
+                    }
+                    match err.error_len() {
+                        Some(bad_len) => {
+                            out.push('\u{FFFD}');
+                            self.pending.drain(..valid_up_to + bad_len);
+                        }
+                        None => {
+                            // Incomplete multi-byte sequence at the end of the chunk; keep it for next push.
+                            self.pending.drain(..valid_up_to);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        out
+    }
+
+    pub fn finish(&mut self) -> String {
+        if self.pending.is_empty() {
+            return String::new();
+        }
+        let tail = String::from_utf8_lossy(&self.pending).into_owned();
+        self.pending.clear();
+        tail
+    }
+}
+
 /// Helper: build terminal CommandBuilder với Linux sandbox wrapper
 ///
 /// Trên Linux: tạo wrapper script gọi `ulimit -v` rồi exec shell thật.
@@ -524,24 +610,34 @@ fn build_terminal_cmd(
     block_internet: bool,
     wrapper_path_out: &mut Option<String>,
 ) -> CommandBuilder {
+    let shell_base = std::path::Path::new(shell)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(shell);
+    let supports_login_flag = matches!(shell_base, "bash" | "zsh" | "fish");
+
     #[cfg(target_os = "linux")]
     {
         let memory_limit_mb = 0u64; // Default: no memory limit (uses SandboxConfig)
         match super::sandbox::linux::build_sandbox_wrapper_path(
-            &format!("/bin/{}", shell),
+            shell,
             memory_limit_mb,
             block_internet,
         ) {
             Ok(path) => {
                 let _ = wrapper_path_out.insert(path.clone());
                 let mut c = CommandBuilder::new(&path);
-                c.arg("--login");
+                if supports_login_flag {
+                    c.arg("-l");
+                }
                 c
             }
             Err(e) => {
                 eprintln!("[terminal] Failed to create sandbox wrapper: {e}, using direct shell");
                 let mut c = CommandBuilder::new(shell);
-                c.arg("--login");
+                if supports_login_flag {
+                    c.arg("-l");
+                }
                 c
             }
         }
@@ -550,6 +646,44 @@ fn build_terminal_cmd(
     {
         let _ = block_internet;
         let _ = wrapper_path_out;
-        CommandBuilder::new(shell)
+        let mut c = CommandBuilder::new(shell);
+        if supports_login_flag {
+            c.arg("-l");
+        }
+        c
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn utf8_decoder_preserves_split_multibyte_chars() {
+        let mut dec = Utf8StreamDecoder::new();
+        // Vietnamese phrase with 3-byte UTF-8 characters split mid-rune across chunks
+        let text = "Xin chào thế giới 🚀";
+        let bytes = text.as_bytes();
+
+        let mut assembled = String::new();
+        for piece in bytes.chunks(2) {
+            assembled.push_str(&dec.push(piece));
+        }
+        assembled.push_str(&dec.finish());
+        assert_eq!(assembled, text);
+    }
+
+    #[test]
+    fn utf8_decoder_recovers_from_invalid_byte() {
+        let mut dec = Utf8StreamDecoder::new();
+        let out = dec.push(b"abc\xFFxyz");
+        assert_eq!(out, "abc\u{FFFD}xyz");
+        assert!(dec.finish().is_empty());
+    }
+
+    #[test]
+    fn detect_default_shell_returns_non_empty() {
+        let shell = detect_default_shell();
+        assert!(!shell.trim().is_empty());
     }
 }

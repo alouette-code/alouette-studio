@@ -5,15 +5,28 @@ use core_engine::docker_engine::container::{
 };
 use core_engine::docker_engine::logs::stream_container_logs;
 use core_engine::docker_engine::stats::stream_container_stats;
-use core_engine::docker_engine::terminal::{spawn_terminal, write_to_terminal, TerminalOutput};
+use core_engine::docker_engine::terminal::{
+    close_terminal, resize_terminal, spawn_terminal, write_to_terminal, TerminalOutput,
+};
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tokio::task::AbortHandle;
 use lazy_static::lazy_static;
 
 lazy_static! {
     static ref DOCKER_CLIENT: Arc<Mutex<Option<DockerClient>>> = Arc::new(Mutex::new(None));
+    static ref LOGS_STREAM_HANDLES: Mutex<Vec<AbortHandle>> = Mutex::new(Vec::new());
+    static ref STATS_STREAM_HANDLES: Mutex<Vec<AbortHandle>> = Mutex::new(Vec::new());
+}
+
+async fn replace_stream_handles(store: &Mutex<Vec<AbortHandle>>, new_handles: Vec<AbortHandle>) {
+    let mut guard = store.lock().await;
+    for handle in guard.drain(..) {
+        handle.abort();
+    }
+    *guard = new_handles;
 }
 
 async fn get_client() -> Result<DockerClient, String> {
@@ -101,9 +114,9 @@ struct LogPayload {
 pub async fn docker_stream_logs(app_handle: AppHandle, id: String, since: Option<i64>) -> Result<(), String> {
     let client = get_client().await?;
     let (tx, mut rx) = mpsc::channel(100);
-    
+
     let container_id = id.clone();
-    tokio::spawn(async move {
+    let emit_handle = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
             let _ = app_handle.emit(
                 "docker_log",
@@ -115,10 +128,22 @@ pub async fn docker_stream_logs(app_handle: AppHandle, id: String, since: Option
         }
     });
 
-    tokio::spawn(async move {
+    let stream_handle = tokio::spawn(async move {
         let _ = stream_container_logs(client.docker, id, tx, since.unwrap_or(0)).await;
     });
 
+    replace_stream_handles(
+        &LOGS_STREAM_HANDLES,
+        vec![emit_handle.abort_handle(), stream_handle.abort_handle()],
+    )
+    .await;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn docker_stop_logs_stream() -> Result<(), String> {
+    replace_stream_handles(&LOGS_STREAM_HANDLES, Vec::new()).await;
     Ok(())
 }
 
@@ -132,9 +157,9 @@ struct StatsPayload {
 pub async fn docker_stream_stats(app_handle: AppHandle, id: String) -> Result<(), String> {
     let client = get_client().await?;
     let (tx, mut rx) = mpsc::channel(100);
-    
+
     let container_id = id.clone();
-    tokio::spawn(async move {
+    let emit_handle = tokio::spawn(async move {
         while let Some(stats) = rx.recv().await {
             let _ = app_handle.emit(
                 "docker_stats",
@@ -146,20 +171,33 @@ pub async fn docker_stream_stats(app_handle: AppHandle, id: String) -> Result<()
         }
     });
 
-    tokio::spawn(async move {
+    let stream_handle = tokio::spawn(async move {
         let _ = stream_container_stats(client.docker, id, tx).await;
     });
 
+    replace_stream_handles(
+        &STATS_STREAM_HANDLES,
+        vec![emit_handle.abort_handle(), stream_handle.abort_handle()],
+    )
+    .await;
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn docker_stop_stats_stream() -> Result<(), String> {
+    replace_stream_handles(&STATS_STREAM_HANDLES, Vec::new()).await;
     Ok(())
 }
 
 #[tauri::command]
 pub async fn docker_exec_terminal(app_handle: AppHandle, id: String) -> Result<String, String> {
     let client = get_client().await?;
-    
+
     let exec_id = spawn_terminal(&client.docker, &id, move |output: TerminalOutput| {
         let _ = app_handle.emit("docker_terminal_out", output);
-    }).await?;
+    })
+    .await?;
 
     Ok(exec_id)
 }
@@ -167,6 +205,18 @@ pub async fn docker_exec_terminal(app_handle: AppHandle, id: String) -> Result<S
 #[tauri::command]
 pub async fn docker_write_terminal(exec_id: String, data: String) -> Result<(), String> {
     write_to_terminal(&exec_id, data).await
+}
+
+#[tauri::command]
+pub async fn docker_resize_terminal(exec_id: String, cols: u16, rows: u16) -> Result<(), String> {
+    let client = get_client().await?;
+    resize_terminal(&client.docker, &exec_id, cols, rows).await
+}
+
+#[tauri::command]
+pub async fn docker_close_terminal(exec_id: String) -> Result<(), String> {
+    close_terminal(&exec_id).await;
+    Ok(())
 }
 
 #[tauri::command]

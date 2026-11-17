@@ -243,6 +243,7 @@ fn main() {
             commands::network::dns_lookup,
             commands::network::ping_host,
             commands::network::ssl_certificate_info,
+            commands::network::run_parallel_diagnostics,
             commands::network::validate_json_schema,
             commands::network::json_format_tool,
             commands::network::base64_tool,
@@ -358,9 +359,13 @@ fn main() {
             commands::docker::docker_remove_container,
             commands::docker::docker_restart_container,
             commands::docker::docker_stream_logs,
+            commands::docker::docker_stop_logs_stream,
             commands::docker::docker_stream_stats,
+            commands::docker::docker_stop_stats_stream,
             commands::docker::docker_exec_terminal,
             commands::docker::docker_write_terminal,
+            commands::docker::docker_resize_terminal,
+            commands::docker::docker_close_terminal,
             commands::docker::docker_cleanup,
         ])
         .build(tauri::generate_context!())

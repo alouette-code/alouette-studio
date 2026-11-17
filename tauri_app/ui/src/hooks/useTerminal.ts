@@ -34,8 +34,9 @@ export function useTerminal(
     [sessionId: string]: string;
   }>({});
 
-  // Buffer accumulates ALL terminal-output events so xterm.js can replay
-  // them on mount (solves race: output arrives before xterm is ready).
+  // Buffer accumulates recent terminal-output chunks per session so xterm.js can
+  // replay them on mount without unbounded memory growth.
+  const MAX_BUFFER_CHARS = 200_000;
   const terminalBufferRef = useRef<{ [sessionId: string]: string }>({});
 
   // ── Global listener: buffers output from ALL sessions ────────────────
@@ -44,10 +45,11 @@ export function useTerminal(
       const sid: string = event.payload.session_id;
       const text: string = event.payload.text;
       if (text) {
-        terminalBufferRef.current = {
-          ...terminalBufferRef.current,
-          [sid]: (terminalBufferRef.current[sid] || "") + text,
-        };
+        const next = (terminalBufferRef.current[sid] || "") + text;
+        terminalBufferRef.current[sid] =
+          next.length > MAX_BUFFER_CHARS
+            ? next.slice(next.length - MAX_BUFFER_CHARS)
+            : next;
       }
     });
     return () => {
@@ -145,6 +147,7 @@ export function useTerminal(
     await invoke("kill_terminal_session", { sessionId: terminalId }).catch(
       () => {},
     );
+    delete terminalBufferRef.current[terminalId];
     setTerminalStatuses((p) => {
       const c = { ...p };
       delete c[terminalId];
@@ -176,6 +179,7 @@ export function useTerminal(
       await invoke("kill_terminal_session", { sessionId: t.id }).catch(
         () => {},
       );
+      delete terminalBufferRef.current[t.id];
       setTerminalStatuses((p) => {
         const c = { ...p };
         delete c[t.id];
@@ -213,6 +217,7 @@ export function useTerminal(
   // ── Respawn (kill + spawn) ──────────────────────────────────────────
   const respawnTerminal = async (sessionId: string) => {
     await invoke("kill_terminal_session", { sessionId }).catch(() => {});
+    delete terminalBufferRef.current[sessionId];
     await spawnTerminal(sessionId, activeProject?.cwd);
   };
 

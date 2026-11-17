@@ -38,6 +38,20 @@ pub async fn sync_terminal_input_buf(
     Ok(())
 }
 
+fn normalize_cd_shortcut(raw: &str) -> String {
+    let trimmed = raw.trim();
+    let lower = trimmed.to_lowercase();
+    if lower.starts_with("cd..") && (trimmed.len() == 4 || trimmed.as_bytes()[4].is_ascii_whitespace()) {
+        format!("cd ..{}", &trimmed[4..])
+    } else if lower.starts_with("cd/") {
+        format!("cd /{}", &trimmed[3..])
+    } else if lower.starts_with("cd\\") {
+        format!("cd \\{}", &trimmed[3..])
+    } else {
+        raw.to_string()
+    }
+}
+
 #[tauri::command]
 pub async fn write_to_terminal_session(
     state: State<'_, AppState>,
@@ -45,7 +59,6 @@ pub async fn write_to_terminal_session(
     input: String,
 ) -> Result<(), String> {
     let input = input.replace('\u{00a0}', " ");
-    eprintln!("[term-input] Received input: {:?}", input);
     // 1. Immediately handle Ctrl+C to interrupt executing commands safely
     if input.contains('\x03') {
         let mut pm = state.process_manager.lock().await;
@@ -58,9 +71,9 @@ pub async fn write_to_terminal_session(
         return Ok(());
     }
 
-
     let is_enter = input.contains('\r') || input.contains('\n');
-    let mut allowed_cmd = String::new();
+    let is_pure_newline = is_enter && input.chars().all(|c| c == '\r' || c == '\n');
+    let mut allowed_cmds: Vec<String> = Vec::new();
     let mut blocked_reason = String::new();
     let out_tx;
     let stdin_tx;
@@ -69,43 +82,59 @@ pub async fn write_to_terminal_session(
         let mut pm = state.process_manager.lock().await;
 
         if is_enter {
-            // Normalize cd shortcuts in the input buffer first
-            if let Some(buf) = pm.input_buf.get_mut(&session_id) {
-                let trimmed = buf.trim();
-                let lower = trimmed.to_lowercase();
-                if lower.starts_with("cd..") {
-                    *buf = format!("cd ..{}", &trimmed[4..]);
-                } else if lower.starts_with("cd/") {
-                    *buf = format!("cd /{}", &trimmed[3..]);
-                } else if lower.starts_with("cd\\") {
-                    *buf = format!("cd \\{}", &trimmed[3..]);
+            if is_pure_newline {
+                if let Some(buf) = pm.input_buf.get_mut(&session_id) {
+                    *buf = normalize_cd_shortcut(buf);
+                }
+                match pm.check_input_sandbox(&session_id) {
+                    Ok(None) => {
+                        let cmd = pm.get_input_buf(&session_id).cloned().unwrap_or_default();
+                        pm.clear_input_buf(&session_id);
+                        if !cmd.trim().is_empty() {
+                            allowed_cmds.push(cmd);
+                        }
+                    }
+                    Ok(Some(reason)) => {
+                        blocked_reason = reason;
+                        pm.clear_input_buf(&session_id);
+                    }
+                    Err(e) => {
+                        eprintln!("[sandbox] error: {e}");
+                        pm.clear_input_buf(&session_id);
+                    }
+                }
+            } else {
+                // Multi-line or command+newline paste: combine existing buffer with first line, then check every line.
+                let prefix = pm.get_input_buf(&session_id).cloned().unwrap_or_default();
+                pm.clear_input_buf(&session_id);
+                let normalized = input.replace("\r\n", "\n").replace('\r', "\n");
+                let mut lines: Vec<String> = normalized.split('\n').map(|s| s.to_string()).collect();
+                if let Some(first) = lines.first_mut() {
+                    *first = format!("{prefix}{first}");
+                }
+                for line in &lines {
+                    let candidate = normalize_cd_shortcut(line);
+                    if let Some(reason) = pm.check_command_sandbox(&session_id, &candidate) {
+                        blocked_reason = reason;
+                        break;
+                    }
+                    if !candidate.trim().is_empty() {
+                        allowed_cmds.push(candidate);
+                    }
                 }
             }
 
-            match pm.check_input_sandbox(&session_id) {
-                Ok(None) => {
-                    allowed_cmd = pm.get_input_buf(&session_id).cloned().unwrap_or_default();
-                    pm.clear_input_buf(&session_id);
-
-                    // Add command to history on successful enter
-                    if !allowed_cmd.trim().is_empty() {
-                        let len = {
-                            let hist = pm.terminal_history.entry(session_id.clone()).or_default();
-                            if hist.last() != Some(&allowed_cmd) {
-                                hist.push(allowed_cmd.clone());
-                            }
-                            hist.len()
-                        };
-                        pm.terminal_history_index.insert(session_id.clone(), len);
-                    }
-                }
-                Ok(Some(reason)) => {
-                    blocked_reason = reason;
-                    pm.clear_input_buf(&session_id);
-                }
-                Err(e) => {
-                    eprintln!("[sandbox] error: {e}");
-                    pm.clear_input_buf(&session_id);
+            if blocked_reason.is_empty() {
+                for cmd in &allowed_cmds {
+                    let len = {
+                        let hist = pm.terminal_history.entry(session_id.clone()).or_default();
+                        if hist.last() != Some(cmd) {
+                            hist.push(cmd.clone());
+                        }
+                        hist.len()
+                    };
+                    pm.terminal_history_index.insert(session_id.clone(), len);
+                    pm.update_cwd_for_cd(&session_id, cmd);
                 }
             }
         }
@@ -119,9 +148,7 @@ pub async fn write_to_terminal_session(
     }
 
     if !blocked_reason.is_empty() {
-        // Send Ctrl+C to PowerShell/Bash to cancel input line
         let _ = stdin_tx.send("\x03".to_string()).await;
-        // Send blocked warning
         let warning = format!("\r[Sandbox] Blocked: {}\r\n", blocked_reason);
         let _ = out_tx.send(TerminalOutput {
             session_id: session_id.clone(),
@@ -131,13 +158,13 @@ pub async fn write_to_terminal_session(
     }
 
     if is_enter {
-        {
-            let mut pm = state.process_manager.lock().await;
-            if !allowed_cmd.is_empty() {
-                pm.update_cwd_for_cd(&session_id, &allowed_cmd);
-            }
-        }
-        let _ = stdin_tx.send("\r".to_string()).await;
+        let payload = if is_pure_newline {
+            "\r".to_string()
+        } else {
+            // Preserve pasted text instead of dropping everything before the newline.
+            input.replace("\r\n", "\r").replace('\n', "\r")
+        };
+        let _ = stdin_tx.send(payload).await;
         return Ok(());
     }
 

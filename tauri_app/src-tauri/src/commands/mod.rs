@@ -18,6 +18,7 @@ pub mod database;
 pub mod db_mongo;
 pub mod db_kv;
 pub mod db_duckdb;
+pub mod db_redis;
 pub mod settings;
 pub mod sqlite;
 pub mod terminal;
