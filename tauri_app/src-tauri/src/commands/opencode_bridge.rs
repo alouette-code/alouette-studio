@@ -453,6 +453,7 @@ impl OpenCodeManager {
         active_cwd: Option<String>,
         thinking_mode: Option<String>,
         code_rag: Option<Arc<crate::commands::code_rag::CodeRagState>>,
+        referenced_chats_context: Option<String>,
         window: WebviewWindow,
     ) -> Result<AgentResponse, String> {
         // Abort any leftover active turn before starting a fresh prompt
@@ -611,6 +612,16 @@ impl OpenCodeManager {
                 if !ctx_str.is_empty() {
                     system_parts.push(ctx_str);
                 }
+            }
+        }
+
+        if let Some(chat_ctx) = referenced_chats_context {
+            if !chat_ctx.trim().is_empty() {
+                agent_log(
+                    Some(&window),
+                    "[CONTEXT] Đã nạp nội dung từ các đoạn chat lịch sử được @ tham chiếu",
+                );
+                system_parts.push(chat_ctx);
             }
         }
 

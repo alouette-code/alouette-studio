@@ -338,6 +338,7 @@ fn main() {
             commands::vm::list_virtual_machines,
             commands::vm::start_virtual_machine,
             commands::vm::stop_virtual_machine,
+            commands::vm::shutdown_virtual_machine,
             commands::vm::get_virtual_machine_logs,
             commands::vm::create_vm_snapshot,
             commands::vm::restore_vm_snapshot,

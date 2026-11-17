@@ -1,17 +1,13 @@
+pub mod action_compiler;
 pub mod config;
-pub mod device;
-pub mod kvm_core;
 pub mod manager;
 pub mod qemu_wrapper;
-pub mod vcpu;
-pub mod qmp_client;
 pub mod qga_client;
-pub mod advanced;
+pub mod qmp_client;
+pub mod vnc_stream;
 
-pub use config::VmConfig;
-pub use device::SerialDevice;
-pub use kvm_core::KvmVm;
-pub use vcpu::Vcpu;
-pub use manager::{ActiveVm, VmManager};
+pub use config::{AdvancedConfig, VmConfig};
+pub use manager::{ActiveVm, VmManager, VmRuntimeInfo};
 pub use qemu_wrapper::QemuInstance;
-
+pub use qmp_client::VmInputAction;
+pub use vnc_stream::{VmFrameStream, VmObservation};

@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
 import { Plus, Trash2, Variable, Globe } from "lucide-react";
+import { AlouetteSelect } from "./AlouetteSelect";
+import { AlouetteCheckbox } from "./AlouetteControls";
 
 interface EnvironmentVariable {
   key: string;
@@ -183,17 +185,15 @@ export default function PingZeroEnvManager({
       {/* Environment Selector */}
       <div className="env-selector-bar">
         <Globe size={13} className="text-muted" />
-        <select
-          className="env-select"
-          value={activeEnvId}
-          onChange={(e) => setActiveEnvId(e.target.value)}
-        >
-          {environments.map((env) => (
-            <option key={env.id} value={env.id}>
-              {env.name}
-            </option>
-          ))}
-        </select>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <AlouetteSelect
+            size="sm"
+            value={activeEnvId}
+            options={environments.map((env) => ({ value: env.id, label: env.name }))}
+            onChange={setActiveEnvId}
+            searchable={false}
+          />
+        </div>
         <button
           className="env-add-btn"
           onClick={addEnvironment}
@@ -221,13 +221,9 @@ export default function PingZeroEnvManager({
         )}
         {activeEnv?.variables.map((v) => (
           <div key={v.key} className="env-var-row">
-            <input
-              type="checkbox"
+            <AlouetteCheckbox
               checked={v.enabled}
-              onChange={(e) =>
-                updateVariable(v.key, "enabled", e.target.checked)
-              }
-              className="env-var-check"
+              onChange={(checked) => updateVariable(v.key, "enabled", checked)}
             />
             <input
               type="text"

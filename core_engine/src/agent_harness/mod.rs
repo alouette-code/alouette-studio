@@ -634,7 +634,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
     ) -> BlastRadius {
         match tool_name {
             "open_browser" | "get_browser_elements" | "browser_click" | "browser_type" | "browser_click_hardware" | "browser_type_hardware" => BlastRadius::Local,
-            "write_file" | "replace_in_file" | "execute_command" | "vm_execute_command" | "vm_list" | "vm_start" | "vm_stop" | "check_port" => BlastRadius::Local,
+            "write_file" | "replace_in_file" | "execute_command" | "vm_execute_command" | "vm_list" | "vm_start" | "vm_stop" | "vm_file_io" | "vm_checkpoint" | "vm_observe" | "vm_act" | "vm_fast_dispatch" | "check_port" => BlastRadius::Local,
             "get_project_files" | "read_file" => BlastRadius::Local,
             "delete_file" | "force_push" | "git_reset" => {
                 // Check if arguments indicate destructive operation
@@ -702,6 +702,11 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "vm_list" => self.execute_vm_list(),
             "vm_start" => self.execute_vm_start(tool),
             "vm_stop" => self.execute_vm_stop(tool),
+            "vm_file_io" => self.execute_vm_file_io(tool).await,
+            "vm_checkpoint" => self.execute_vm_checkpoint(tool).await,
+            "vm_observe" => self.execute_vm_observe(tool).await,
+            "vm_act" => self.execute_vm_act(tool).await,
+            "vm_fast_dispatch" => self.execute_vm_fast_dispatch(tool).await,
             "check_command_status" => self.execute_check_command_status(tool).await,
             "kill_command" => self.execute_kill_command(tool).await,
             "save_memory" => self.execute_save_memory(tool),
@@ -1642,6 +1647,198 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         
         vm_manager.stop_vm(vm_id)?;
         Ok(format!("Successfully sent stop signal to VM {}.", vm_id))
+    }
+
+    async fn execute_vm_file_io(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let vm_manager = self
+            .vm_manager
+            .as_ref()
+            .ok_or_else(|| "VM Manager not initialized".to_string())?
+            .clone();
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?
+            .to_string();
+        let operation = tool.arguments["operation"]
+            .as_str()
+            .ok_or_else(|| "Missing 'operation' argument".to_string())?
+            .to_string();
+        let path = tool.arguments["path"]
+            .as_str()
+            .ok_or_else(|| "Missing 'path' argument".to_string())?
+            .to_string();
+        let content = tool.arguments["content"].as_str().map(ToString::to_string);
+        let max_bytes = tool.arguments["max_bytes"]
+            .as_u64()
+            .unwrap_or(131_072)
+            .clamp(1, 2_097_152) as usize;
+
+        tokio::task::spawn_blocking(move || match operation.as_str() {
+            "read" => vm_manager.read_guest_file(&vm_id, &path, max_bytes),
+            "write" => {
+                let text = content.ok_or_else(|| "Missing 'content' for write operation".to_string())?;
+                let written = vm_manager.write_guest_file(&vm_id, &path, &text)?;
+                Ok(format!("Wrote {} bytes to '{}' inside VM '{}'.", written, path, vm_id))
+            }
+            other => Err(format!("Unsupported vm_file_io operation '{}'. Use 'read' or 'write'.", other)),
+        })
+        .await
+        .map_err(|e| format!("Tokio task failed: {}", e))?
+    }
+
+    async fn execute_vm_checkpoint(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let vm_manager = self
+            .vm_manager
+            .as_ref()
+            .ok_or_else(|| "VM Manager not initialized".to_string())?
+            .clone();
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?
+            .to_string();
+        let action = tool.arguments["action"]
+            .as_str()
+            .ok_or_else(|| "Missing 'action' argument".to_string())?
+            .to_string();
+        let name = tool.arguments["name"].as_str().map(ToString::to_string);
+
+        tokio::task::spawn_blocking(move || match action.as_str() {
+            "save" => {
+                let snap = name.ok_or_else(|| "Missing 'name' for checkpoint save".to_string())?;
+                vm_manager.create_snapshot(&vm_id, &snap)?;
+                Ok(format!("Saved checkpoint '{}' for VM '{}'.", snap, vm_id))
+            }
+            "restore" => {
+                let snap = name.ok_or_else(|| "Missing 'name' for checkpoint restore".to_string())?;
+                vm_manager.restore_snapshot(&vm_id, &snap)?;
+                Ok(format!("Restored checkpoint '{}' for VM '{}'.", snap, vm_id))
+            }
+            "list" => {
+                let list = vm_manager.list_snapshots(&vm_id)?;
+                Ok(serde_json::to_string_pretty(&list).unwrap_or_else(|_| "[]".to_string()))
+            }
+            other => Err(format!("Unsupported vm_checkpoint action '{}'. Use 'save', 'restore', or 'list'.", other)),
+        })
+        .await
+        .map_err(|e| format!("Tokio task failed: {}", e))?
+    }
+
+    async fn execute_vm_observe(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let vm_manager = self
+            .vm_manager
+            .as_ref()
+            .ok_or_else(|| "VM Manager not initialized".to_string())?
+            .clone();
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?
+            .to_string();
+        let since_seq = tool.arguments.get("since_seq").and_then(|v| v.as_u64());
+        let wait_change_ms = tool.arguments.get("wait_change_ms").and_then(|v| v.as_u64()).unwrap_or(300);
+        let include_ocr = tool.arguments.get("include_ocr").and_then(|v| v.as_bool()).unwrap_or(true);
+        let include_image_base64 = tool.arguments.get("include_image_base64").and_then(|v| v.as_bool()).unwrap_or(false);
+        let max_image_dim = tool.arguments.get("max_image_dim").and_then(|v| v.as_u64()).unwrap_or(1024) as u32;
+
+        tokio::task::spawn_blocking(move || {
+            let obs = vm_manager.observe_vm(
+                &vm_id,
+                since_seq,
+                wait_change_ms,
+                include_ocr,
+                include_image_base64,
+                max_image_dim,
+            )?;
+            serde_json::to_string_pretty(&obs).map_err(|e| format!("Failed to serialize observation: {}", e))
+        })
+        .await
+        .map_err(|e| format!("Tokio task failed: {}", e))?
+    }
+
+    async fn execute_vm_act(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let vm_manager = self
+            .vm_manager
+            .as_ref()
+            .ok_or_else(|| "VM Manager not initialized".to_string())?
+            .clone();
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?
+            .to_string();
+        let actions_val = tool.arguments.get("actions").ok_or_else(|| "Missing 'actions' array".to_string())?;
+        let actions: Vec<crate::vm_engine::VmInputAction> = serde_json::from_value(actions_val.clone())
+            .map_err(|e| format!("Invalid actions payload: {}", e))?;
+        if actions.is_empty() {
+            return Err("'actions' array cannot be empty".to_string());
+        }
+        let wait_after_ms = tool.arguments.get("wait_after_ms").and_then(|v| v.as_u64()).unwrap_or(350);
+
+        tokio::task::spawn_blocking(move || {
+            let (count, (w, h), pre_seq) = vm_manager.act_on_vm(&vm_id, &actions)?;
+            let post_obs = vm_manager.observe_vm(&vm_id, Some(pre_seq), wait_after_ms, true, false, 1024)?;
+            Ok(serde_json::to_string_pretty(&serde_json::json!({
+                "executed_actions": count,
+                "screen_resolution": [w, h],
+                "post_observation": post_obs
+            })).unwrap_or_default())
+        })
+        .await
+        .map_err(|e| format!("Tokio task failed: {}", e))?
+    }
+
+    async fn execute_vm_fast_dispatch(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let vm_manager = self
+            .vm_manager
+            .as_ref()
+            .ok_or_else(|| "VM Manager not initialized".to_string())?
+            .clone();
+        let vm_id = tool.arguments["vm_id"]
+            .as_str()
+            .ok_or_else(|| "Missing 'vm_id' argument".to_string())?
+            .to_string();
+        let instruction = tool.arguments["instruction"]
+            .as_str()
+            .ok_or_else(|| "Missing 'instruction' argument".to_string())?
+            .to_string();
+        let endpoint = tool.arguments.get("endpoint").and_then(|v| v.as_str()).map(ToString::to_string);
+        let model = tool.arguments.get("model").and_then(|v| v.as_str()).map(ToString::to_string);
+
+        // 1. Observe live in-memory VNC state + OCR coordinates
+        let vm_mgr_obs = vm_manager.clone();
+        let vm_id_obs = vm_id.clone();
+        let obs = tokio::task::spawn_blocking(move || {
+            vm_mgr_obs.observe_vm(&vm_id_obs, None, 250, true, false, 1024)
+        })
+        .await
+        .map_err(|e| format!("Tokio task failed: {}", e))??;
+
+        // 2. Compile instruction into QMP input actions using fast local small model
+        let compiled = crate::vm_engine::action_compiler::compile_instruction_with_small_model(
+            &instruction,
+            &obs,
+            endpoint.as_deref(),
+            model.as_deref(),
+        )
+        .await?;
+
+        // 3. Execute compiled batch directly via QMP input-send-event & capture post-action diff
+        let actions_clone = compiled.actions.clone();
+        let post = tokio::task::spawn_blocking(move || {
+            let (count, (w, h), pre_seq) = vm_manager.act_on_vm(&vm_id, &actions_clone)?;
+            let post_obs = vm_manager.observe_vm(&vm_id, Some(pre_seq), 400, true, false, 1024)?;
+            Ok::<_, String>((count, w, h, post_obs))
+        })
+        .await
+        .map_err(|e| format!("Tokio task failed: {}", e))??;
+
+        Ok(serde_json::to_string_pretty(&serde_json::json!({
+            "model_used": compiled.model_used,
+            "endpoint_used": compiled.endpoint_used,
+            "compiled_actions": compiled.actions,
+            "executed_actions": post.0,
+            "screen_resolution": [post.1, post.2],
+            "post_observation": post.3
+        }))
+        .unwrap_or_default())
     }
 
     /// Check the status of a long-running command that was started with execute_command

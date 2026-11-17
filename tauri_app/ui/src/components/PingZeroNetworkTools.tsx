@@ -1,19 +1,8 @@
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import {
-  Globe,
-  Wifi,
-  Shield,
-  Key,
-  Hash,
-  FileText,
-  Clock,
-  AlertCircle,
-  Activity,
-  Terminal,
-  Copy,
-  XCircle,
-} from "lucide-react";
+import { Copy } from "lucide-react";
+import { AlouetteSelect } from "./AlouetteSelect";
+import { AlouetteNumberInput } from "./AlouetteControls";
 
 type ToolsTab =
   | "dns"
@@ -222,15 +211,15 @@ export default function PingZeroNetworkTools(
     }
   };
 
-  const tools: { id: ToolsTab; label: string; icon: any }[] = [
-    { id: "dns", label: "DNS", icon: Globe },
-    { id: "ping", label: "Ping", icon: Activity },
-    { id: "ssl", label: "SSL", icon: Shield },
-    { id: "jwt", label: "JWT", icon: Key },
-    { id: "hash", label: "Hash", icon: Hash },
-    { id: "base64", label: "Base64", icon: FileText },
-    { id: "timestamp", label: "Time", icon: Clock },
-    { id: "status", label: "Status", icon: AlertCircle },
+  const tools: { id: ToolsTab; label: string }[] = [
+    { id: "dns", label: "DNS" },
+    { id: "ping", label: "Ping" },
+    { id: "ssl", label: "SSL" },
+    { id: "jwt", label: "JWT" },
+    { id: "hash", label: "Hash" },
+    { id: "base64", label: "Base64" },
+    { id: "timestamp", label: "Time" },
+    { id: "status", label: "Status" },
   ];
 
   const copyResult = () => {
@@ -249,7 +238,6 @@ export default function PingZeroNetworkTools(
             className={`tool-btn ${activeTool === tool.id ? "active" : ""}`}
             onClick={() => setActiveTool(tool.id)}
           >
-            <tool.icon size={14} />
             <span>{tool.label}</span>
           </button>
         ))}
@@ -280,14 +268,13 @@ export default function PingZeroNetworkTools(
                   placeholder="e.g. google.com"
                 />
               </div>
-              <div className="input-group">
+              <div className="input-group" style={{ flex: "0 0 130px", minWidth: "120px" }}>
                 <label>Count</label>
-                <input
-                  type="number"
+                <AlouetteNumberInput
                   min={1}
                   max={10}
                   value={pingCount}
-                  onChange={(e) => setPingCount(parseInt(e.target.value) || 4)}
+                  onChange={(val) => setPingCount(val || 4)}
                 />
               </div>
             </>
@@ -303,12 +290,13 @@ export default function PingZeroNetworkTools(
                   placeholder="e.g. google.com"
                 />
               </div>
-              <div className="input-group">
+              <div className="input-group" style={{ flex: "0 0 140px", minWidth: "130px" }}>
                 <label>Port</label>
-                <input
-                  type="number"
+                <AlouetteNumberInput
+                  min={1}
+                  max={65535}
                   value={sslPort}
-                  onChange={(e) => setSslPort(parseInt(e.target.value) || 443)}
+                  onChange={(val) => setSslPort(val || 443)}
                 />
               </div>
             </>
@@ -337,15 +325,17 @@ export default function PingZeroNetworkTools(
           )}
           {activeTool === "base64" && (
             <>
-              <div className="input-group">
+              <div className="input-group" style={{ flex: "0 0 185px", minWidth: "170px" }}>
                 <label>Action</label>
-                <select
+                <AlouetteSelect
                   value={base64Action}
-                  onChange={(e) => setBase64Action(e.target.value as any)}
-                >
-                  <option value="encode">Encode → Base64</option>
-                  <option value="decode">Decode ← Base64</option>
-                </select>
+                  options={[
+                    { value: "encode", label: "Encode → Base64" },
+                    { value: "decode", label: "Decode ← Base64" },
+                  ]}
+                  onChange={(val) => setBase64Action(val as "encode" | "decode")}
+                  searchable={false}
+                />
               </div>
               <div className="input-group">
                 <label>
@@ -372,14 +362,13 @@ export default function PingZeroNetworkTools(
             </div>
           )}
           {activeTool === "status" && (
-            <div className="input-group">
+            <div className="input-group" style={{ flex: "0 0 160px", minWidth: "140px" }}>
               <label>HTTP Status Code</label>
-              <input
-                type="number"
+              <AlouetteNumberInput
                 min={100}
                 max={599}
-                value={statusCode}
-                onChange={(e) => setStatusCode(e.target.value)}
+                value={Number(statusCode) || 200}
+                onChange={(val) => setStatusCode(String(val))}
               />
             </div>
           )}
@@ -389,11 +378,6 @@ export default function PingZeroNetworkTools(
             onClick={runTool}
             disabled={loading}
           >
-            {loading ? (
-              <Activity size={14} className="animate-spin" />
-            ) : (
-              <Terminal size={14} />
-            )}
             <span>{loading ? "Running..." : "Run"}</span>
           </button>
         </div>
@@ -415,7 +399,6 @@ export default function PingZeroNetworkTools(
             </div>
             {results[activeTool].error ? (
               <div className="tool-error">
-                <XCircle size={14} className="text-danger" />
                 <pre>{results[activeTool].error}</pre>
               </div>
             ) : (
@@ -426,9 +409,8 @@ export default function PingZeroNetworkTools(
 
         {!results[activeTool] && (
           <div className="tool-placeholder">
-            <Wifi size={32} className="text-muted" />
-            <span className="text-muted text-xs mt-2">
-              Configure and click "Run" to execute
+            <span className="text-muted text-xs">
+              Configure and click &quot;Run&quot; to execute
             </span>
           </div>
         )}

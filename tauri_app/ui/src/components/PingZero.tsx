@@ -2,6 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import WindowResizer from "./WindowResizer";
 import { WindowControls } from "./WindowControls";
+import { AlouetteSelect } from "./AlouetteSelect";
+import {
+  AlouetteCheckbox,
+  AlouetteNumberInput,
+  AlouetteRadioGroup,
+} from "./AlouetteControls";
 import brandIcon from "./logo_alouette.png";
 import {
   Send,
@@ -2019,21 +2025,24 @@ export default function PingZero() {
 
           {/* ---- REQUEST BAR ---- */}
           <div className="request-bar">
-            <select
-              className="method-select"
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-            >
-              <option value="GET">GET</option>
-              <option value="POST">POST</option>
-              <option value="PUT">PUT</option>
-              <option value="DELETE">DELETE</option>
-              <option value="PATCH">PATCH</option>
-              <option value="OPTIONS">OPTIONS</option>
-              <option value="HEAD">HEAD</option>
-              <option value="WS">WS</option>
-              <option value="SSE">SSE</option>
-            </select>
+            <div style={{ width: "105px", flexShrink: 0 }}>
+              <AlouetteSelect
+                value={method}
+                searchable={false}
+                onChange={setMethod}
+                options={[
+                  { value: "GET", label: "GET", color: "#10b981" },
+                  { value: "POST", label: "POST", color: "#f59e0b" },
+                  { value: "PUT", label: "PUT", color: "#3a86ff" },
+                  { value: "DELETE", label: "DELETE", color: "#ef4444" },
+                  { value: "PATCH", label: "PATCH", color: "#a855f7" },
+                  { value: "OPTIONS", label: "OPTIONS", color: "#92929e" },
+                  { value: "HEAD", label: "HEAD", color: "#92929e" },
+                  { value: "WS", label: "WS", color: "#06b6d4" },
+                  { value: "SSE", label: "SSE", color: "#ec4899" },
+                ]}
+              />
+            </div>
 
             <input
               type="text"
@@ -2048,29 +2057,20 @@ export default function PingZero() {
             />
 
             {/* Environment Selector */}
-            <select
-              className="env-selector-dropdown"
-              value={selectedEnv}
-              onChange={(e) => setSelectedEnv(e.target.value)}
-              title="Select environment"
-              style={{
-                height: "32px",
-                padding: "0 6px",
-                fontSize: "11px",
-                backgroundColor: "var(--bg-primary)",
-                border: "1px solid var(--border-primary)",
-                color: "var(--text-primary)",
-                borderRadius: "4px",
-                maxWidth: "120px",
-              }}
-            >
-              {environments.length === 0 && <option value="">No Env</option>}
-              {environments.map((env) => (
-                <option key={env.id} value={env.id}>
-                  {env.name}
-                </option>
-              ))}
-            </select>
+            <div style={{ width: "125px", flexShrink: 0 }} title="Select environment">
+              <AlouetteSelect
+                size="sm"
+                value={selectedEnv}
+                searchable={environments.length > 8}
+                placeholder="No Env"
+                onChange={setSelectedEnv}
+                options={
+                  environments.length === 0
+                    ? [{ value: "", label: "No Env" }]
+                    : environments.map((env) => ({ value: env.id, label: env.name }))
+                }
+              />
+            </div>
 
             <button
               className="btn btn-secondary"
@@ -2210,12 +2210,11 @@ export default function PingZero() {
                       {queryParams.map((param, index) => (
                         <tr key={index}>
                           <td align="center">
-                            <input
-                              type="checkbox"
+                            <AlouetteCheckbox
                               checked={param.enabled}
-                              onChange={(e) => {
+                              onChange={(checked) => {
                                 const updated = [...queryParams];
-                                updated[index].enabled = e.target.checked;
+                                updated[index].enabled = checked;
                                 setQueryParams(updated);
                                 updateUrlFromParams(updated);
                               }}
@@ -2290,23 +2289,22 @@ export default function PingZero() {
                     <span className="text-xs font-bold text-secondary">
                       Auth Type:
                     </span>
-                    <select
-                      className="method-select"
-                      style={{
-                        height: "28px",
-                        padding: "0 6px",
-                        fontSize: "11.5px",
-                      }}
-                      value={authType}
-                      onChange={(e) => setAuthType(e.target.value as AuthType)}
-                    >
-                      <option value="none">No Auth</option>
-                      <option value="bearer">Bearer Token</option>
-                      <option value="basic">Basic Auth</option>
-                      <option value="apikey">API Key</option>
-                      <option value="oauth2">OAuth 2.0</option>
-                      <option value="aws">AWS Signature</option>
-                    </select>
+                    <div style={{ width: "170px" }}>
+                      <AlouetteSelect
+                        size="sm"
+                        searchable={false}
+                        value={authType}
+                        onChange={(val) => setAuthType(val as AuthType)}
+                        options={[
+                          { value: "none", label: "No Auth" },
+                          { value: "bearer", label: "Bearer Token" },
+                          { value: "basic", label: "Basic Auth" },
+                          { value: "apikey", label: "API Key" },
+                          { value: "oauth2", label: "OAuth 2.0" },
+                          { value: "aws", label: "AWS Signature" },
+                        ]}
+                      />
+                    </div>
                   </div>
 
                   {authType === "bearer" && (
@@ -2384,55 +2382,38 @@ export default function PingZero() {
                           />
                         </div>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-3">
                         <span className="text-xs text-secondary">
                           Add key to:
                         </span>
-                        <label className="flex items-center gap-1 cursor-pointer text-xs">
-                          <input
-                            type="radio"
-                            name="apiKeyAddto"
-                            checked={apiKeyAddto === "header"}
-                            onChange={() => setApiKeyAddto("header")}
-                          />
-                          <span>Header</span>
-                        </label>
-                        <label className="flex items-center gap-1 cursor-pointer text-xs ml-2">
-                          <input
-                            type="radio"
-                            name="apiKeyAddto"
-                            checked={apiKeyAddto === "query"}
-                            onChange={() => setApiKeyAddto("query")}
-                          />
-                          <span>Query Param</span>
-                        </label>
+                        <AlouetteRadioGroup
+                          value={apiKeyAddto}
+                          onChange={(val) => setApiKeyAddto(val as "header" | "query")}
+                          options={[
+                            { value: "header", label: "Header" },
+                            { value: "query", label: "Query Param" },
+                          ]}
+                        />
                       </div>
                     </div>
                   )}
 
                   {authType === "oauth2" && (
                     <div className="flex flex-col gap-3 max-w-xl">
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-1" style={{ width: "220px" }}>
                         <label className="text-xxs font-bold text-muted uppercase">
                           Grant Type
                         </label>
-                        <select
-                          className="method-select"
-                          style={{
-                            height: "28px",
-                            padding: "0 6px",
-                            fontSize: "11.5px",
-                          }}
+                        <AlouetteSelect
+                          size="sm"
+                          searchable={false}
                           value={oauthGrantType}
-                          onChange={(e) => setOauthGrantType(e.target.value)}
-                        >
-                          <option value="authorization_code">
-                            Authorization Code
-                          </option>
-                          <option value="client_credentials">
-                            Client Credentials
-                          </option>
-                        </select>
+                          onChange={setOauthGrantType}
+                          options={[
+                            { value: "authorization_code", label: "Authorization Code" },
+                            { value: "client_credentials", label: "Client Credentials" },
+                          ]}
+                        />
                       </div>
                       <div className="flex gap-3">
                         <div className="flex-1 flex flex-col gap-1">
@@ -2617,12 +2598,11 @@ export default function PingZero() {
                       {headers.map((header, index) => (
                         <tr key={index}>
                           <td align="center">
-                            <input
-                              type="checkbox"
+                            <AlouetteCheckbox
                               checked={header.enabled}
-                              onChange={(e) => {
+                              onChange={(checked) => {
                                 const updated = [...headers];
-                                updated[index].enabled = e.target.checked;
+                                updated[index].enabled = checked;
                                 setHeaders(updated);
                               }}
                             />
@@ -2687,69 +2667,19 @@ export default function PingZero() {
               {reqTab === "body" && (
                 <div className="body-tab">
                   <div className="body-type-selector">
-                    <label className="body-type-option">
-                      <input
-                        type="radio"
-                        name="bodyType"
-                        checked={bodyType === "none"}
-                        onChange={() => setBodyType("none")}
-                      />
-                      <span>None</span>
-                    </label>
-                    <label className="body-type-option">
-                      <input
-                        type="radio"
-                        name="bodyType"
-                        checked={bodyType === "json"}
-                        onChange={() => setBodyType("json")}
-                      />
-                      <span>JSON (application/json)</span>
-                    </label>
-                    <label className="body-type-option">
-                      <input
-                        type="radio"
-                        name="bodyType"
-                        checked={bodyType === "text"}
-                        onChange={() => setBodyType("text")}
-                      />
-                      <span>Text (text/plain)</span>
-                    </label>
-                    <label className="body-type-option">
-                      <input
-                        type="radio"
-                        name="bodyType"
-                        checked={bodyType === "urlencoded"}
-                        onChange={() => setBodyType("urlencoded")}
-                      />
-                      <span>x-www-form-urlencoded</span>
-                    </label>
-                    <label className="body-type-option">
-                      <input
-                        type="radio"
-                        name="bodyType"
-                        checked={bodyType === "form-data"}
-                        onChange={() => setBodyType("form-data")}
-                      />
-                      <span>Form-Data (multipart)</span>
-                    </label>
-                    <label className="body-type-option">
-                      <input
-                        type="radio"
-                        name="bodyType"
-                        checked={bodyType === "binary"}
-                        onChange={() => setBodyType("binary")}
-                      />
-                      <span>Binary (octet-stream)</span>
-                    </label>
-                    <label className="body-type-option">
-                      <input
-                        type="radio"
-                        name="bodyType"
-                        checked={bodyType === "graphql"}
-                        onChange={() => setBodyType("graphql")}
-                      />
-                      <span>GraphQL</span>
-                    </label>
+                    <AlouetteRadioGroup
+                      value={bodyType}
+                      onChange={(val) => setBodyType(val as typeof bodyType)}
+                      options={[
+                        { value: "none", label: "None" },
+                        { value: "json", label: "JSON (application/json)" },
+                        { value: "text", label: "Text (text/plain)" },
+                        { value: "urlencoded", label: "x-www-form-urlencoded" },
+                        { value: "form-data", label: "Form-Data (multipart)" },
+                        { value: "binary", label: "Binary (octet-stream)" },
+                        { value: "graphql", label: "GraphQL" },
+                      ]}
+                    />
                   </div>
                   {bodyType !== "none" && (
                     <div className="body-editor-wrapper">
@@ -2931,13 +2861,11 @@ export default function PingZero() {
                               ).map((field, index) => (
                                 <tr key={index}>
                                   <td align="center">
-                                    <input
-                                      type="checkbox"
+                                    <AlouetteCheckbox
                                       checked={field.enabled}
-                                      onChange={(e) => {
+                                      onChange={(checked) => {
                                         const updated = [...formDataFields];
-                                        updated[index].enabled =
-                                          e.target.checked;
+                                        updated[index].enabled = checked;
                                         setFormDataFields(updated);
                                       }}
                                     />
@@ -3031,21 +2959,24 @@ export default function PingZero() {
                                     </div>
                                   </td>
                                   <td align="center">
-                                    <select
-                                      value={field.type}
-                                      onChange={(e) => {
-                                        const updated = [...formDataFields];
-                                        updated[index].type = e.target.value as
-                                          | "text"
-                                          | "file";
-                                        if (e.target.value === "file")
-                                          updated[index].fileName = "";
-                                        setFormDataFields(updated);
-                                      }}
-                                    >
-                                      <option value="text">Text</option>
-                                      <option value="file">File</option>
-                                    </select>
+                                    <div style={{ width: "78px" }}>
+                                      <AlouetteSelect
+                                        size="sm"
+                                        searchable={false}
+                                        value={field.type}
+                                        onChange={(val) => {
+                                          const updated = [...formDataFields];
+                                          updated[index].type = val as "text" | "file";
+                                          if (val === "file")
+                                            updated[index].fileName = "";
+                                          setFormDataFields(updated);
+                                        }}
+                                        options={[
+                                          { value: "text", label: "Text" },
+                                          { value: "file", label: "File" },
+                                        ]}
+                                      />
+                                    </div>
                                   </td>
                                   <td align="center">
                                     {index < formDataFields.length - 1 && (
@@ -3234,51 +3165,31 @@ export default function PingZero() {
                     Select active response assertions to validate API behaviors:
                   </div>
                   <div className="flex flex-col gap-2">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs">
-                      <input
-                        type="checkbox"
-                        checked={assertStatus200}
-                        onChange={(e) => setAssertStatus200(e.target.checked)}
-                      />
-                      <span className="font-semibold">
-                        Validate Status Code is 200 OK
-                      </span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs">
-                      <input
-                        type="checkbox"
-                        checked={assertLatencyUnder200}
-                        onChange={(e) =>
-                          setAssertLatencyUnder200(e.target.checked)
+                    <AlouetteCheckbox
+                      checked={assertStatus200}
+                      onChange={setAssertStatus200}
+                      label={<span className="font-semibold">Validate Status Code is 200 OK</span>}
+                    />
+                    <AlouetteCheckbox
+                      checked={assertLatencyUnder200}
+                      onChange={setAssertLatencyUnder200}
+                      label={<span className="font-semibold">Validate Response Latency is under 200ms</span>}
+                    />
+                    <AlouetteCheckbox
+                      checked={assertIsValidJson}
+                      onChange={setAssertIsValidJson}
+                      label={<span className="font-semibold">Validate Response Body is a valid JSON document</span>}
+                    />
+                    <div className="flex flex-col gap-1 mt-1">
+                      <AlouetteCheckbox
+                        checked={assertContainsText}
+                        onChange={setAssertContainsText}
+                        label={
+                          <span className="font-semibold">
+                            Validate Response Body contains matching text string:
+                          </span>
                         }
                       />
-                      <span className="font-semibold">
-                        Validate Response Latency is under 200ms
-                      </span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs">
-                      <input
-                        type="checkbox"
-                        checked={assertIsValidJson}
-                        onChange={(e) => setAssertIsValidJson(e.target.checked)}
-                      />
-                      <span className="font-semibold">
-                        Validate Response Body is a valid JSON document
-                      </span>
-                    </label>
-                    <div className="flex flex-col gap-1 mt-1">
-                      <label className="flex items-center gap-2 cursor-pointer text-xs">
-                        <input
-                          type="checkbox"
-                          checked={assertContainsText}
-                          onChange={(e) =>
-                            setAssertContainsText(e.target.checked)
-                          }
-                        />
-                        <span className="font-semibold">
-                          Validate Response Body contains matching text string:
-                        </span>
-                      </label>
                       {assertContainsText && (
                         <input
                           type="text"
@@ -3363,20 +3274,14 @@ export default function PingZero() {
                     <label className="font-bold text-xs">
                       Request Timeout (milliseconds)
                     </label>
-                    <input
-                      type="number"
-                      style={{
-                        backgroundColor: "var(--bg-primary)",
-                        border: "1px solid var(--border-primary)",
-                        color: "var(--text-primary)",
-                        padding: "6px 12px",
-                        fontSize: "12px",
-                        width: "160px",
-                      }}
+                    <AlouetteNumberInput
+                      min={500}
+                      max={300000}
+                      step={500}
+                      unit="ms"
                       value={timeoutMs}
-                      onChange={(e) =>
-                        setTimeoutMs(parseInt(e.target.value) || 0)
-                      }
+                      onChange={setTimeoutMs}
+                      style={{ width: "180px" }}
                     />
                     <span className="text-muted text-xxs">
                       Max time to wait for a socket response. Defaults to
@@ -3425,31 +3330,22 @@ export default function PingZero() {
                   </div>
 
                   <div className="settings-item flex flex-col gap-2 mt-4" style={{ borderTop: "1px solid var(--border-primary)", paddingTop: "12px" }}>
-                    <label className="flex items-center gap-2 text-xs cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={allowLocal}
-                        onChange={(e) => setAllowLocal(e.target.checked)}
-                      />
-                      <span className="font-bold">Allow Localhost / Private LAN (127.0.0.1, 192.168.x.x)</span>
-                    </label>
-                    <label className="flex items-center gap-2 text-xs cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={!insecureTls}
-                        onChange={(e) => setInsecureTls(!e.target.checked)}
-                      />
-                      <span className="font-bold">Verify SSL Certificates (tắt khi test HTTPS self-signed local)</span>
-                    </label>
+                    <AlouetteCheckbox
+                      checked={allowLocal}
+                      onChange={setAllowLocal}
+                      label={<span className="font-bold">Allow Localhost / Private LAN (127.0.0.1, 192.168.x.x)</span>}
+                    />
+                    <AlouetteCheckbox
+                      checked={!insecureTls}
+                      onChange={(checked) => setInsecureTls(!checked)}
+                      label={<span className="font-bold">Verify SSL Certificates (tắt khi test HTTPS self-signed local)</span>}
+                    />
                     <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-2 text-xs cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={useCookieJar}
-                          onChange={(e) => setUseCookieJar(e.target.checked)}
-                        />
-                        <span className="font-bold">Auto Cookie Jar (tự động lưu & gửi Cookie giữa các request)</span>
-                      </label>
+                      <AlouetteCheckbox
+                        checked={useCookieJar}
+                        onChange={setUseCookieJar}
+                        label={<span className="font-bold">Auto Cookie Jar (tự động lưu &amp; gửi Cookie giữa các request)</span>}
+                      />
                       <button
                         type="button"
                         className="btn btn-secondary btn-xs"

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { Play, Activity } from "lucide-react";
 import { HeaderItem } from "./PingZeroTypes";
+import { AlouetteNumberInput } from "./AlouetteControls";
 
 interface PingZeroLoadTesterProps {
   url: string;
@@ -89,26 +90,25 @@ export default function PingZeroLoadTester({ url, method, headers, body }: PingZ
       <div style={{ display: "flex", gap: "20px", alignItems: "flex-end" }}>
         <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
           <label style={{ fontSize: "11px", fontWeight: "bold", color: "var(--text-muted)" }}>Virtual Users (Concurrency)</label>
-          <input
-            type="number"
-            min="1"
-            max="1000"
+          <AlouetteNumberInput
+            min={1}
+            max={1000}
             value={vus}
-            onChange={(e) => setVus(parseInt(e.target.value) || 1)}
+            onChange={(val) => setVus(val || 1)}
             disabled={status === "running"}
-            style={{ width: "120px", padding: "6px", borderRadius: "4px", border: "1px solid var(--border-primary)", backgroundColor: "var(--bg-primary)", color: "var(--text-primary)" }}
+            style={{ width: "130px" }}
           />
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
           <label style={{ fontSize: "11px", fontWeight: "bold", color: "var(--text-muted)" }}>Duration (Seconds)</label>
-          <input
-            type="number"
-            min="1"
-            max="3600"
+          <AlouetteNumberInput
+            min={1}
+            max={3600}
+            unit="s"
             value={duration}
-            onChange={(e) => setDuration(parseInt(e.target.value) || 10)}
+            onChange={(val) => setDuration(val || 10)}
             disabled={status === "running"}
-            style={{ width: "120px", padding: "6px", borderRadius: "4px", border: "1px solid var(--border-primary)", backgroundColor: "var(--bg-primary)", color: "var(--text-primary)" }}
+            style={{ width: "140px" }}
           />
         </div>
         <div>

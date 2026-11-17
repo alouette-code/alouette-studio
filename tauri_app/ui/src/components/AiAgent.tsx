@@ -1140,16 +1140,23 @@ export default function AiAgent({
   }>({ visible: false, text: "", type: "idle" });
 
   // Mentions (@) Autocomplete states
+  type MentionContextItem = {
+    name: string;
+    path: string;
+    is_dir: boolean;
+    kind?: "file" | "dir" | "chat";
+    session_id?: string;
+    created_at?: string;
+  };
   const [allWorkspaceFiles, setAllWorkspaceFiles] = useState<
     Array<{ name: string; path: string; is_dir: boolean }>
   >([]);
+  const [pastChatMentions, setPastChatMentions] = useState<MentionContextItem[]>([]);
   const [showMentions, setShowMentions] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionTriggerIndex, setMentionTriggerIndex] = useState(-1);
   const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0);
-  const [selectedContextItems, setSelectedContextItems] = useState<
-    Array<{ name: string; path: string; is_dir: boolean }>
-  >([]);
+  const [selectedContextItems, setSelectedContextItems] = useState<MentionContextItem[]>([]);
 
   // Fetch all files and directories on mount or CWD change
   useEffect(() => {
@@ -1166,6 +1173,33 @@ export default function AiAgent({
     loadFiles();
   }, [activeProjectCwd]);
 
+  // Fetch past chat sessions whenever @ menu opens or project changes
+  useEffect(() => {
+    if (!showMentions && pastChatMentions.length > 0) return;
+    let cancelled = false;
+    invoke<any[]>("agent_get_history", {
+      projectId: activeProjectId || null,
+    })
+      .then((list) => {
+        if (cancelled || !Array.isArray(list)) return;
+        const mapped: MentionContextItem[] = list
+          .filter((h) => h.session_id && h.session_id !== sessionId)
+          .map((h) => ({
+            name: h.title || "Cuộc trò chuyện cũ",
+            path: `__chat__:${h.session_id}`,
+            is_dir: false,
+            kind: "chat" as const,
+            session_id: h.session_id,
+            created_at: h.created_at,
+          }));
+        setPastChatMentions(mapped);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [showMentions, activeProjectId, sessionId]);
+
   // Memoize the Fuse instance for better performance
   const fuse = useMemo(() => {
     return new Fuse(allWorkspaceFiles, {
@@ -1179,17 +1213,44 @@ export default function AiAgent({
     });
   }, [allWorkspaceFiles]);
 
-  // Memoized filter list of matching files and folders
-  const filteredMentions = useMemo(() => {
+  const chatFuse = useMemo(() => {
+    return new Fuse(pastChatMentions, {
+      keys: [{ name: "name", weight: 2 }],
+      threshold: 0.45,
+      ignoreLocation: true,
+    });
+  }, [pastChatMentions]);
+
+  // Memoized filter list of past chats + matching files and folders
+  const filteredMentions = useMemo<MentionContextItem[]>(() => {
     if (!showMentions) return [];
-    if (!mentionQuery) {
-      return allWorkspaceFiles.slice(0, 30);
+    const q = mentionQuery.trim();
+    if (!q) {
+      const topChats = pastChatMentions.slice(0, 6);
+      const topFiles: MentionContextItem[] = allWorkspaceFiles
+        .slice(0, 24)
+        .map((f) => ({ ...f, kind: f.is_dir ? "dir" : "file" }));
+      return [...topChats, ...topFiles];
     }
-    
-    return fuse.search(mentionQuery)
-      .map((result) => result.item)
-      .slice(0, 30);
-  }, [showMentions, mentionQuery, allWorkspaceFiles, fuse]);
+
+    const lowerQ = q.toLowerCase();
+    if (lowerQ === "chat" || lowerQ === "history" || lowerQ.startsWith("chat:")) {
+      const sub = lowerQ.replace(/^chat:?/, "").trim();
+      if (!sub) return pastChatMentions.slice(0, 15);
+      return chatFuse.search(sub).map((r) => r.item).slice(0, 15);
+    }
+
+    const matchedChats = chatFuse.search(q).map((r) => r.item).slice(0, 6);
+    const matchedFiles: MentionContextItem[] = fuse
+      .search(q)
+      .map((result) => ({
+        ...result.item,
+        kind: (result.item.is_dir ? "dir" : "file") as "dir" | "file",
+      }))
+      .slice(0, 24);
+
+    return [...matchedChats, ...matchedFiles];
+  }, [showMentions, mentionQuery, allWorkspaceFiles, pastChatMentions, fuse, chatFuse]);
 
   const checkMentionTrigger = (text: string, selectionStart: number) => {
     let atIndex = -1;
@@ -1222,11 +1283,7 @@ export default function AiAgent({
     }
   };
 
-  const handleSelectMention = (item: {
-    name: string;
-    path: string;
-    is_dir: boolean;
-  }) => {
+  const handleSelectMention = (item: MentionContextItem) => {
     if (!textareaRef.current) return;
     const text = inputVal;
     const start = mentionTriggerIndex;
@@ -2080,6 +2137,7 @@ export default function AiAgent({
   const triggerSendMessage = async (
     messageText: string,
     imagesToSend: ImageAttachment[] = [],
+    referencedSessions: string[] = [],
   ) => {
     if (!messageText.trim() && imagesToSend.length === 0) return;
 
@@ -2168,6 +2226,7 @@ export default function AiAgent({
         mode: isMultiAgentActive ? "multi_agent" : selectedMode,
         activeCwd: activeProjectCwd,
         thinkingMode: thinkingMode,
+        referencedSessions: referencedSessions.length > 0 ? referencedSessions : null,
       });
 
       if (myEpoch !== sendEpochRef.current) return;
@@ -2351,9 +2410,16 @@ export default function AiAgent({
     if (!hasText && !hasContext && !hasImages) return;
 
     let text = inputVal;
+    const referencedSessions: string[] = [];
     if (hasContext) {
       const contextPrefix = selectedContextItems
-        .map((item) => `\`@${item.path}\``)
+        .map((item) => {
+          if (item.kind === "chat" && item.session_id) {
+            referencedSessions.push(item.session_id);
+            return `\`@Chat: ${item.name}\``;
+          }
+          return `\`@${item.path}\``;
+        })
         .join(" ");
       text = contextPrefix + (text.trim() ? "\n\n" + text : "");
     }
@@ -2365,7 +2431,7 @@ export default function AiAgent({
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-    await triggerSendMessage(text, imagesToSend);
+    await triggerSendMessage(text, imagesToSend, referencedSessions);
   };
 
   const handleStartAnalyze = async (errorLog: string) => {
@@ -4246,17 +4312,25 @@ export default function AiAgent({
                     display: "inline-flex",
                     alignItems: "center",
                     gap: "6px",
-                    background: "var(--bg-secondary)",
-                    border: "1px solid var(--border-primary)",
+                    background: item.kind === "chat" ? "rgba(99, 102, 241, 0.14)" : "var(--bg-secondary)",
+                    border: item.kind === "chat" ? "1px solid rgba(99, 102, 241, 0.4)" : "1px solid var(--border-primary)",
                     borderRadius: "16px",
                     padding: "3px 10px",
                     fontSize: "11px",
-                    color: "var(--text-primary)",
+                    color: item.kind === "chat" ? "#c7d2fe" : "var(--text-primary)",
                     fontFamily: "var(--font-sans)",
                     userSelect: "none",
                   }}
                 >
-                  {item.is_dir ? (
+                  {item.kind === "chat" ? (
+                    <History
+                      size={11}
+                      style={{
+                        color: "#818cf8",
+                        flexShrink: 0,
+                      }}
+                    />
+                  ) : item.is_dir ? (
                     <Folder
                       size={11}
                       style={{
@@ -4425,7 +4499,15 @@ export default function AiAgent({
                         transition: "background 0.15s, color 0.15s",
                       }}
                     >
-                      {item.is_dir ? (
+                      {item.kind === "chat" ? (
+                        <History
+                          size={13}
+                          style={{
+                            color: "#818cf8",
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : item.is_dir ? (
                         <Folder
                           size={13}
                           style={{
@@ -4442,20 +4524,29 @@ export default function AiAgent({
                           }}
                         />
                       )}
-                      <span style={{ fontWeight: 500, flexShrink: 0 }}>
+                      <span
+                        style={{
+                          fontWeight: 500,
+                          flexShrink: item.kind === "chat" ? 1 : 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
                         {item.name}
                       </span>
                       <span
                         style={{
-                          color: "var(--text-muted)",
+                          color: item.kind === "chat" ? "#818cf8" : "var(--text-muted)",
                           fontSize: "10.5px",
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
-                          marginLeft: "4px",
+                          marginLeft: "auto",
+                          flexShrink: 0,
                         }}
                       >
-                        {item.path}
+                        {item.kind === "chat" ? "Lịch sử chat" : item.path}
                       </span>
                     </button>
                   );

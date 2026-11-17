@@ -248,13 +248,33 @@ pub async fn agent_send_message(
     mode: String,
     active_cwd: Option<String>,
     thinking_mode: Option<String>,
+    referenced_sessions: Option<Vec<String>>,
     window: WebviewWindow,
     app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
+    let referenced_ctx = if let Some(ref sess_ids) = referenced_sessions {
+        if !sess_ids.is_empty() {
+            let pool = app_state.db_pool.clone();
+            let ids = sess_ids.clone();
+            tokio::task::spawn_blocking(move || build_referenced_chats_context(&pool, &ids))
+                .await
+                .unwrap_or_default()
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     if mode == "multi_agent" {
         let session_id = format!("sess_{}", Local::now().timestamp());
+        let enriched_msg = if let Some(ref ctx) = referenced_ctx {
+            format!("{}\n\n{}", ctx, message)
+        } else {
+            message
+        };
         return super::multi_agent::run_multi_agent_workflow(
-            message,
+            enriched_msg,
             model,
             active_cwd,
             thinking_mode,
@@ -274,6 +294,7 @@ pub async fn agent_send_message(
             active_cwd,
             thinking_mode,
             Some(app_state.code_rag.clone()),
+            referenced_ctx,
             window,
         )
         .await
@@ -1327,4 +1348,78 @@ fn build_loop_result(session: &AgentSession, final_text: String) -> LoopResult {
         stopped_early: false,
         stop_reason: None,
     }
+}
+
+/// Đọc và tóm lược thông minh các đoạn chat lịch sử được người dùng `@` tham chiếu.
+fn build_referenced_chats_context(
+    pool: &r2d2::Pool<r2d2_sqlite::SqliteConnectionManager>,
+    session_ids: &[String],
+) -> Option<String> {
+    let conn = pool.get().ok()?;
+    let _ = init_history_db(&conn);
+
+    let mut sections: Vec<String> = Vec::new();
+    for sid in session_ids.iter().take(5) {
+        let row_res: Result<(String, String, String), _> = conn.query_row(
+            "SELECT title, created_at, frontend_history FROM history_agen WHERE session_id = ?1;",
+            params![sid],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        );
+
+        let Ok((title, created_at, frontend_history_str)) = row_res else {
+            continue;
+        };
+
+        let Ok(items) = serde_json::from_str::<Vec<serde_json::Value>>(&frontend_history_str) else {
+            continue;
+        };
+
+        let mut transcript = String::new();
+        for item in items {
+            let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            if item_type != "text" {
+                continue;
+            }
+            let sender = item.get("sender").and_then(|v| v.as_str()).unwrap_or("");
+            let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("").trim();
+            if text.is_empty() {
+                continue;
+            }
+            let role = if sender == "user" { "User" } else { "Assistant" };
+            transcript.push_str(&format!("[{}]: {}\n\n", role, text));
+        }
+
+        if transcript.trim().is_empty() {
+            continue;
+        }
+
+        // Giới hạn tối đa ~5500 ký tự mỗi session (giữ đầu bối cảnh + cuối kết luận) để tiết kiệm token
+        let char_count = transcript.chars().count();
+        let compact_transcript = if char_count > 5500 {
+            let head: String = transcript.chars().take(1800).collect();
+            let tail: String = transcript.chars().skip(char_count - 3500).collect();
+            format!(
+                "{}\n... [Đã rút gọn {} ký tự ở giữa để tối ưu ngữ cảnh] ...\n{}",
+                head,
+                char_count - 5300,
+                tail
+            )
+        } else {
+            transcript
+        };
+
+        sections.push(format!(
+            "<past_chat session_id=\"{}\" title=\"{}\" created_at=\"{}\">\n{}\n</past_chat>",
+            sid, title, created_at, compact_transcript.trim()
+        ));
+    }
+
+    if sections.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "<referenced_past_chats>\nThe user explicitly referenced the following past chat session(s) with `@`. Read, research, and synthesize the decisions, standards, code paths, and conclusions from these past chats first, then apply them to fulfill the user's current request:\n\n{}\n</referenced_past_chats>",
+        sections.join("\n\n")
+    ))
 }

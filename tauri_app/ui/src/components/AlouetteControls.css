@@ -1,0 +1,208 @@
+/* Shared cross-platform custom form controls for Alouette Studio */
+
+/* --- Number Stepper Input --- */
+.alouette-num-wrap {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  box-sizing: border-box;
+  transition: border-color 0.12s ease;
+}
+
+.alouette-num-wrap:focus-within {
+  border-color: var(--text-muted);
+}
+
+.alouette-num-wrap.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.alouette-num-input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+.alouette-num-input::-webkit-outer-spin-button,
+.alouette-num-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.alouette-num-unit {
+  display: inline-flex;
+  align-items: center;
+  padding-right: 6px;
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.alouette-num-stepper {
+  display: flex;
+  align-items: stretch;
+  border-left: 1px solid var(--border-primary);
+}
+
+.alouette-num-btn {
+  width: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-secondary);
+  border: none;
+  color: var(--text-secondary, var(--text-muted));
+  cursor: pointer;
+  padding: 0;
+  transition: background-color 0.1s ease, color 0.1s ease;
+}
+
+.alouette-num-btn + .alouette-num-btn {
+  border-left: 1px solid var(--border-primary);
+}
+
+.alouette-num-btn:hover:not(:disabled) {
+  background-color: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.alouette-num-btn:active:not(:disabled) {
+  background-color: rgba(58, 134, 255, 0.16);
+  color: var(--color-accent);
+}
+
+.alouette-num-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.alouette-num-wrap.sm .alouette-num-input {
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.alouette-num-wrap.sm .alouette-num-btn {
+  width: 20px;
+}
+
+/* --- Custom Checkbox --- */
+.alouette-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  text-align: left;
+  outline: none;
+}
+
+.alouette-checkbox.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.alouette-checkbox-box {
+  width: 15px;
+  height: 15px;
+  border-radius: 2px;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.alouette-checkbox:hover:not(.disabled) .alouette-checkbox-box {
+  border-color: var(--text-muted);
+}
+
+.alouette-checkbox.checked .alouette-checkbox-box {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.alouette-checkbox:focus-visible .alouette-checkbox-box {
+  border-color: var(--color-accent-hover, var(--color-accent));
+}
+
+/* --- Custom Radio Group --- */
+.alouette-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+}
+
+.alouette-radio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  padding: 2px 0;
+  outline: none;
+}
+
+.alouette-radio-item.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.alouette-radio-circle {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background-color: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: border-color 0.12s ease;
+}
+
+.alouette-radio-item:hover:not(.disabled) .alouette-radio-circle {
+  border-color: var(--text-muted);
+}
+
+.alouette-radio-item.checked .alouette-radio-circle {
+  border-color: var(--color-accent);
+}
+
+.alouette-radio-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--color-accent);
+  transform: scale(0);
+  transition: transform 0.12s ease;
+}
+
+.alouette-radio-item.checked .alouette-radio-dot {
+  transform: scale(1);
+}

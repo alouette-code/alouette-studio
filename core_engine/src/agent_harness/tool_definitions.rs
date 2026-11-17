@@ -92,6 +92,158 @@ pub fn all_tools() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "vm_file_io",
+            description: "Read or write a file directly inside a running VM via QEMU Guest Agent (zero screenshot overhead). Ideal for reading guest logs/configs or patching code inside the VM.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the running virtual machine."
+                    },
+                    "operation": {
+                        "type": "string",
+                        "enum": ["read", "write"],
+                        "description": "'read' to read file contents, 'write' to create/overwrite a file."
+                    },
+                    "path": {
+                        "type": "string",
+                        "description": "Absolute path inside the guest OS (e.g. '/var/log/app.log')."
+                    },
+                    "content": {
+                        "type": "string",
+                        "description": "Text content to write when operation is 'write'."
+                    },
+                    "max_bytes": {
+                        "type": "integer",
+                        "description": "Maximum bytes to read (default 131072, max 2097152)."
+                    }
+                },
+                "required": ["vm_id", "operation", "path"]
+            }),
+        },
+        ToolDef {
+            name: "vm_checkpoint",
+            description: "Manage VM snapshots before/after risky debugging steps ('save', 'restore', 'list').",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the virtual machine."
+                    },
+                    "action": {
+                        "type": "string",
+                        "enum": ["save", "restore", "list"],
+                        "description": "Snapshot operation to perform."
+                    },
+                    "name": {
+                        "type": "string",
+                        "description": "Snapshot name (required for 'save' and 'restore')."
+                    }
+                },
+                "required": ["vm_id", "action"]
+            }),
+        },
+        ToolDef {
+            name: "vm_observe",
+            description: "Observe the VM display instantaneously from the persistent in-memory VNC framebuffer stream (no disk screenshots). Returns resolution, frame_seq, dirty regions, extracted OCR text coordinates, and optional base64 PNG.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the running virtual machine."
+                    },
+                    "since_seq": {
+                        "type": "integer",
+                        "description": "Previous frame_seq to detect screen changes and dirty regions."
+                    },
+                    "wait_change_ms": {
+                        "type": "integer",
+                        "description": "Milliseconds to wait for framebuffer change (default 300, max 5000)."
+                    },
+                    "include_ocr": {
+                        "type": "boolean",
+                        "description": "Extract clickable text bounding boxes (cx, cy) via OCR (default true)."
+                    },
+                    "include_image_base64": {
+                        "type": "boolean",
+                        "description": "Include resized PNG base64 of the framebuffer (default false for speed)."
+                    },
+                    "max_image_dim": {
+                        "type": "integer",
+                        "description": "Max width/height if include_image_base64 is true (default 1024)."
+                    }
+                },
+                "required": ["vm_id"]
+            }),
+        },
+        ToolDef {
+            name: "vm_act",
+            description: "Inject a batch of mouse/keyboard actions directly into the VM via QEMU QMP input-send-event + virtio-tablet-pci (isolated from host mouse/keyboard). Supports move, click, scroll, key, type, wait.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the running virtual machine."
+                    },
+                    "actions": {
+                        "type": "array",
+                        "description": "Ordered list of input actions to execute in one batch.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": { "type": "string", "enum": ["move", "click", "scroll", "key", "type", "wait"] },
+                                "x": { "type": "integer" },
+                                "y": { "type": "integer" },
+                                "button": { "type": "string", "enum": ["left", "right", "middle"] },
+                                "double": { "type": "boolean" },
+                                "direction": { "type": "string", "enum": ["up", "down"] },
+                                "amount": { "type": "integer" },
+                                "key": { "type": "string" },
+                                "text": { "type": "string" },
+                                "ms": { "type": "integer" }
+                            },
+                            "required": ["type"]
+                        }
+                    },
+                    "wait_after_ms": {
+                        "type": "integer",
+                        "description": "Optional ms to wait for framebuffer update after executing batch (default 350)."
+                    }
+                },
+                "required": ["vm_id", "actions"]
+            }),
+        },
+        ToolDef {
+            name: "vm_fast_dispatch",
+            description: "Delegate a natural-language UI instruction to a fast local small model (e.g. Ollama / llama-server) which compiles the instruction + live VNC OCR elements into QMP input actions and executes them directly inside the VM.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "vm_id": {
+                        "type": "string",
+                        "description": "The ID of the running virtual machine."
+                    },
+                    "instruction": {
+                        "type": "string",
+                        "description": "Short UI intent (e.g. 'Click Terminal, type npm test and press Enter')."
+                    },
+                    "endpoint": {
+                        "type": "string",
+                        "description": "Optional local OpenAI-compatible URL (auto-probes 11434 and 8080 if omitted)."
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Optional small model name (auto-selects smallest available local model if omitted)."
+                    }
+                },
+                "required": ["vm_id", "instruction"]
+            }),
+        },
+        ToolDef {
             name: "write_file",
             description: "Create a new file or overwrite an existing file with new content. Parent directories are created automatically.",
             parameters: json!({
