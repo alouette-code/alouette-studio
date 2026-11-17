@@ -273,6 +273,7 @@ pub async fn agent_send_message(
             mode,
             active_cwd,
             thinking_mode,
+            Some(app_state.code_rag.clone()),
             window,
         )
         .await

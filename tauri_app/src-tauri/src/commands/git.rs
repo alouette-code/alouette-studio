@@ -18,9 +18,31 @@ pub struct GitStatus {
 #[derive(serde::Serialize, Clone)]
 pub struct CommitInfo {
     pub hash: String,
+    pub full_hash: String,
     pub author: String,
     pub date: String,
     pub subject: String,
+    pub is_pushed: bool,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct CommitFileStat {
+    pub path: String,
+    pub status: String,
+    pub insertions: usize,
+    pub deletions: usize,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct CommitDetails {
+    pub hash: String,
+    pub total_files: usize,
+    pub added_files: usize,
+    pub modified_files: usize,
+    pub deleted_files: usize,
+    pub total_insertions: usize,
+    pub total_deletions: usize,
+    pub files: Vec<CommitFileStat>,
 }
 
 fn run_git_cmd(cwd: &str, args: &[&str]) -> Result<String, String> {
@@ -164,20 +186,77 @@ pub async fn git_pull(cwd: String) -> Result<(), String> {
     Ok(())
 }
 
+fn resolve_remote_tracking_ref(cwd: &str) -> Option<(String, String, String)> {
+    let branch = run_git_cmd(cwd, &["rev-parse", "--abbrev-ref", "HEAD"]).ok()?;
+    if branch == "HEAD" || branch.is_empty() {
+        return None;
+    }
+
+    if let Ok(upstream) = run_git_cmd(cwd, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]) {
+        if !upstream.is_empty() {
+            let remote_name = upstream.split('/').next().unwrap_or("origin").to_string();
+            return Some((remote_name, branch, upstream));
+        }
+    }
+
+    let fallback_ref = format!("origin/{}", branch);
+    if run_git_cmd(cwd, &["rev-parse", "--verify", &fallback_ref]).is_ok() {
+        return Some(("origin".to_string(), branch, fallback_ref));
+    }
+
+    None
+}
+
+fn get_unpushed_commits_ordered(cwd: &str, remote_ref: Option<&str>) -> Vec<String> {
+    let range = remote_ref.map(|r| format!("{}..HEAD", r));
+    let output = match &range {
+        Some(rng) => run_git_cmd(cwd, &["rev-list", "--reverse", rng]),
+        None => run_git_cmd(cwd, &["rev-list", "--reverse", "HEAD"]),
+    };
+    match output {
+        Ok(out) => out
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
 #[tauri::command]
 pub async fn git_get_log(cwd: String) -> Result<Vec<CommitInfo>, String> {
-    let log_format = "%h|%an|%ad|%s";
-    let output = run_git_cmd(&cwd, &["log", "--oneline", "-n", "30", &format!("--pretty=format:{}", log_format)])?;
-    
+    let remote_info = resolve_remote_tracking_ref(&cwd);
+    let remote_ref = remote_info.as_ref().map(|(_, _, r)| r.as_str());
+    let unpushed_set: std::collections::HashSet<String> =
+        get_unpushed_commits_ordered(&cwd, remote_ref)
+            .into_iter()
+            .collect();
+
+    let log_format = "%h|%H|%an|%cd|%s";
+    let output = run_git_cmd(
+        &cwd,
+        &[
+            "log",
+            "-n",
+            "30",
+            "--date=format:%d/%m %H:%M",
+            &format!("--pretty=format:{}", log_format),
+        ],
+    )?;
+
     let mut commits = Vec::new();
     for line in output.lines() {
         let parts: Vec<&str> = line.split('|').collect();
-        if parts.len() >= 4 {
+        if parts.len() >= 5 {
+            let full_hash = parts[1].to_string();
+            let is_pushed = remote_ref.is_some() && !unpushed_set.contains(&full_hash);
             commits.push(CommitInfo {
                 hash: parts[0].to_string(),
-                author: parts[1].to_string(),
-                date: parts[2].to_string(),
-                subject: parts[3..].join("|"),
+                full_hash,
+                author: parts[2].to_string(),
+                date: parts[3].to_string(),
+                subject: parts[4..].join("|"),
+                is_pushed,
             });
         }
     }
@@ -208,4 +287,257 @@ pub async fn git_get_commit_files(cwd: String, hash: String) -> Result<Vec<GitFi
         }
     }
     Ok(files)
+}
+
+#[tauri::command]
+pub async fn git_get_commit_details(cwd: String, hash: String) -> Result<CommitDetails, String> {
+    let status_output = run_git_cmd(&cwd, &["show", "--name-status", "--pretty=format:", &hash])?;
+    let numstat_output = run_git_cmd(&cwd, &["show", "--numstat", "--pretty=format:", &hash])?;
+
+    let mut stats_map: std::collections::HashMap<String, (usize, usize)> = std::collections::HashMap::new();
+    for line in numstat_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split('\t').collect();
+        if parts.len() >= 3 {
+            let ins = parts[0].parse::<usize>().unwrap_or(0);
+            let del = parts[1].parse::<usize>().unwrap_or(0);
+            let path = parts[parts.len() - 1].to_string();
+            stats_map.insert(path, (ins, del));
+        }
+    }
+
+    let mut files = Vec::new();
+    let mut added_files = 0;
+    let mut modified_files = 0;
+    let mut deleted_files = 0;
+    let mut total_insertions = 0;
+    let mut total_deletions = 0;
+
+    for line in status_output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let parts: Vec<&str> = trimmed.split('\t').collect();
+        if parts.len() >= 2 {
+            let status_code = parts[0];
+            let (status, path) = if status_code.starts_with('R') && parts.len() >= 3 {
+                modified_files += 1;
+                ("renamed".to_string(), parts[2].to_string())
+            } else {
+                let p = parts[1].to_string();
+                let st = match status_code {
+                    "A" => {
+                        added_files += 1;
+                        "added"
+                    }
+                    "D" => {
+                        deleted_files += 1;
+                        "deleted"
+                    }
+                    _ => {
+                        modified_files += 1;
+                        "modified"
+                    }
+                };
+                (st.to_string(), p)
+            };
+
+            let (insertions, deletions) = stats_map.get(&path).copied().unwrap_or((0, 0));
+            total_insertions += insertions;
+            total_deletions += deletions;
+
+            files.push(CommitFileStat {
+                path,
+                status,
+                insertions,
+                deletions,
+            });
+        }
+    }
+
+    Ok(CommitDetails {
+        hash,
+        total_files: files.len(),
+        added_files,
+        modified_files,
+        deleted_files,
+        total_insertions,
+        total_deletions,
+        files,
+    })
+}
+
+#[tauri::command]
+pub async fn git_get_commit_file_diff(cwd: String, hash: String, file: String) -> Result<String, String> {
+    let output = run_git_cmd(&cwd, &["show", "--pretty=format:", "--unified=3", &hash, "--", &file])?;
+    Ok(output)
+}
+
+fn run_git_with_env(cwd: &str, args: &[&str], envs: &[(&str, &str)]) -> Result<String, String> {
+    log_to_app_file(&format!("Running git command with env in {}: {:?}", cwd, args));
+    let mut cmd = Command::new("git");
+    cmd.args(args).current_dir(cwd);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let output = cmd.output().map_err(|e| format!("Failed to execute git: {}", e))?;
+    if output.status.success() {
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    } else {
+        let err_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if err_msg.is_empty() {
+            Err(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        } else {
+            Err(err_msg)
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn git_push_single_commit(cwd: String, hash: String) -> Result<String, String> {
+    let (remote_name, current_branch, remote_ref) = resolve_remote_tracking_ref(&cwd)
+        .ok_or_else(|| "Chưa có nhánh remote upstream (origin). Hãy Push toàn bộ lần đầu trước.".to_string())?;
+
+    let target_full_hash = run_git_cmd(&cwd, &["rev-parse", &hash])?;
+    let unpushed = get_unpushed_commits_ordered(&cwd, Some(&remote_ref));
+
+    let pos = unpushed
+        .iter()
+        .position(|h| h == &target_full_hash)
+        .ok_or_else(|| "Commit này đã được push lên remote trước đó.".to_string())?;
+
+    let push_hash = if pos == 0 {
+        target_full_hash
+    } else {
+        // Ensure working tree is clean before reordering commits
+        let dirty = run_git_cmd(&cwd, &["status", "--porcelain"])?;
+        if !dirty.trim().is_empty() {
+            return Err("Có thay đổi chưa commit ở thư mục làm việc. Vui lòng commit hoặc stash trước khi push riêng commit giữa.".to_string());
+        }
+
+        // Reorder: move target commit to the front (right after remote_ref)
+        let mut reordered = Vec::with_capacity(unpushed.len());
+        reordered.push(unpushed[pos].clone());
+        for (i, h) in unpushed.iter().enumerate() {
+            if i != pos {
+                reordered.push(h.clone());
+            }
+        }
+
+        let todo_content: String = reordered
+            .iter()
+            .map(|h| format!("pick {}", h))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+
+        let temp_path = std::env::temp_dir().join(format!("alouette_rebase_todo_{}", std::process::id()));
+        std::fs::write(&temp_path, &todo_content).map_err(|e| format!("Không thể tạo file tạm: {}", e))?;
+
+        let editor_cmd = format!("sh -c 'cp \"{}\" \"$1\"' _", temp_path.to_string_lossy());
+        let rebase_res = run_git_with_env(
+            &cwd,
+            &["rebase", "-i", &remote_ref],
+            &[("GIT_SEQUENCE_EDITOR", &editor_cmd)],
+        );
+        let _ = std::fs::remove_file(&temp_path);
+
+        if let Err(e) = rebase_res {
+            let _ = run_git_cmd(&cwd, &["rebase", "--abort"]);
+            return Err(format!(
+                "Không thể tách riêng commit này do xung đột code (conflict) với commit đứng trước nó. Chi tiết: {}",
+                e
+            ));
+        }
+
+        let new_unpushed = get_unpushed_commits_ordered(&cwd, Some(&remote_ref));
+        new_unpushed
+            .first()
+            .cloned()
+            .ok_or_else(|| "Không tìm thấy commit sau khi sắp xếp lại.".to_string())?
+    };
+
+    let refspec = format!("{}:refs/heads/{}", push_hash, current_branch);
+    run_git_cmd(&cwd, &["push", &remote_name, &refspec])?;
+
+    Ok(format!("Đã push riêng commit {} lên {}/{}", &hash, remote_name, current_branch))
+}
+
+#[tauri::command]
+pub async fn git_reword_commit(cwd: String, hash: String, new_message: String) -> Result<(), String> {
+    let trimmed_msg = new_message.trim();
+    if trimmed_msg.is_empty() {
+        return Err("Nội dung commit message không được để trống.".to_string());
+    }
+
+    let remote_info = resolve_remote_tracking_ref(&cwd);
+    let remote_ref = remote_info.as_ref().map(|(_, _, r)| r.as_str());
+    let unpushed = get_unpushed_commits_ordered(&cwd, remote_ref);
+    let target_full_hash = run_git_cmd(&cwd, &["rev-parse", &hash])?;
+
+    if !unpushed.contains(&target_full_hash) {
+        return Err("Chỉ có thể sửa message của commit chưa push lên remote.".to_string());
+    }
+
+    let head_hash = run_git_cmd(&cwd, &["rev-parse", "HEAD"])?;
+    if target_full_hash == head_hash {
+        run_git_cmd(&cwd, &["commit", "--amend", "--only", "-m", trimmed_msg])?;
+        return Ok(());
+    }
+
+    let dirty = run_git_cmd(&cwd, &["status", "--porcelain"])?;
+    if !dirty.trim().is_empty() {
+        return Err("Vui lòng commit hoặc stash thay đổi hiện tại trước khi sửa message của commit cũ.".to_string());
+    }
+
+    let todo_content: String = unpushed
+        .iter()
+        .map(|h| {
+            if h == &target_full_hash {
+                format!("reword {}", h)
+            } else {
+                format!("pick {}", h)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+
+    let pid = std::process::id();
+    let todo_path = std::env::temp_dir().join(format!("alouette_reword_todo_{}", pid));
+    let msg_path = std::env::temp_dir().join(format!("alouette_reword_msg_{}", pid));
+
+    std::fs::write(&todo_path, &todo_content).map_err(|e| format!("Lỗi ghi file tạm: {}", e))?;
+    std::fs::write(&msg_path, format!("{}\n", trimmed_msg)).map_err(|e| format!("Lỗi ghi file message: {}", e))?;
+
+    let seq_editor = format!("sh -c 'cp \"{}\" \"$1\"' _", todo_path.to_string_lossy());
+    let msg_editor = format!("sh -c 'cp \"{}\" \"$1\"' _", msg_path.to_string_lossy());
+
+    let base_arg = match remote_ref {
+        Some(r) => r.to_string(),
+        None => "--root".to_string(),
+    };
+
+    let res = run_git_with_env(
+        &cwd,
+        &["rebase", "-i", &base_arg],
+        &[
+            ("GIT_SEQUENCE_EDITOR", &seq_editor),
+            ("GIT_EDITOR", &msg_editor),
+        ],
+    );
+
+    let _ = std::fs::remove_file(&todo_path);
+    let _ = std::fs::remove_file(&msg_path);
+
+    if let Err(e) = res {
+        let _ = run_git_cmd(&cwd, &["rebase", "--abort"]);
+        return Err(format!("Không thể sửa message commit: {}", e));
+    }
+
+    Ok(())
 }

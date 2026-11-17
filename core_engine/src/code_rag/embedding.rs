@@ -15,9 +15,10 @@ use tract_onnx::prelude::*;
 /// - Dùng tract-onnx (không cần CUDA/CUDNN)
 /// - Mean pooling + normalization tự động
 /// - Query instruction prefix cho retrieval quality tốt hơn
+#[derive(Clone)]
 pub struct EmbeddingModel {
     model: Arc<TypedRunnableModel>,
-    tokenizer: Tokenizer,
+    tokenizer: Arc<Tokenizer>,
     max_length: usize,
 }
 
@@ -102,7 +103,7 @@ impl EmbeddingModel {
 
         Ok(Self {
             model: runnable,
-            tokenizer,
+            tokenizer: Arc::new(tokenizer),
             max_length: 512,
         })
     }

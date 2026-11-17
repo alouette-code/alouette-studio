@@ -452,6 +452,7 @@ impl OpenCodeManager {
         mode: String,
         active_cwd: Option<String>,
         thinking_mode: Option<String>,
+        code_rag: Option<Arc<crate::commands::code_rag::CodeRagState>>,
         window: WebviewWindow,
     ) -> Result<AgentResponse, String> {
         // Abort any leftover active turn before starting a fresh prompt
@@ -578,6 +579,41 @@ impl OpenCodeManager {
             }
         }
 
+        // Cursor-style smart project context (Incremental Repo Map + Semantic RAG)
+        // Bơm nhẹ vào system prompt, hoàn toàn KHÔNG đụng chạm tool built-in của OpenCode.
+        let mut system_parts: Vec<String> = Vec::new();
+        system_parts.push(
+            "Formatting rule: When drawing architecture diagrams, module relationships, or data flows, ALWAYS use fenced ```mermaid code blocks (e.g. `flowchart TD` or `sequenceDiagram`) instead of plain ASCII box art so the IDE renders interactive clickable diagrams.".to_string(),
+        );
+        if thinking_mode.as_deref() == Some("high") {
+            system_parts.push(
+                "Think step-by-step carefully before editing code or running commands. Verify changes after editing.".to_string(),
+            );
+        }
+
+        if let Some(rag_state) = code_rag {
+            let dir_for_ctx = directory.clone();
+            let query_for_ctx = text_payload.clone();
+            let ctx_fut = tokio::task::spawn_blocking(move || {
+                crate::commands::code_rag::build_cursor_project_context(
+                    &rag_state,
+                    &dir_for_ctx,
+                    &query_for_ctx,
+                )
+            });
+
+            if let Ok(Ok((ctx_str, log_summary))) =
+                tokio::time::timeout(std::time::Duration::from_millis(1800), ctx_fut).await
+            {
+                if !log_summary.is_empty() {
+                    agent_log(Some(&window), &log_summary);
+                }
+                if !ctx_str.is_empty() {
+                    system_parts.push(ctx_str);
+                }
+            }
+        }
+
         let mut body = json!({
             "model": {
                 "providerID": resolved_model.provider_id,
@@ -587,8 +623,8 @@ impl OpenCodeManager {
             "parts": parts
         });
 
-        if thinking_mode.as_deref() == Some("high") {
-            body["system"] = json!("Think step-by-step carefully before editing code or running commands. Verify changes after editing.");
+        if !system_parts.is_empty() {
+            body["system"] = json!(system_parts.join("\n\n"));
         }
 
         let prompt_resp = self

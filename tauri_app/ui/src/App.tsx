@@ -2092,10 +2092,6 @@ export default function App() {
               activeProjectId={activeProject?.id}
               initialSessionData={initialAgentSessionData}
               onClearInitialSessionData={() => setInitialAgentSessionData(null)}
-              onLoadSession={(sessId, title) => {
-                const path = `__agent_history__:${sessId}:${title}`;
-                handleFileOpenCustom(path);
-              }}
               initialMessage={initialAiMessage}
               onClearInitialMessage={() => setInitialAiMessage("")}
             />

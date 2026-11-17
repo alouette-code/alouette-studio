@@ -1,7 +1,6 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::State;
-use tokio::sync::Mutex;
 
 use core_engine::code_rag::{
     all_languages, embedding::EmbeddingModel, extension_map, extract_functions,
@@ -53,7 +52,8 @@ pub fn init_code_rag(app_data_dir: &PathBuf) -> CodeRagState {
         idx.run().await;
     });
 
-    // Load embedding model trong BACKGROUND — không block app startup
+    // Load embedding model MỘT LẦN DUY NHẤT trong BACKGROUND và chia sẻ Arc weights
+    // giữa QueryEngine và Indexer (giảm 50% RAM ~150MB & 50% thời gian khởi động).
     let model_dir = app_data_dir.join("model_embedding/bge-small-en-v1.5");
     let qe = query_engine.clone();
     let idx2 = indexer.clone();
@@ -67,24 +67,20 @@ pub fn init_code_rag(app_data_dir: &PathBuf) -> CodeRagState {
             return;
         }
 
-        eprintln!("[CodeRAG] [Background] Loading embedding model...");
-        match qe.load_model(&model_dir) {
-            Ok(()) => {
-                eprintln!("[CodeRAG] ✅ [Background] Model loaded for QueryEngine!");
-                // Load riêng cho Indexer (EmbeddingModel không Clone được)
-                match EmbeddingModel::load(&model_dir) {
-                    Ok(embed) => {
-                        idx2.set_embedding_model(embed);
-                        eprintln!("[CodeRAG] ✅ [Background] Model shared with Indexer!");
-                    }
-                    Err(e) => {
-                        eprintln!("[CodeRAG] ⚠️ [Background] Indexer model failed: {}", e);
-                    }
-                }
+        eprintln!("[CodeRAG] [Background] Loading shared embedding model...");
+        let loaded = tokio::task::spawn_blocking(move || EmbeddingModel::load(&model_dir)).await;
+        match loaded {
+            Ok(Ok(embed)) => {
+                qe.set_model(embed.clone());
+                idx2.set_embedding_model(embed);
+                eprintln!("[CodeRAG] ✅ [Background] Single shared embedding model loaded for QueryEngine + Indexer!");
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 eprintln!("[CodeRAG] ⚠️ [Background] Failed to load model: {}", e);
                 eprintln!("[CodeRAG] Code search will use fallback hash embedding.");
+            }
+            Err(e) => {
+                eprintln!("[CodeRAG] ⚠️ [Background] Model load task panicked: {}", e);
             }
         }
     });
@@ -94,6 +90,98 @@ pub fn init_code_rag(app_data_dir: &PathBuf) -> CodeRagState {
         indexer,
         query_engine,
     }
+}
+
+/// Tạo ngữ cảnh dự án kiểu Cursor (Incremental Index + Hybrid Semantic RAG + Repo Map)
+/// để bơm nhẹ vào system context của OpenCode mà không xung đột với tool built-in.
+pub fn build_cursor_project_context(
+    code_rag: &Arc<CodeRagState>,
+    workspace_dir: &str,
+    user_query: &str,
+) -> (String, String) {
+    let base_path = Path::new(workspace_dir);
+    if !base_path.exists() || !base_path.is_dir() {
+        return (String::new(), String::new());
+    }
+
+    // 1. Đồng bộ tăng dần cực nhanh (tối đa 1200ms nếu là lần đầu mở project)
+    let sync = code_rag
+        .indexer
+        .sync_project_incremental(base_path, workspace_dir, 1500, 1200);
+
+    // Nếu project lần đầu quá lớn vượt budget 1.2s, chạy nốt phần còn lại ở background
+    if sync.partial_remaining > 0 {
+        let idx_bg = code_rag.indexer.clone();
+        let dir_bg = workspace_dir.to_string();
+        std::thread::spawn(move || {
+            idx_bg.sync_project_incremental(Path::new(&dir_bg), &dir_bg, 2500, 15_000);
+        });
+    }
+
+    // 2. Hybrid Semantic + Keyword Query
+    let query_res = code_rag
+        .query_engine
+        .query_hybrid(user_query, None, Some(workspace_dir), 8);
+
+    // 3. Repo Map tinh gọn
+    let repo_map = code_rag.indexer.build_repo_map(base_path, 45);
+
+    if repo_map.is_empty() && query_res.matches.is_empty() {
+        return (String::new(), String::new());
+    }
+
+    let mut ctx = String::with_capacity(2048);
+    ctx.push_str("<alouette_project_context>\n");
+    ctx.push_str(&format!("Workspace root: {}\n", workspace_dir));
+
+    if !repo_map.is_empty() {
+        ctx.push_str("Key workspace files (Repo Map):\n");
+        for rel in &repo_map {
+            ctx.push_str("- ");
+            ctx.push_str(rel);
+            ctx.push('\n');
+        }
+    }
+
+    let relevant: Vec<_> = query_res
+        .matches
+        .iter()
+        .filter(|m| m.score >= 0.20)
+        .take(8)
+        .collect();
+
+    if !relevant.is_empty() {
+        ctx.push_str("\nTop semantically relevant symbols for the user's request:\n");
+        for m in &relevant {
+            let rel_path = Path::new(&m.entry.file_path)
+                .strip_prefix(base_path)
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| m.entry.file_path.clone());
+            let sig = m.entry.signature.lines().next().unwrap_or(&m.entry.func_name);
+            let sig_short: String = sig.chars().take(120).collect();
+            ctx.push_str(&format!(
+                "- {}:{}-{} | {} (score {:.2})\n",
+                rel_path, m.entry.line_start, m.entry.line_end, sig_short, m.score
+            ));
+        }
+    }
+
+    ctx.push_str(
+        "\nGuidance: Use these pre-indexed paths and line ranges to jump directly with `read` instead of scanning the entire repository. Always verify exact file contents before editing.\n",
+    );
+    ctx.push_str("</alouette_project_context>");
+
+    let log_summary = format!(
+        "[CONTEXT] Đồng bộ {} files (cache hit: {}, mới/sửa: {}) trong {}ms | Gợi ý {} vị trí liên quan ({}ms)",
+        sync.total_scanned_files,
+        sync.cache_hits,
+        sync.reindexed_files,
+        sync.elapsed_ms,
+        relevant.len(),
+        query_res.elapsed_ms
+    );
+
+    (ctx, log_summary)
 }
 
 /// Lấy danh sách ngôn ngữ được hỗ trợ
@@ -122,40 +210,29 @@ pub fn code_rag_extension_map() -> std::collections::HashMap<String, String> {
 /// KHÔNG block — chỉ đọc vài atomic/refcount.
 #[tauri::command]
 pub async fn code_rag_health(
-    state: State<'_, Mutex<CodeRagState>>,
+    state: State<'_, Arc<CodeRagState>>,
 ) -> Result<CodeRagHealth, String> {
-    let s = state.lock().await;
     Ok(CodeRagHealth {
-        has_data: s.db.len() > 0,
-        total_entries: s.db.len(),
-        model_loaded: s.query_engine.is_model_loaded(),
+        has_data: state.db.len() > 0,
+        total_entries: state.db.len(),
+        model_loaded: state.query_engine.is_model_loaded(),
     })
 }
 
 /// Query function definitions bằng text search (semantic)
-///
-/// Async để không block UI thread.
-/// CPU-heavy work (ONNX embedding) chạy trên blocking thread pool.
 #[tauri::command]
 pub async fn code_rag_query(
-    state: State<'_, Mutex<CodeRagState>>,
+    state: State<'_, Arc<CodeRagState>>,
     query: String,
     lang_id: Option<String>,
     project_id: Option<String>,
     top_k: Option<usize>,
 ) -> Result<QueryResult, String> {
     let top_k = top_k.unwrap_or(10);
+    let qe = state.query_engine.clone();
 
-    // Chỉ clone Arc<QueryEngine> — rất rẻ, không copy dữ liệu
-    let qe = {
-        let s = state.lock().await;
-        s.query_engine.clone()
-    };
-
-    // CPU-heavy work (ONNX inference + cosine similarity)
-    // chạy trên blocking thread pool, không block async runtime
     let result = tokio::task::spawn_blocking(move || {
-        qe.query(&query, lang_id.as_deref(), project_id.as_deref(), top_k)
+        qe.query_hybrid(&query, lang_id.as_deref(), project_id.as_deref(), top_k)
     })
     .await
     .map_err(|e| format!("Query task failed: {}", e))?;
@@ -164,17 +241,14 @@ pub async fn code_rag_query(
 }
 
 /// Query function definitions bằng tên function — SIÊU NHANH
-/// Dùng VectorEntryMeta (không clone vector 384-dim) cho autocomplete real-time
-/// NHẸ hơn ~90% so với phiên bản cũ (không copy 1.5KB vector mỗi entry)
 #[tauri::command]
 pub fn code_rag_query_by_name(
-    state: State<'_, Mutex<CodeRagState>>,
+    state: State<'_, Arc<CodeRagState>>,
     name: String,
     lang_id: Option<String>,
     project_id: Option<String>,
     top_k: Option<usize>,
 ) -> Vec<serde_json::Value> {
-    let state = state.blocking_lock();
     let top_k = top_k.unwrap_or(10);
 
     state
@@ -201,11 +275,10 @@ pub fn code_rag_query_by_name(
 /// Trigger index một file
 #[tauri::command]
 pub fn code_rag_index_file(
-    state: State<'_, Mutex<CodeRagState>>,
+    state: State<'_, Arc<CodeRagState>>,
     path: String,
     project_id: String,
 ) -> Result<(), String> {
-    let state = state.blocking_lock();
     state.indexer.push_event(IndexEvent::FileChanged {
         path: PathBuf::from(&path),
         project_id,
@@ -216,11 +289,10 @@ pub fn code_rag_index_file(
 /// Trigger re-index toàn bộ project
 #[tauri::command]
 pub fn code_rag_rescan_project(
-    state: State<'_, Mutex<CodeRagState>>,
+    state: State<'_, Arc<CodeRagState>>,
     project_id: String,
     base_path: String,
 ) -> Result<(), String> {
-    let state = state.blocking_lock();
     state.indexer.push_event(IndexEvent::ProjectRescanned {
         project_id,
         base_path: PathBuf::from(&base_path),
@@ -229,40 +301,40 @@ pub fn code_rag_rescan_project(
 }
 
 /// Scan và index đồng bộ một thư mục project.
-/// Gọi từ frontend khi user mở project hoặc bấm nút "Scan".
 #[tauri::command]
 pub fn code_rag_scan_directory(
-    state: State<'_, Mutex<CodeRagState>>,
+    state: State<'_, Arc<CodeRagState>>,
     project_id: String,
     base_path: String,
 ) -> Result<u64, String> {
-    let state = state.blocking_lock();
     eprintln!(
-        "[CodeRAG] Scanning directory: {:?} for project {}",
+        "[CodeRAG] Incremental scan directory: {:?} for project {}",
         base_path, project_id
     );
-    let count = state
+    let sync = state
         .indexer
-        .scan_and_index_project(&PathBuf::from(&base_path), &project_id)?;
-    eprintln!("[CodeRAG] Scan done: {} functions indexed", count);
-    Ok(count)
+        .sync_project_incremental(Path::new(&base_path), &project_id, 3000, 30_000);
+    let total = state.db.count_project(&project_id) as u64;
+    eprintln!(
+        "[CodeRAG] Scan done in {}ms: {} hits, {} reindexed, {} total functions",
+        sync.elapsed_ms, sync.cache_hits, sync.reindexed_files, total
+    );
+    Ok(total)
 }
 
 /// Xóa index của một project
 #[tauri::command]
 pub fn code_rag_delete_project(
-    state: State<'_, Mutex<CodeRagState>>,
+    state: State<'_, Arc<CodeRagState>>,
     project_id: String,
 ) -> Result<(), String> {
-    let state = state.blocking_lock();
     state.db.delete_project(&project_id);
     Ok(())
 }
 
 /// Lấy thống kê indexer
 #[tauri::command]
-pub fn code_rag_stats(state: State<'_, Mutex<CodeRagState>>) -> serde_json::Value {
-    let state = state.blocking_lock();
+pub fn code_rag_stats(state: State<'_, Arc<CodeRagState>>) -> serde_json::Value {
     let stats = state.indexer.stats();
     serde_json::json!({
         "total_files_indexed": stats.total_files_indexed,
@@ -274,17 +346,13 @@ pub fn code_rag_stats(state: State<'_, Mutex<CodeRagState>>) -> serde_json::Valu
 
 /// Debug: dump thông tin DB
 #[tauri::command]
-pub fn code_rag_debug(state: State<'_, Mutex<CodeRagState>>) -> serde_json::Value {
-    let state = state.blocking_lock();
-
-    // Đếm entries theo lang_id
+pub fn code_rag_debug(state: State<'_, Arc<CodeRagState>>) -> serde_json::Value {
     use std::collections::HashMap;
     let mut lang_counts: HashMap<String, usize> = HashMap::new();
     for entry in state.db.all_entries() {
         *lang_counts.entry(entry.lang_id.clone()).or_default() += 1;
     }
 
-    // Lấy 5 entries đầu tiên để kiểm tra
     let samples: Vec<serde_json::Value> = state
         .db
         .all_entries()

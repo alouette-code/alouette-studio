@@ -16,7 +16,7 @@ pub mod parser;
 pub use db::{VectorDb, VectorEntry, VectorEntryMeta};
 pub use embedding::EmbeddingModel;
 pub use extractor::extract_functions;
-pub use indexer::{IndexEvent, IndexPriority, Indexer, IndexerConfig};
+pub use indexer::{IncrementalSyncStats, IndexEvent, IndexPriority, Indexer, IndexerConfig};
 pub use language_resolver::LanguageResolver;
 pub use languages::{all_languages, extension_map, language_map};
 pub use normalizer::normalize_entry;

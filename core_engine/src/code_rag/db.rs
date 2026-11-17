@@ -105,19 +105,24 @@ impl VectorDb {
         let lang_id = entry.lang_id.clone();
         let project_id = entry.project_id.clone();
 
-        // Lưu entry
-        self.entries.write().insert(id.clone(), entry);
+        // Lưu entry (chỉ thêm vào index nếu là key mới để tránh trùng lặp ID)
+        let is_new = self.entries.write().insert(id.clone(), entry).is_none();
 
-        // Cập nhật lang_index
-        {
-            let mut li = self.lang_index.write();
-            li.entry(lang_id).or_default().push(id.clone());
-        }
-
-        // Cập nhật project_index
-        {
-            let mut pi = self.project_index.write();
-            pi.entry(project_id).or_default().push(id);
+        if is_new {
+            {
+                let mut li = self.lang_index.write();
+                let list = li.entry(lang_id).or_default();
+                if !list.contains(&id) {
+                    list.push(id.clone());
+                }
+            }
+            {
+                let mut pi = self.project_index.write();
+                let list = pi.entry(project_id).or_default();
+                if !list.contains(&id) {
+                    list.push(id);
+                }
+            }
         }
     }
 
@@ -131,7 +136,46 @@ impl VectorDb {
     /// Xóa entry theo id
     pub fn delete(&self, id: &str) {
         self.entries.write().remove(id);
-        // Note: cleanup lang_index & project_index là lazy (skip để đơn giản)
+    }
+
+    /// Xóa toàn bộ entries của một file cụ thể trong project
+    pub fn remove_file_entries(&self, project_id: &str, file_path: &str) {
+        let ids_in_proj: Vec<String> = {
+            let pi = self.project_index.read();
+            pi.get(project_id).cloned().unwrap_or_default()
+        };
+        if ids_in_proj.is_empty() {
+            return;
+        }
+
+        let mut removed_ids = std::collections::HashSet::new();
+        {
+            let mut entries = self.entries.write();
+            for id in &ids_in_proj {
+                if let Some(e) = entries.get(id) {
+                    if e.file_path == file_path {
+                        entries.remove(id);
+                        removed_ids.insert(id.clone());
+                    }
+                }
+            }
+        }
+
+        if !removed_ids.is_empty() {
+            let mut pi = self.project_index.write();
+            if let Some(list) = pi.get_mut(project_id) {
+                list.retain(|id| !removed_ids.contains(id));
+            }
+        }
+    }
+
+    /// Đếm nhanh số lượng entry của một project
+    pub fn count_project(&self, project_id: &str) -> usize {
+        self.project_index
+            .read()
+            .get(project_id)
+            .map(|v| v.len())
+            .unwrap_or(0)
     }
 
     /// Xóa toàn bộ entries của một project
@@ -294,6 +338,193 @@ impl VectorDb {
         });
         scored.truncate(top_k);
         scored
+    }
+
+    /// Zero-copy Hybrid Search (Semantic cosine + Keyword/Symbol/Path boost)
+    /// Không clone toàn bộ VectorEntry khi chấm điểm; chỉ clone đúng `top_k` kết quả tốt nhất.
+    pub fn search_hybrid(
+        &self,
+        query_vector: &[f32],
+        query_text: &str,
+        lang_filter: Option<&str>,
+        project_filter: Option<&str>,
+        top_k: usize,
+        model_loaded: bool,
+    ) -> (Vec<QueryMatch>, usize) {
+        let query_lower = query_text.to_lowercase();
+        let keywords: Vec<String> = query_lower
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|t| t.len() >= 3)
+            .map(|t| t.to_string())
+            .collect();
+
+        let candidate_ids: Vec<String> = match (lang_filter, project_filter) {
+            (Some(lang), Some(proj)) => {
+                let li = self.lang_index.read();
+                let pi = self.project_index.read();
+                let proj_set: std::collections::HashSet<&str> = pi
+                    .get(proj)
+                    .map(|v| v.iter().map(|s| s.as_str()).collect())
+                    .unwrap_or_default();
+                li.get(lang)
+                    .map(|v| {
+                        v.iter()
+                            .filter(|id| proj_set.contains(id.as_str()))
+                            .cloned()
+                            .collect()
+                    })
+                    .unwrap_or_default()
+            }
+            (Some(lang), None) => {
+                let li = self.lang_index.read();
+                let mut ids = li.get(lang).cloned().unwrap_or_default();
+                if let Some(common) = li.get("common") {
+                    ids.extend(common.iter().cloned());
+                }
+                ids
+            }
+            (None, Some(proj)) => self
+                .project_index
+                .read()
+                .get(proj)
+                .cloned()
+                .unwrap_or_default(),
+            (None, None) => self.entries.read().keys().cloned().collect(),
+        };
+
+        let entries = self.entries.read();
+        let mut candidates_count = 0usize;
+        let mut scored_refs: Vec<(&VectorEntry, f32)> = Vec::with_capacity(candidate_ids.len().min(256));
+
+        for id in &candidate_ids {
+            let Some(entry) = entries.get(id) else {
+                continue;
+            };
+            candidates_count += 1;
+            let Some(mut score) = cosine_similarity(query_vector, &entry.vector) else {
+                continue;
+            };
+
+            if !keywords.is_empty() {
+                let fn_lower = entry.func_name.to_lowercase();
+                let path_lower = entry.file_path.to_lowercase();
+                let sig_lower = entry.signature.to_lowercase();
+                let mut hits = 0usize;
+                for kw in &keywords {
+                    if fn_lower.contains(kw) {
+                        hits += 2;
+                    } else if path_lower.contains(kw) || sig_lower.contains(kw) {
+                        hits += 1;
+                    }
+                }
+                if hits > 0 {
+                    let boost = if model_loaded {
+                        (hits as f32 * 0.06).min(0.24)
+                    } else {
+                        (hits as f32 * 0.2).min(0.8) + 0.3
+                    };
+                    score += boost;
+                }
+            }
+
+            scored_refs.push((entry, score));
+        }
+
+        scored_refs.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        scored_refs.truncate(top_k);
+
+        let matches = scored_refs
+            .into_iter()
+            .map(|(entry, score)| QueryMatch {
+                entry: entry.clone(),
+                score,
+            })
+            .collect();
+
+        (matches, candidates_count)
+    }
+
+    fn cache_file_for_project(&self, project_id: &str) -> PathBuf {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(project_id.as_bytes());
+        let hash_hex = hex::encode(hasher.finalize());
+        self.db_path.join(format!("proj_{}.rag.gz", &hash_hex[..16]))
+    }
+
+    /// Lưu cache index + mtimes của project xuống disk (nén gzip) để lần mở sau không cần re-embed
+    pub fn save_project_cache(
+        &self,
+        project_id: &str,
+        file_mtimes: &std::collections::HashMap<String, (u64, u64)>,
+    ) -> Result<(), String> {
+        #[derive(Serialize)]
+        struct ProjectCacheRef<'a> {
+            project_id: &'a str,
+            file_mtimes: &'a std::collections::HashMap<String, (u64, u64)>,
+            entries: Vec<&'a VectorEntry>,
+        }
+
+        if let Err(e) = std::fs::create_dir_all(&self.db_path) {
+            return Err(format!("Cannot create cache dir: {}", e));
+        }
+
+        let ids: Vec<String> = self
+            .project_index
+            .read()
+            .get(project_id)
+            .cloned()
+            .unwrap_or_default();
+        let entries_guard = self.entries.read();
+        let proj_entries: Vec<&VectorEntry> =
+            ids.iter().filter_map(|id| entries_guard.get(id)).collect();
+
+        let payload = ProjectCacheRef {
+            project_id,
+            file_mtimes,
+            entries: proj_entries,
+        };
+
+        let cache_path = self.cache_file_for_project(project_id);
+        let file = std::fs::File::create(&cache_path)
+            .map_err(|e| format!("Failed to create cache file: {}", e))?;
+        let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::fast());
+        serde_json::to_writer(&mut encoder, &payload)
+            .map_err(|e| format!("Failed to serialize cache: {}", e))?;
+        encoder
+            .finish()
+            .map_err(|e| format!("Failed to finish gzip cache: {}", e))?;
+        Ok(())
+    }
+
+    /// Nạp cache index + mtimes của project từ disk nếu có
+    pub fn load_project_cache(
+        &self,
+        project_id: &str,
+    ) -> Option<std::collections::HashMap<String, (u64, u64)>> {
+        #[derive(Deserialize)]
+        struct ProjectCacheOwned {
+            project_id: String,
+            file_mtimes: std::collections::HashMap<String, (u64, u64)>,
+            entries: Vec<VectorEntry>,
+        }
+
+        let cache_path = self.cache_file_for_project(project_id);
+        if !cache_path.exists() {
+            return None;
+        }
+        let file = std::fs::File::open(&cache_path).ok()?;
+        let decoder = flate2::read::GzDecoder::new(file);
+        let cached: ProjectCacheOwned = serde_json::from_reader(decoder).ok()?;
+        if cached.project_id != project_id {
+            return None;
+        }
+
+        self.upsert_batch(cached.entries);
+        Some(cached.file_mtimes)
     }
 
     /// Tổng số entries

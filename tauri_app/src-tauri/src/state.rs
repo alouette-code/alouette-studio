@@ -43,6 +43,7 @@ pub struct AppState {
     pub active_agent_project: Arc<RwLock<Option<String>>>,
     pub vm_manager: Arc<core_engine::vm_engine::VmManager>,
     pub opencode_manager: Arc<crate::commands::opencode_bridge::OpenCodeManager>,
+    pub code_rag: Arc<crate::commands::code_rag::CodeRagState>,
 }
 
 /// Resolve the project root (parent of src-tauri) so that

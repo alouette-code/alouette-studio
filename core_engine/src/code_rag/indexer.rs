@@ -82,6 +82,18 @@ pub struct Indexer {
     running: Arc<RwLock<bool>>,
     /// Embedding model (optional) — dùng để tạo vector thực tế khi index
     embedding_model: Arc<RwLock<Option<crate::code_rag::EmbeddingModel>>>,
+    /// Cache mtime + size theo project_id → (file_path → (mtime_secs, file_size))
+    project_file_mtimes: Arc<RwLock<HashMap<String, HashMap<String, (u64, u64)>>>>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct IncrementalSyncStats {
+    pub total_scanned_files: usize,
+    pub cache_hits: usize,
+    pub reindexed_files: usize,
+    pub deleted_files: usize,
+    pub elapsed_ms: u64,
+    pub partial_remaining: usize,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -105,6 +117,7 @@ impl Indexer {
             stats: Arc::new(RwLock::new(IndexerStats::default())),
             running: Arc::new(RwLock::new(false)),
             embedding_model: Arc::new(RwLock::new(None)),
+            project_file_mtimes: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -260,34 +273,12 @@ impl Indexer {
             let path = entry.path();
 
             if path.is_dir() {
-                // Bỏ qua thư mục không cần index
                 let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                let skip_dirs = [
-                    "node_modules",
-                    ".git",
-                    "target",
-                    "build",
-                    "dist",
-                    ".next",
-                    "__pycache__",
-                    "vendor",
-                    ".venv",
-                    "venv",
-                    "env",
-                    ".tox",
-                    ".eggs",
-                    ".gradle",
-                    "idea",
-                    ".vscode",
-                    ".tauri",
-                    "app_data",
-                ];
-                if skip_dirs.contains(&dir_name) || dir_name.starts_with('.') {
+                if Self::should_skip_dir(dir_name) {
                     continue;
                 }
                 self.walk_dir(&path, entries, project_id);
             } else if path.is_file() {
-                // Bỏ qua file ẩn
                 if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
                     if name.starts_with('.') && name != ".env" && name != ".gitignore" {
                         continue;
@@ -296,6 +287,249 @@ impl Indexer {
                 match self.index_file(&path, project_id) {
                     Ok(mut file_entries) => entries.append(&mut file_entries),
                     Err(_) => { /* skip unsupported */ }
+                }
+            }
+        }
+    }
+
+    pub fn should_skip_dir(dir_name: &str) -> bool {
+        const SKIP_DIRS: &[&str] = &[
+            "node_modules",
+            ".git",
+            "target",
+            "build",
+            "dist",
+            "out",
+            "coverage",
+            ".next",
+            ".nuxt",
+            ".turbo",
+            ".parcel-cache",
+            ".cache",
+            "__pycache__",
+            "vendor",
+            ".venv",
+            "venv",
+            "env",
+            ".tox",
+            ".eggs",
+            ".gradle",
+            "Pods",
+            "DerivedData",
+            "idea",
+            ".vscode",
+            ".tauri",
+            "app_data",
+            "logs",
+        ];
+        SKIP_DIRS.contains(&dir_name)
+            || dir_name.starts_with('.')
+            || dir_name.starts_with("scratch_")
+            || dir_name.starts_with("cmake-build")
+    }
+
+    fn collect_files_meta(
+        dir: &Path,
+        max_files: usize,
+        out: &mut Vec<(PathBuf, u64, u64)>,
+    ) {
+        if out.len() >= max_files {
+            return;
+        }
+        let Ok(read_dir) = std::fs::read_dir(dir) else {
+            return;
+        };
+
+        for entry in read_dir.flatten() {
+            if out.len() >= max_files {
+                break;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if Self::should_skip_dir(dir_name) {
+                    continue;
+                }
+                Self::collect_files_meta(&path, max_files, out);
+            } else if path.is_file() {
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if name.starts_with('.') {
+                    continue;
+                }
+                // Chỉ xét file có extension hỗ trợ để khỏi đọc binary/ảnh
+                if path.extension().is_none()
+                    || crate::code_rag::LanguageResolver::from_extension(&path).is_none()
+                {
+                    continue;
+                }
+                if let Ok(meta) = entry.metadata() {
+                    let size = meta.len();
+                    if size == 0 || size > 512 * 1024 {
+                        continue;
+                    }
+                    let mtime = meta
+                        .modified()
+                        .ok()
+                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+                    out.push((path, mtime, size));
+                }
+            }
+        }
+    }
+
+    /// Đồng bộ index tăng dần kiểu Cursor (chỉ parse & embed file mới/vừa sửa, nạp cache disk nếu có)
+    pub fn sync_project_incremental(
+        &self,
+        base_path: &Path,
+        project_id: &str,
+        max_files: usize,
+        time_budget_ms: u64,
+    ) -> IncrementalSyncStats {
+        let started = Instant::now();
+        let mut sync_stats = IncrementalSyncStats::default();
+
+        if !base_path.exists() || !base_path.is_dir() {
+            return sync_stats;
+        }
+
+        // 1. Nạp cache mtimes từ RAM hoặc từ file .rag.gz trên disk
+        let mut known_mtimes: HashMap<String, (u64, u64)> = {
+            let guard = self.project_file_mtimes.read();
+            guard.get(project_id).cloned().unwrap_or_default()
+        };
+
+        if known_mtimes.is_empty() && self.db.count_project(project_id) == 0 {
+            if let Some(loaded) = self.db.load_project_cache(project_id) {
+                known_mtimes = loaded;
+            }
+        }
+
+        // 2. Quét metadata file hiện tại (cực nhanh, không đọc nội dung file)
+        let mut disk_files = Vec::new();
+        Self::collect_files_meta(base_path, max_files, &mut disk_files);
+        sync_stats.total_scanned_files = disk_files.len();
+
+        let mut disk_map: HashMap<String, (u64, u64)> = HashMap::with_capacity(disk_files.len());
+        let mut to_reindex: Vec<(PathBuf, String, u64, u64)> = Vec::new();
+
+        for (path, mtime, size) in disk_files {
+            let path_str = path.to_string_lossy().to_string();
+            disk_map.insert(path_str.clone(), (mtime, size));
+            if let Some(&(old_mtime, old_size)) = known_mtimes.get(&path_str) {
+                if old_mtime == mtime && old_size == size {
+                    sync_stats.cache_hits += 1;
+                    continue;
+                }
+            }
+            to_reindex.push((path, path_str, mtime, size));
+        }
+
+        // 3. Xóa entries của các file đã bị xóa khỏi ổ đĩa
+        let deleted_paths: Vec<String> = known_mtimes
+            .keys()
+            .filter(|p| !disk_map.contains_key(*p))
+            .cloned()
+            .collect();
+
+        for del_path in &deleted_paths {
+            self.db.remove_file_entries(project_id, del_path);
+            known_mtimes.remove(del_path);
+            sync_stats.deleted_files += 1;
+        }
+
+        // 4. Ưu tiên file ngắn/nông hơn trước và tôn trọng time_budget_ms để không block user
+        to_reindex.sort_by_key(|(p, _, _, sz)| (p.components().count(), *sz));
+
+        let total_pending = to_reindex.len();
+        let embed_model_opt = self.embedding_model.read().clone();
+
+        for (idx, (path, path_str, mtime, size)) in to_reindex.into_iter().enumerate() {
+            if idx > 0 && started.elapsed().as_millis() as u64 >= time_budget_ms {
+                sync_stats.partial_remaining = total_pending.saturating_sub(idx);
+                break;
+            }
+
+            self.db.remove_file_entries(project_id, &path_str);
+            if let Ok(entries) = self.index_file(&path, project_id) {
+                let mut vec_entries = Vec::with_capacity(entries.len());
+                for entry in entries {
+                    let vector = if let Some(ref model) = embed_model_opt {
+                        model
+                            .embed(&entry.normalized_text)
+                            .unwrap_or_else(|_| dummy_embedding(&entry.normalized_text))
+                    } else {
+                        dummy_embedding(&entry.normalized_text)
+                    };
+                    vec_entries.push(VectorEntry::from((entry, vector)));
+                }
+                self.db.upsert_batch(vec_entries);
+            }
+            known_mtimes.insert(path_str, (mtime, size));
+            sync_stats.reindexed_files += 1;
+        }
+
+        // 5. Cập nhật RAM & lưu cache ra disk nếu có thay đổi
+        let dirty = sync_stats.reindexed_files > 0 || sync_stats.deleted_files > 0;
+        {
+            self.project_file_mtimes
+                .write()
+                .insert(project_id.to_string(), known_mtimes.clone());
+        }
+        if dirty {
+            let _ = self.db.save_project_cache(project_id, &known_mtimes);
+        }
+
+        sync_stats.elapsed_ms = started.elapsed().as_millis() as u64;
+        sync_stats
+    }
+
+    /// Tạo Repo Map siêu nhẹ (danh sách file quan trọng nhất theo độ nông thư mục)
+    pub fn build_repo_map(&self, base_path: &Path, max_files: usize) -> Vec<String> {
+        let mut all_paths = Vec::new();
+        Self::collect_repo_map_paths(base_path, base_path, 0, 5, 400, &mut all_paths);
+        all_paths.sort_by_key(|p| (p.matches('/').count() + p.matches('\\').count(), p.len()));
+        all_paths.truncate(max_files);
+        all_paths
+    }
+
+    fn collect_repo_map_paths(
+        root: &Path,
+        dir: &Path,
+        depth: usize,
+        max_depth: usize,
+        hard_cap: usize,
+        out: &mut Vec<String>,
+    ) {
+        if depth > max_depth || out.len() >= hard_cap {
+            return;
+        }
+        let Ok(read_dir) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in read_dir.flatten() {
+            if out.len() >= hard_cap {
+                break;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if Self::should_skip_dir(dir_name) {
+                    continue;
+                }
+                Self::collect_repo_map_paths(root, &path, depth + 1, max_depth, hard_cap, out);
+            } else if path.is_file() {
+                let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+                    continue;
+                };
+                if name.starts_with('.') {
+                    continue;
+                }
+                if let Ok(rel) = path.strip_prefix(root) {
+                    out.push(rel.to_string_lossy().to_string());
                 }
             }
         }

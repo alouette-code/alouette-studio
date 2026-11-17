@@ -51,9 +51,53 @@ impl QueryEngine {
         Ok(())
     }
 
+    /// Gán embedding model đã load sẵn (chia sẻ Arc weights, không tốn thêm RAM)
+    pub fn set_model(&self, model: EmbeddingModel) {
+        *self.model.write() = Some(model);
+    }
+
     /// Kiểm tra model đã được load chưa
     pub fn is_model_loaded(&self) -> bool {
         self.model.read().is_some()
+    }
+
+    /// Hybrid Semantic + Keyword Query nhanh (zero-copy DB scan)
+    pub fn query_hybrid(
+        &self,
+        query: &str,
+        lang_filter: Option<&str>,
+        project_filter: Option<&str>,
+        top_k: usize,
+    ) -> QueryResult {
+        let start = std::time::Instant::now();
+        let query_vector = match self.embed(query) {
+            Ok(v) => v,
+            Err(e) => {
+                return QueryResult {
+                    matches: vec![],
+                    elapsed_ms: start.elapsed().as_millis() as u64,
+                    candidates_count: 0,
+                    error: Some(e),
+                };
+            }
+        };
+
+        let model_loaded = self.model.read().is_some();
+        let (matches, candidates_count) = self.db.search_hybrid(
+            &query_vector,
+            query,
+            lang_filter,
+            project_filter,
+            top_k,
+            model_loaded,
+        );
+
+        QueryResult {
+            matches,
+            elapsed_ms: start.elapsed().as_millis() as u64,
+            candidates_count,
+            error: None,
+        }
     }
 
     /// Query chính: gọi từ frontend

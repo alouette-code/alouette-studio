@@ -9388,3 +9388,339 @@ body.is-resizing .col-right {
     contain: strict !important;
     overflow: hidden !important;
 }
+
+/* AiAgent Markdown Formatting Fix */
+.agent-markdown {
+    width: 100%;
+    min-width: 0;
+    line-height: 1.55;
+    word-break: break-word;
+}
+
+.agent-markdown p {
+    margin: 0 0 8px 0;
+}
+
+.agent-markdown p:last-child {
+    margin-bottom: 0;
+}
+
+.agent-markdown ol,
+.agent-markdown ul {
+    padding-left: 22px;
+    margin: 6px 0 8px 0;
+}
+
+.agent-markdown ol {
+    list-style-type: decimal;
+}
+
+.agent-markdown ul {
+    list-style-type: disc;
+}
+
+.agent-markdown li {
+    margin: 4px 0;
+    line-height: 1.55;
+}
+
+.agent-markdown li > p {
+    margin: 0;
+}
+
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3,
+.agent-markdown h4 {
+    margin: 10px 0 6px 0;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.agent-markdown blockquote {
+    border-left: 2px solid var(--border-primary);
+    padding-left: 10px;
+    margin: 6px 0;
+    color: var(--text-muted);
+}
+
+.agent-markdown code {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--bg-secondary);
+    padding: 1px 5px;
+    border-radius: 3px;
+    color: var(--color-accent);
+    white-space: break-spaces;
+}
+
+.agent-markdown .agent-code-block {
+    margin: 8px 0;
+    padding: 10px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    overflow-x: auto;
+}
+
+.agent-markdown .agent-code-block code {
+    background: transparent;
+    padding: 0;
+    color: var(--text-primary);
+    font-size: 11.5px;
+    white-space: pre;
+}
+
+/* GFM Tables inside AiAgent */
+.agent-markdown table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0;
+    font-size: 11.5px;
+    display: block;
+    overflow-x: auto;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+    border: 1px solid var(--border-primary);
+    padding: 6px 8px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.agent-markdown th {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.agent-markdown tr:nth-child(even) td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+/* Expandable Code Block Toolbar */
+.agent-code-block-wrapper {
+    position: relative;
+    margin: 8px 0;
+}
+
+.agent-code-block-wrapper .agent-code-block {
+    margin: 0;
+}
+
+.agent-code-block-actions {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    z-index: 2;
+}
+
+.agent-code-block-wrapper:hover .agent-code-block-actions {
+    opacity: 1;
+}
+
+/* Interactive Mermaid Diagram Card & Modal */
+.agent-diagram-card {
+    margin: 10px 0;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    border-radius: 6px !important;
+    overflow: hidden;
+}
+
+.agent-diagram-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 10px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-primary);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.agent-diagram-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 7px;
+    font-size: 10.5px;
+    font-weight: 500;
+    border-radius: 4px !important;
+    border: 1px solid var(--border-primary);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.12s ease;
+}
+
+.agent-diagram-btn:hover {
+    color: var(--text-primary);
+    border-color: #6366f1;
+}
+
+.agent-diagram-btn.primary {
+    background: rgba(99, 102, 241, 0.16);
+    border-color: rgba(99, 102, 241, 0.4);
+    color: #a5b4fc;
+}
+
+.agent-diagram-btn.primary:hover {
+    background: rgba(99, 102, 241, 0.28);
+    color: #c7d2fe;
+}
+
+.agent-diagram-preview {
+    position: relative;
+    padding: 12px;
+    background: #0b0f19;
+    max-height: 300px;
+    overflow: hidden;
+    cursor: zoom-in;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.agent-diagram-svg-wrap {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    overflow: hidden;
+}
+
+.agent-diagram-svg-wrap svg {
+    max-width: 100%;
+    max-height: 270px;
+    height: auto;
+}
+
+.agent-diagram-hover-hint {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    font-size: 10px;
+    border-radius: 4px !important;
+    background: rgba(15, 23, 42, 0.88);
+    border: 1px solid rgba(99, 102, 241, 0.4);
+    color: #c7d2fe;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    pointer-events: none;
+}
+
+.agent-diagram-preview:hover .agent-diagram-hover-hint {
+    opacity: 1;
+}
+
+.agent-diagram-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    backdrop-filter: blur(2px);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.agent-diagram-modal {
+    width: min(1100px, 94vw);
+    height: min(760px, 88vh);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-primary);
+    border-radius: 8px !important;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.65);
+}
+
+.agent-diagram-modal-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-primary);
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+.agent-diagram-tabs {
+    display: inline-flex;
+    border: 1px solid var(--border-primary);
+    border-radius: 4px !important;
+    overflow: hidden;
+    background: var(--bg-secondary);
+}
+
+.agent-diagram-tabs button {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 9px;
+    cursor: pointer;
+}
+
+.agent-diagram-tabs button.active {
+    background: rgba(99, 102, 241, 0.22);
+    color: #c7d2fe;
+}
+
+.agent-diagram-canvas {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    background: radial-gradient(circle at 1px 1px, rgba(148, 163, 184, 0.12) 1px, transparent 0);
+    background-size: 20px 20px;
+    background-color: #090d16;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+}
+
+.agent-diagram-modal-svg {
+    transform-origin: center center;
+    transition: transform 0.05s linear;
+}
+
+.agent-diagram-modal-svg svg {
+    max-width: none !important;
+    height: auto;
+}
+
+.agent-diagram-modal-svg g.node {
+    cursor: pointer;
+}
+
+.agent-diagram-modal-svg g.node.mmd-node-selected rect,
+.agent-diagram-modal-svg g.node.mmd-node-selected polygon,
+.agent-diagram-modal-svg g.node.mmd-node-selected circle {
+    stroke: #38bdf8 !important;
+    stroke-width: 2.5px !important;
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.45));
+}
+
+.agent-diagram-modal-footer {
+    padding: 7px 14px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}

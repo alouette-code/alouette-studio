@@ -76,6 +76,7 @@ fn main() {
     let agent_registry = Arc::new(DashMap::new());
     let active_agent_project = Arc::new(RwLock::new(None));
     let opencode_manager = commands::opencode_bridge::new_shared_manager();
+    let code_rag_state = Arc::new(init_code_rag(&project_root().join("app_data")));
 
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
@@ -96,8 +97,9 @@ fn main() {
             active_agent_project,
             vm_manager,
             opencode_manager,
+            code_rag: code_rag_state.clone(),
         })
-        .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
+        .manage(code_rag_state)
         .setup(move |app| {
             let memory_manager = tauri::async_runtime::block_on(async {
                 MemoryInspectorManager::new()
@@ -310,6 +312,10 @@ fn main() {
             commands::git::git_pull,
             commands::git::git_get_log,
             commands::git::git_get_commit_files,
+            commands::git::git_get_commit_details,
+            commands::git::git_get_commit_file_diff,
+            commands::git::git_push_single_commit,
+            commands::git::git_reword_commit,
             commands::git_diff::git_get_file_diff,
             commands::cloudflare::load_cloudflare_config,
             commands::cloudflare::save_cloudflare_config,

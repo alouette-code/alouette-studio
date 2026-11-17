@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeSanitize from "rehype-sanitize";
-import DOMPurify from "dompurify";
+import remarkGfm from "remark-gfm";
 import Fuse from "fuse.js";
+import { MermaidDiagram } from "./MermaidDiagram";
 import {
   Plus,
   RefreshCw,
@@ -49,6 +50,7 @@ import {
   CodeXml,
   ImagePlus,
   RotateCcw,
+  Maximize2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -828,60 +830,121 @@ const strictMarkdownSchema = {
   },
 };
 
-const SafeMarkdown = React.memo(({ content }: { content: string }) => {
-  const sanitizedContent = useMemo(() => DOMPurify.sanitize(content), [content]);
+const ExpandableCodeBlock: React.FC<{ rawCode: string; children: React.ReactNode }> = ({
+  rawCode,
+  children,
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   return (
-    <ReactMarkdown
-      rehypePlugins={[[rehypeSanitize, strictMarkdownSchema]]}
-      components={{
-        code({ node, inline, className, children, ...props }: any) {
-          const codeContent = String(children).replace(/\n$/, "");
-          if (!inline) {
-            return (
-              <pre
-                className="code-block"
-                style={{
-                  margin: 0,
-                  padding: "10px",
-                  background: "var(--bg-secondary)",
-                  borderRadius: "4px",
-                  overflowX: "auto",
-                }}
-              >
-                <code
-                  className={className}
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    fontSize: "11.5px",
-                    color: "var(--text-primary)",
+    <>
+      <div className="agent-code-block-wrapper">
+        <div className="agent-code-block-actions">
+          <button
+            type="button"
+            className="agent-diagram-btn"
+            onClick={() => {
+              navigator.clipboard?.writeText(rawCode);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 1500);
+            }}
+            title="Sao chép"
+          >
+            {copied ? <Check size={11} style={{ color: "#10b981" }} /> : <Copy size={11} />}
+          </button>
+          <button
+            type="button"
+            className="agent-diagram-btn"
+            onClick={() => setExpanded(true)}
+            title="Phóng to xem đầy đủ"
+          >
+            <Maximize2 size={11} />
+          </button>
+        </div>
+        <pre className="agent-code-block">{children}</pre>
+      </div>
+
+      {expanded && (
+        <div className="agent-diagram-modal-overlay" onClick={() => setExpanded(false)}>
+          <div className="agent-diagram-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="agent-diagram-modal-toolbar">
+              <span style={{ fontSize: "12.5px", fontWeight: 600 }}>Chi tiết Code / Sơ đồ</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                <button
+                  type="button"
+                  className="agent-diagram-btn"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(rawCode);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
                   }}
                 >
-                  {codeContent}
-                </code>
+                  {copied ? <Check size={13} style={{ color: "#10b981" }} /> : <Copy size={13} />}
+                  <span>{copied ? "Đã chép" : "Sao chép"}</span>
+                </button>
+                <button
+                  type="button"
+                  className="agent-diagram-btn"
+                  onClick={() => setExpanded(false)}
+                  title="Đóng"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            </div>
+            <div style={{ flex: 1, overflow: "auto", padding: "16px", background: "var(--bg-primary)" }}>
+              <pre className="agent-code-block" style={{ margin: 0, fontSize: "12.5px" }}>
+                {children}
               </pre>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+};
+
+function extractReactText(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractReactText).join("");
+  if (React.isValidElement(node)) {
+    return extractReactText((node.props as any)?.children);
+  }
+  return "";
+}
+
+const SafeMarkdown = React.memo(({ content }: { content: string }) => {
+  return (
+    <div className="agent-markdown">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[[rehypeSanitize, strictMarkdownSchema]]}
+        components={{
+          pre({ children }: any) {
+            const firstChild = React.Children.toArray(children)[0];
+            if (React.isValidElement(firstChild)) {
+              const cls = String((firstChild.props as any)?.className || "");
+              const rawCode = extractReactText((firstChild.props as any)?.children).replace(/\n$/, "");
+              if (cls.includes("language-mermaid")) {
+                return <MermaidDiagram chart={rawCode} />;
+              }
+              return <ExpandableCodeBlock rawCode={rawCode}>{children}</ExpandableCodeBlock>;
+            }
+            return <pre className="agent-code-block">{children}</pre>;
+          },
+          code({ className, children, ...props }: any) {
+            return (
+              <code className={className} {...props}>
+                {children}
+              </code>
             );
-          }
-          return (
-            <code
-              className={className}
-              style={{
-                fontFamily: "var(--font-mono)",
-                background: "var(--bg-secondary)",
-                padding: "2px 4px",
-                borderRadius: "3px",
-                color: "var(--color-accent)",
-              }}
-              {...props}
-            >
-              {children}
-            </code>
-          );
-        },
-      }}
-    >
-      {sanitizedContent}
-    </ReactMarkdown>
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
 });
 
@@ -1336,11 +1399,11 @@ export default function AiAgent({
       const data: any = await invoke("load_agent_session", {
         sessionId: sessId,
       });
-      setChatHistory(data.frontend_history);
-      setSessionTitle(data.title);
-      setSessionId(data.session_id);
-      setSelectedModel(data.model);
-      setSelectedMode(data.mode);
+      setChatHistory(Array.isArray(data?.frontend_history) ? data.frontend_history : []);
+      setSessionTitle(data?.title || title || "Lịch sử Chat");
+      setSessionId(data?.session_id || sessId);
+      if (data?.model) setSelectedModel(data.model);
+      if (data?.mode) setSelectedMode(data.mode);
       setHistoryModalOpen(false);
     } catch (err: any) {
       alert(`Lỗi khi tải lịch sử: ${err?.message || err}`);
@@ -3503,11 +3566,11 @@ export default function AiAgent({
               {/* Message bubble */}
               <div
                 style={{
-                  maxWidth: "85%",
+                  maxWidth: isUser ? "85%" : "100%",
                   width: isUser ? "auto" : "100%",
                   background: isUser ? "var(--bg-secondary)" : "transparent",
                   color: "var(--text-primary)",
-                  padding: isUser ? "8px 14px" : item.agentRole ? "8px 12px" : "0",
+                  padding: isUser ? "8px 14px" : item.agentRole ? "8px 12px" : "0 2px",
                   borderRadius: "6px",
                   borderLeft: item.agentRole
                     ? item.agentRole === "leader"
@@ -3525,7 +3588,7 @@ export default function AiAgent({
                   border: isUser ? "1px solid var(--border-primary)" : "none",
                   fontSize: "12.5px",
                   lineHeight: "1.55",
-                  whiteSpace: "pre-wrap",
+                  whiteSpace: "normal",
                   position: "relative",
                   wordBreak: "break-word",
                 }}
