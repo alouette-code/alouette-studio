@@ -134,6 +134,7 @@ impl<'a> Coordinator<'a> {
             
             let res = self.run_worker(planner_cfg, task.to_string(), llm_executor, progress_handler).await?;
             self.memory.set("plan", res.clone()).await;
+            progress_handler("secretary", "Thư Ký", "👩‍💼", 999, &res);
             
             // Tạm dừng ở đây, báo về cho người dùng duyệt kế hoạch
             self.state = OrchestratorState::Halted("Chờ phê duyệt kế hoạch".to_string());

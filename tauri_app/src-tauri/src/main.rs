@@ -75,6 +75,7 @@ fn main() {
 
     let agent_registry = Arc::new(DashMap::new());
     let active_agent_project = Arc::new(RwLock::new(None));
+    let opencode_manager = commands::opencode_bridge::new_shared_manager();
 
     let pm_clone = process_manager.clone();
     let rm_clone = resource_monitor.clone();
@@ -94,6 +95,7 @@ fn main() {
             agent_registry,
             active_agent_project,
             vm_manager,
+            opencode_manager,
         })
         .manage(Mutex::new(init_code_rag(&project_root().join("app_data"))))
         .setup(move |app| {
@@ -233,6 +235,9 @@ fn main() {
             commands::grpc::grpc_call,
 
             commands::network::send_http_request,
+            commands::network::clear_pingzero_cookies,
+            commands::network::load_pingzero_workspace,
+            commands::network::save_pingzero_workspace,
             commands::network::dns_lookup,
             commands::network::ping_host,
             commands::network::ssl_certificate_info,
@@ -288,6 +293,10 @@ fn main() {
             commands::agent::agent_delete_session,
             commands::agent::switch_agent_project,
             commands::agent::load_history_page,
+            commands::opencode_bridge::opencode_health,
+            commands::opencode_bridge::opencode_restart,
+            commands::opencode_bridge::agent_revert_to_message,
+            commands::opencode_bridge::read_clipboard_image,
             toggle_alouette_open,
             is_alouette_open_active,
             commands::git::git_get_status,
@@ -356,6 +365,7 @@ fn main() {
                 let state = app_handle.state::<AppState>();
                 let pm_clone = state.process_manager.clone();
                 let rm_clone = state.resource_monitor.clone();
+                let oc_clone = state.opencode_manager.clone();
                 let app_handle_clone = app_handle.clone();
 
                 tauri::async_runtime::spawn(async move {
@@ -384,6 +394,8 @@ fn main() {
                     for pid in term_pids {
                         core_engine::terminate_process_tree(pid).await;
                     }
+
+                    oc_clone.shutdown().await;
 
                     app_handle_clone.exit(0);
                 });

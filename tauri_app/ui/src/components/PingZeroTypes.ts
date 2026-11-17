@@ -121,8 +121,7 @@ export type Method =
   | "OPTIONS"
   | "HEAD"
   | "WS"
-  | "SSE"
-  | "gRPC";
+  | "SSE";
 export type BodyType =
   | "none"
   | "json"

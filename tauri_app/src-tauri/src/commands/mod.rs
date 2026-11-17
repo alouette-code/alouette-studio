@@ -10,6 +10,7 @@ pub mod git_diff;
 pub mod language;
 
 pub mod network;
+pub mod opencode_bridge;
 pub mod process;
 pub mod rig_bridge;
 pub mod sandbox;
@@ -23,7 +24,6 @@ pub mod terminal;
 pub mod vm;
 pub mod memory_inspector;
 pub mod docker;
-pub mod langchain_rig_bridge;
 pub mod extension;
 pub mod marketplace_cmds;
 pub mod websocket;

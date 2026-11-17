@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Plus,
   Trash2,
@@ -9,6 +10,7 @@ import {
   ChevronDown,
   Upload,
   Download,
+  Play,
 } from "lucide-react";
 
 /* ---- Types ---- */
@@ -30,11 +32,17 @@ export interface CollectionItem {
     apiKeyName?: string;
     apiKeyValue?: string;
     apiKeyAddto?: string;
+    preRequestCode?: string;
+    postResponseCode?: string;
   };
 }
 
 interface Props {
-  onLoadRequest?: (request: NonNullable<CollectionItem["request"]>) => void;
+  onLoadRequest?: (
+    request: NonNullable<CollectionItem["request"]>,
+    name?: string,
+  ) => void;
+  onRunCollection?: (folder: CollectionItem) => void;
 }
 
 /* ---- Helpers ---- */
@@ -124,47 +132,125 @@ const exportPingZeroCollection = (items: CollectionItem[]) => {
   URL.revokeObjectURL(url);
 };
 
-/* ---- Import PingZero/OpenAPI ---- */
+/* ---- Import Postman v2.1 / PingZero / OpenAPI ---- */
 const importCollection = (jsonText: string): CollectionItem[] => {
   try {
     const data = JSON.parse(jsonText);
-    // PingZero Collection v2.1
+    // Postman Collection v2.0/v2.1 or PingZero Collection v2.1
     if (data.info && data.item) {
-      const parsePingZeroItem = (item: any): CollectionItem => {
+      const extractEventScript = (events: any[] | undefined, listen: string): string => {
+        if (!Array.isArray(events)) return "";
+        const ev = events.find((e) => e.listen === listen);
+        if (!ev?.script?.exec) return "";
+        return Array.isArray(ev.script.exec)
+          ? ev.script.exec.join("\n")
+          : String(ev.script.exec);
+      };
+
+      const parsePostmanItem = (item: any): CollectionItem => {
         if (item.item) {
           return {
             id: generateId(),
             name: item.name || "Folder",
             type: "folder",
-            children: item.item.map(parsePingZeroItem),
+            children: item.item.map(parsePostmanItem),
           };
         }
         const request = item.request || {};
+        const rawUrl =
+          typeof request.url === "object"
+            ? request.url.raw || ""
+            : request.url || "";
+
+        // Parse auth
+        let authType = "none";
+        let bearerToken: string | undefined;
+        let basicUsername: string | undefined;
+        let basicPassword: string | undefined;
+        let apiKeyName: string | undefined;
+        let apiKeyValue: string | undefined;
+        let apiKeyAddto: string | undefined;
+
+        if (request.auth?.type === "bearer") {
+          authType = "bearer";
+          const tk = request.auth.bearer?.find((x: any) => x.key === "token");
+          bearerToken = tk?.value || "";
+        } else if (request.auth?.type === "basic") {
+          authType = "basic";
+          basicUsername = request.auth.basic?.find((x: any) => x.key === "username")?.value || "";
+          basicPassword = request.auth.basic?.find((x: any) => x.key === "password")?.value || "";
+        } else if (request.auth?.type === "apikey") {
+          authType = "apikey";
+          apiKeyName = request.auth.apikey?.find((x: any) => x.key === "key")?.value || "";
+          apiKeyValue = request.auth.apikey?.find((x: any) => x.key === "value")?.value || "";
+          apiKeyAddto = request.auth.apikey?.find((x: any) => x.key === "in")?.value || "header";
+        }
+
+        // Parse body
+        let body = request.body?.raw || "";
+        let bodyType = "none";
+        const mode = request.body?.mode;
+        if (mode === "raw") {
+          const lang = request.body?.options?.raw?.language;
+          bodyType = lang === "xml" ? "xml" : lang === "text" ? "text" : "json";
+        } else if (mode === "urlencoded" && Array.isArray(request.body.urlencoded)) {
+          bodyType = "urlencoded";
+          body = request.body.urlencoded
+            .filter((p: any) => !p.disabled)
+            .map((p: any) => `${encodeURIComponent(p.key || "")}=${encodeURIComponent(p.value || "")}`)
+            .join("&");
+        } else if (mode === "graphql" && request.body.graphql) {
+          bodyType = "graphql";
+          body = JSON.stringify({
+            query: request.body.graphql.query || "",
+            variables: request.body.graphql.variables || {},
+          });
+        } else if (mode === "formdata") {
+          bodyType = "form-data";
+        } else if (body) {
+          bodyType = "json";
+        }
+
         return {
           id: generateId(),
           name: item.name || "Request",
           type: "request",
           request: {
             method: request.method || "GET",
-            url:
-              typeof request.url === "object"
-                ? request.url.raw || ""
-                : request.url || "",
+            url: rawUrl,
             headers: (request.header || []).map((h: any) => ({
               key: h.key || "",
               value: h.value || "",
-              enabled: true,
+              enabled: !h.disabled,
             })),
-            body: request.body?.raw || "",
-            bodyType:
-              request.body?.mode === "raw"
-                ? "json"
-                : request.body?.mode || "none",
-            authType: "none",
+            body,
+            bodyType,
+            authType,
+            bearerToken,
+            basicUsername,
+            basicPassword,
+            apiKeyName,
+            apiKeyValue,
+            apiKeyAddto,
+            preRequestCode: extractEventScript(item.event, "prerequest"),
+            postResponseCode: extractEventScript(item.event, "test"),
           },
         };
       };
-      return data.item.map(parsePingZeroItem);
+
+      const parsedItems = data.item.map(parsePostmanItem);
+      const colName = data.info?.name;
+      if (colName && parsedItems.some((i: CollectionItem) => i.type === "request")) {
+        return [
+          {
+            id: generateId(),
+            name: colName,
+            type: "folder",
+            children: parsedItems,
+          },
+        ];
+      }
+      return parsedItems;
     }
     // Swagger/OpenAPI v3
     if (data.openapi || data.swagger) {
@@ -236,7 +322,10 @@ const parseOpenApi = (spec: any): CollectionItem[] => {
 /* =====================================================================
    PingZeroCollections Component
    ===================================================================== */
-export default function PingZeroCollections({ onLoadRequest }: Props) {
+export default function PingZeroCollections({
+  onLoadRequest,
+  onRunCollection,
+}: Props) {
   const [collections, setCollections] =
     useState<CollectionItem[]>(loadCollections);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
@@ -359,13 +448,22 @@ export default function PingZeroCollections({ onLoadRequest }: Props) {
     if (!importUrl) return;
     setIsFetchingUrl(true);
     try {
-        const response = await fetch(importUrl);
-        const text = await response.text();
-        setImportText(text);
-    } catch (e) {
-        alert("Failed to fetch Swagger from URL. CORS error or invalid URL.");
+      const res: any = await invoke("send_http_request", {
+        req: {
+          url: importUrl.trim(),
+          method: "GET",
+          headers: {},
+          body: null,
+          body_type: "none",
+          allow_local: true,
+          insecure_tls: true,
+        },
+      });
+      setImportText(res.body || "");
+    } catch (e: any) {
+      alert("Failed to fetch OpenAPI/Collection from URL: " + (e?.message || e));
     } finally {
-        setIsFetchingUrl(false);
+      setIsFetchingUrl(false);
     }
   };
 
@@ -395,7 +493,8 @@ export default function PingZeroCollections({ onLoadRequest }: Props) {
           style={{ paddingLeft: `${12 + depth * 16}px` }}
           onClick={() => {
             if (item.type === "folder") toggleFolder(item.id);
-            else if (item.request && onLoadRequest) onLoadRequest(item.request);
+            else if (item.request && onLoadRequest)
+              onLoadRequest(item.request, item.name);
           }}
           onContextMenu={(e) => {
             e.preventDefault();
@@ -432,6 +531,19 @@ export default function PingZeroCollections({ onLoadRequest }: Props) {
           >
             {item.name}
           </span>
+          {item.type === "folder" && onRunCollection && (
+            <button
+              className="btn btn-ghost btn-xs"
+              title="Run Collection / Folder"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRunCollection(item);
+              }}
+              style={{ padding: "2px 4px", flexShrink: 0, color: "#34d399" }}
+            >
+              <Play size={10} fill="currentColor" />
+            </button>
+          )}
           {item.type === "request" && item.request?.method && (
             <span
               className={`method-badge ${item.request.method.toLowerCase()}`}

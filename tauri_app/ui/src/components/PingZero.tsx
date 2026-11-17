@@ -29,18 +29,18 @@ import {
   Check,
   Zap,
   Plus,
+  Play,
 } from "lucide-react";
 import PingZeroNetworkTools from "./PingZeroNetworkTools";
 import PingZeroCodeSnippets from "./PingZeroCodeSnippets";
 import PingZeroEnvManager from "./PingZeroEnvManager";
 import PingZeroScripts from "./PingZeroScripts";
-import PingZeroCollections from "./PingZeroCollections";
+import PingZeroCollections, { type CollectionItem } from "./PingZeroCollections";
 import PingZeroAnalyzer from "./PingZeroAnalyzer";
 import PingZeroSourceCatcher from "./PingZeroSourceCatcher";
 import PingZeroWebSocket from "./PingZeroWebSocket";
 import PingZeroSse from "./PingZeroSse";
 import PingZeroLoadTester from "./PingZeroLoadTester";
-import PingZeroGrpc from "./PingZeroGrpc";
 import type {
   HeaderItem,
   QueryParam,
@@ -75,6 +75,91 @@ export default function PingZero() {
   const [timeoutMs, setTimeoutMs] = useState<number>(30000);
   const [certPath, setCertPath] = useState<string>("");
   const [certPassphrase, setCertPassphrase] = useState<string>("");
+  const [allowLocal, setAllowLocal] = useState<boolean>(true);
+  const [insecureTls, setInsecureTls] = useState<boolean>(false);
+  const [useCookieJar, setUseCookieJar] = useState<boolean>(true);
+
+  /* ---- Multi-Tab & Collection Runner States ---- */
+  interface RequestTabSnapshot {
+    id: string;
+    title: string;
+    customTitle?: boolean;
+    method: string;
+    url: string;
+    queryParams: QueryParam[];
+    headers: HeaderItem[];
+    bodyType: BodyType;
+    body: string;
+    formDataFields: {
+      key: string;
+      value: string;
+      enabled: boolean;
+      type: "text" | "file";
+      fileName?: string;
+    }[];
+    binaryFilePath: string;
+    graphqlQuery: string;
+    graphqlVariables: string;
+    authType: AuthType;
+    bearerToken: string;
+    basicUsername: string;
+    basicPassword: string;
+    apiKeyName: string;
+    apiKeyValue: string;
+    apiKeyAddto: "header" | "query";
+    preRequestCode: string;
+    postResponseCode: string;
+    response: ApiResponse | null;
+    reqError: string | null;
+  }
+
+  const [tabs, setTabs] = useState<RequestTabSnapshot[]>([
+    {
+      id: "tab_1",
+      title: "httpbin.org/get",
+      method: "GET",
+      url: "https://httpbin.org/get",
+      queryParams: [{ key: "", value: "", enabled: true }],
+      headers: [
+        { key: "Accept", value: "*/*", enabled: true },
+        { key: "", value: "", enabled: true },
+      ],
+      bodyType: "none",
+      body: "",
+      formDataFields: [],
+      binaryFilePath: "",
+      graphqlQuery: "",
+      graphqlVariables: "",
+      authType: "none",
+      bearerToken: "",
+      basicUsername: "",
+      basicPassword: "",
+      apiKeyName: "",
+      apiKeyValue: "",
+      apiKeyAddto: "header",
+      preRequestCode: "",
+      postResponseCode: "",
+      response: null,
+      reqError: null,
+    },
+  ]);
+  const [activeTabId, setActiveTabId] = useState<string>("tab_1");
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingTabTitle, setEditingTabTitle] = useState<string>("");
+  const [runnerModalOpen, setRunnerModalOpen] = useState(false);
+  const [isRunningCollection, setIsRunningCollection] = useState(false);
+  const [runnerTitle, setRunnerTitle] = useState("");
+  const [runnerResults, setRunnerResults] = useState<
+    {
+      name: string;
+      method: string;
+      url: string;
+      status: number;
+      elapsedMs: number;
+      passed: boolean;
+      error?: string;
+    }[]
+  >([]);
 
   /* ---- Form-Data, Binary, GraphQL states ---- */
   const [formDataFields, setFormDataFields] = useState<
@@ -331,10 +416,272 @@ export default function PingZero() {
     }
   };
 
+  /* ---- Hydrate workspace from disk if localStorage is empty ---- */
+  useEffect(() => {
+    invoke<string>("load_pingzero_workspace")
+      .then((raw) => {
+        if (!raw || raw === "{}") return;
+        const data = JSON.parse(raw);
+        if (data.collections && !localStorage.getItem("pingzero_collections")) {
+          localStorage.setItem("pingzero_collections", JSON.stringify(data.collections));
+        }
+        if (data.environments && !localStorage.getItem("pingzero_environments")) {
+          localStorage.setItem("pingzero_environments", JSON.stringify(data.environments));
+          refreshEnvironments();
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const syncWorkspaceToDisk = useCallback(() => {
+    try {
+      const payload = {
+        collections: JSON.parse(localStorage.getItem("pingzero_collections") || "[]"),
+        environments: JSON.parse(localStorage.getItem("pingzero_environments") || "[]"),
+      };
+      invoke("save_pingzero_workspace", { data: JSON.stringify(payload, null, 2) }).catch(() => {});
+    } catch {}
+  }, []);
+
+  /* ---- Multi-Tab Helpers ---- */
+  const deriveTabTitle = (rawUrl: string) => {
+    const clean = rawUrl.replace(/^https?:\/\//i, "").trim();
+    return clean ? (clean.length > 26 ? clean.slice(0, 26) + "…" : clean) : "New Request";
+  };
+
+  const snapshotCurrentTab = (): RequestTabSnapshot => {
+    const existing = tabs.find((t) => t.id === activeTabId);
+    const keepCustom = !!existing?.customTitle;
+    return {
+      id: activeTabId,
+      title: keepCustom ? existing!.title : deriveTabTitle(url),
+      customTitle: keepCustom,
+      method,
+      url,
+      queryParams,
+      headers,
+      bodyType,
+      body,
+      formDataFields,
+      binaryFilePath,
+      graphqlQuery,
+      graphqlVariables,
+      authType,
+      bearerToken,
+      basicUsername,
+      basicPassword,
+      apiKeyName,
+      apiKeyValue,
+      apiKeyAddto,
+      preRequestCode,
+      postResponseCode,
+      response,
+      reqError,
+    };
+  };
+
+  const restoreTabSnapshot = (t: RequestTabSnapshot) => {
+    setMethod(t.method);
+    setUrl(t.url);
+    setQueryParams(t.queryParams);
+    setHeaders(t.headers);
+    setBodyType(t.bodyType);
+    setBody(t.body);
+    setFormDataFields(t.formDataFields);
+    setBinaryFilePath(t.binaryFilePath);
+    setGraphqlQuery(t.graphqlQuery);
+    setGraphqlVariables(t.graphqlVariables);
+    setAuthType(t.authType);
+    setBearerToken(t.bearerToken);
+    setBasicUsername(t.basicUsername);
+    setBasicPassword(t.basicPassword);
+    setApiKeyName(t.apiKeyName);
+    setApiKeyValue(t.apiKeyValue);
+    setApiKeyAddto(t.apiKeyAddto);
+    setPreRequestCode(t.preRequestCode);
+    setPostResponseCode(t.postResponseCode);
+    setResponse(t.response);
+    setReqError(t.reqError);
+  };
+
+  const handleSwitchTab = (targetId: string) => {
+    if (targetId === activeTabId) return;
+    const snap = snapshotCurrentTab();
+    setTabs((prev) => prev.map((t) => (t.id === activeTabId ? snap : t)));
+    const next = tabs.find((t) => t.id === targetId);
+    if (next) {
+      setActiveTabId(targetId);
+      restoreTabSnapshot(next);
+    }
+  };
+
+  const handleNewTab = (initial?: Partial<RequestTabSnapshot>) => {
+    const snap = snapshotCurrentTab();
+    const newId = "tab_" + Date.now();
+    const fresh: RequestTabSnapshot = {
+      id: newId,
+      title: initial?.title || (initial?.url ? deriveTabTitle(initial.url) : "New Request"),
+      customTitle: !!initial?.title,
+      method: initial?.method || "GET",
+      url: initial?.url || "",
+      queryParams: initial?.queryParams || [{ key: "", value: "", enabled: true }],
+      headers: initial?.headers || [
+        { key: "Accept", value: "*/*", enabled: true },
+        { key: "", value: "", enabled: true },
+      ],
+      bodyType: initial?.bodyType || "none",
+      body: initial?.body || "",
+      formDataFields: initial?.formDataFields || [],
+      binaryFilePath: initial?.binaryFilePath || "",
+      graphqlQuery: initial?.graphqlQuery || "",
+      graphqlVariables: initial?.graphqlVariables || "",
+      authType: initial?.authType || "none",
+      bearerToken: initial?.bearerToken || "",
+      basicUsername: initial?.basicUsername || "",
+      basicPassword: initial?.basicPassword || "",
+      apiKeyName: initial?.apiKeyName || "",
+      apiKeyValue: initial?.apiKeyValue || "",
+      apiKeyAddto: initial?.apiKeyAddto || "header",
+      preRequestCode: initial?.preRequestCode || "",
+      postResponseCode: initial?.postResponseCode || "",
+      response: null,
+      reqError: null,
+    };
+    setTabs((prev) => [...prev.map((t) => (t.id === activeTabId ? snap : t)), fresh]);
+    setActiveTabId(newId);
+    restoreTabSnapshot(fresh);
+  };
+
+  const handleCloseTab = (targetId: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (tabs.length <= 1) return;
+    const idx = tabs.findIndex((t) => t.id === targetId);
+    const remaining = tabs.filter((t) => t.id !== targetId);
+    setTabs(remaining);
+    if (targetId === activeTabId) {
+      const next = remaining[Math.max(0, idx - 1)];
+      setActiveTabId(next.id);
+      restoreTabSnapshot(next);
+    }
+  };
+
+  /* ---- Collection Runner ---- */
+  const collectRequests = (item: CollectionItem): CollectionItem[] => {
+    if (item.type === "request" && item.request) return [item];
+    if (item.children) return item.children.flatMap(collectRequests);
+    return [];
+  };
+
+  const handleRunCollection = async (folder: CollectionItem) => {
+    const items = collectRequests(folder);
+    if (items.length === 0) {
+      alert("Folder này chưa có request nào để chạy.");
+      return;
+    }
+    setRunnerTitle(folder.name);
+    setRunnerResults([]);
+    setRunnerModalOpen(true);
+    setIsRunningCollection(true);
+
+    for (const item of items) {
+      const req = item.request!;
+      const resolvedUrl = substituteEnvVars(req.url);
+      const resolvedBody = req.body ? substituteEnvVars(req.body) : "";
+      const hdrs: Record<string, string> = {};
+      (req.headers || []).forEach((h) => {
+        if (h.enabled && h.key.trim()) {
+          hdrs[h.key.trim()] = substituteEnvVars(h.value);
+        }
+      });
+      if (req.authType === "bearer" && req.bearerToken) {
+        hdrs["Authorization"] = `Bearer ${substituteEnvVars(req.bearerToken)}`;
+      } else if (req.authType === "basic") {
+        hdrs["Authorization"] = `Basic ${toBase64(`${req.basicUsername || ""}:${req.basicPassword || ""}`)}`;
+      } else if (req.authType === "apikey" && req.apiKeyName && req.apiKeyAddto !== "query") {
+        hdrs[req.apiKeyName] = substituteEnvVars(req.apiKeyValue || "");
+      }
+
+      try {
+        if (req.preRequestCode?.trim()) {
+          const preRes = await executeScript(req.preRequestCode, {
+            method: req.method,
+            url: resolvedUrl,
+            headers: hdrs,
+            body: resolvedBody,
+          });
+          Object.assign(hdrs, preRes.modifiedHeaders);
+        }
+
+        const res: any = await invoke("send_http_request", {
+          req: {
+            url: resolvedUrl,
+            method: req.method,
+            headers: hdrs,
+            body: req.bodyType !== "none" ? resolvedBody : null,
+            body_type: req.bodyType || "none",
+            timeout_ms: timeoutMs || null,
+            allow_local: allowLocal,
+            insecure_tls: insecureTls,
+            use_cookie_jar: useCookieJar,
+          },
+        });
+
+        let passed = res.status >= 200 && res.status < 400;
+        if (req.postResponseCode?.trim()) {
+          const postRes = await executeScript(req.postResponseCode, {
+            method: req.method,
+            url: resolvedUrl,
+            headers: hdrs,
+            body: resolvedBody,
+            response: {
+              status: res.status,
+              statusText: res.status_text,
+              elapsedMs: res.elapsed_ms,
+              sizeBytes: res.size_bytes,
+              headers: res.headers,
+              body: res.body,
+              cookies: res.cookies,
+            },
+          });
+          if (postRes.testResults.length > 0) {
+            passed = postRes.testResults.every((t) => t.passed);
+          }
+        }
+
+        setRunnerResults((prev) => [
+          ...prev,
+          {
+            name: item.name,
+            method: req.method,
+            url: resolvedUrl,
+            status: res.status,
+            elapsedMs: res.elapsed_ms,
+            passed,
+          },
+        ]);
+      } catch (err: any) {
+        setRunnerResults((prev) => [
+          ...prev,
+          {
+            name: item.name,
+            method: req.method,
+            url: resolvedUrl,
+            status: 0,
+            elapsedMs: 0,
+            passed: false,
+            error: err?.toString(),
+          },
+        ]);
+      }
+    }
+    setIsRunningCollection(false);
+    syncWorkspaceToDisk();
+  };
+
   /* =====================================================================
-     Script Execution Engine
+     Script Execution Engine (Async + pm.sendRequest + pm.response.json)
      ===================================================================== */
-  const executeScript = (
+  const executeScript = async (
     code: string,
     context: {
       method: string;
@@ -343,12 +690,12 @@ export default function PingZero() {
       body: string;
       response?: ApiResponse;
     },
-  ): {
+  ): Promise<{
     logs: string[];
     modifiedHeaders: Record<string, string>;
     modifiedBody: string;
     testResults: TestResult[];
-  } => {
+  }> => {
     const logs: string[] = [];
     const testResults: TestResult[] = [];
     const envSnapshot: Record<string, string> = {};
@@ -401,24 +748,70 @@ export default function PingZero() {
       headers: { ...context.headers },
       body: context.body,
       environment: {
+        get: (key: string) => envSnapshot[key],
         set: (key: string, value: string) => {
-          setEnvVar(key, value);
+          setEnvVar(key, String(value));
           setEnvRefreshTrigger((prev) => prev + 1);
+          syncWorkspaceToDisk();
         },
+        unset: (key: string) => {
+          delete envSnapshot[key];
+          try {
+            const raw = localStorage.getItem("pingzero_environments");
+            if (raw) {
+              const envs = JSON.parse(raw);
+              const idx = envs.findIndex((e: any) => e.id === selectedEnv);
+              if (idx >= 0) {
+                envs[idx].variables = envs[idx].variables.filter((v: any) => v.key !== key);
+                localStorage.setItem("pingzero_environments", JSON.stringify(envs));
+                refreshEnvironments();
+              }
+            }
+          } catch {}
+        },
+      },
+      sendRequest: async (reqOpt: string | { url: string; method?: string; header?: Record<string, string>; body?: any }) => {
+        const opt = typeof reqOpt === "string" ? { url: reqOpt } : reqOpt;
+        const reqBody = opt.body
+          ? typeof opt.body === "string"
+            ? opt.body
+            : opt.body.raw || JSON.stringify(opt.body)
+          : null;
+        const res: any = await invoke("send_http_request", {
+          req: {
+            url: opt.url,
+            method: (opt.method || "GET").toUpperCase(),
+            headers: opt.header || {},
+            body: reqBody,
+            body_type: reqBody ? "json" : "none",
+            allow_local: allowLocal,
+            insecure_tls: insecureTls,
+            use_cookie_jar: useCookieJar,
+          },
+        });
+        return {
+          code: res.status,
+          status: res.status_text,
+          headers: res.headers,
+          text: () => res.body,
+          json: () => JSON.parse(res.body),
+        };
       },
       testResults: testResults,
       response: context.response
         ? {
+            code: context.response.status,
             status: context.response.status,
             statusText: context.response.statusText,
             headers: context.response.headers,
             body: context.response.body,
+            text: () => context.response!.body,
+            json: () => JSON.parse(context.response!.body),
             elapsedMs: context.response.elapsedMs,
             sizeBytes: context.response.sizeBytes,
             cookies: context.response.cookies || [],
           }
         : undefined,
-      // Enhanced PingZero-style test/expect API
       test: (name: string, fn: Function) => {
         try {
           fn();
@@ -432,12 +825,27 @@ export default function PingZero() {
       },
       expect: (actual: any) => ({
         to: {
+          eql: (expected: any) => {
+            if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+              throw new Error(`Expected ${JSON.stringify(expected)} but got ${JSON.stringify(actual)}`);
+            }
+          },
+          equal: (expected: any) => {
+            if (actual !== expected) {
+              throw new Error(`Expected ${expected} but got ${actual}`);
+            }
+          },
           have: {
             status: (expected: number) => {
               const resp = context.response;
               if (!resp) throw new Error("No response available");
               if (resp.status !== expected)
                 throw new Error(`Expected ${expected} but got ${resp.status}`);
+            },
+            property: (prop: string) => {
+              if (actual == null || !(prop in Object(actual))) {
+                throw new Error(`Expected object to have property "${prop}"`);
+              }
             },
           },
           include: (expectedSubstr: string) => {
@@ -484,23 +892,14 @@ export default function PingZero() {
     };
 
     try {
-      // Wrap the code in an async IIFE so pm is available
+      // Wrap the code in an async IIFE and await it so pm.sendRequest works cleanly
       const wrappedCode = `
-        (async () => {
+        return (async () => {
           ${code}
         })();
       `;
-      // Use Function constructor for a sandboxed-ish eval
       const fn = new Function("pm", "console", wrappedCode);
-      // Execute synchronously; if the user code is async it'll still run,
-      // but we capture the state from pm after
-      const result = fn(pm, console);
-      // If it returns a promise, we don't await it – we just take the sync state
-      if (result && typeof result.then === "function") {
-        logs.push(
-          "ℹ️ Script contains async code. Synchronous portion executed.",
-        );
-      }
+      await fn(pm, console);
     } catch (e: any) {
       logs.push("❌ Script error: " + e.toString());
     }
@@ -568,7 +967,7 @@ export default function PingZero() {
 
     // ---- Pre-request Script Execution ----
     if (preRequestCode.trim()) {
-      const scriptResult = executeScript(preRequestCode.trim(), {
+      const scriptResult = await executeScript(preRequestCode.trim(), {
         method,
         url: finalUrl,
         headers: finalHeaders,
@@ -578,6 +977,7 @@ export default function PingZero() {
       // Apply modifications from pre-request script
       finalHeaders = { ...scriptResult.modifiedHeaders };
       finalBody = scriptResult.modifiedBody;
+      finalUrl = substituteEnvVars(url.trim());
     }
 
     // Inject Auth
@@ -627,6 +1027,15 @@ export default function PingZero() {
     }
 
     try {
+      const activeFormFields = formDataFields
+        .filter((f) => f.enabled && f.key.trim())
+        .map((f) => ({
+          key: substituteEnvVars(f.key.trim()),
+          value: f.type === "text" ? substituteEnvVars(f.value) : null,
+          field_type: f.type,
+          file_path: f.type === "file" ? f.fileName || null : null,
+        }));
+
       const res: any = await invoke("send_http_request", {
         req: {
           url: finalUrl,
@@ -634,9 +1043,15 @@ export default function PingZero() {
           headers: finalHeaders,
           body: bodyType !== "none" ? finalBody : null,
           body_type: bodyType,
+          form_data: bodyType === "form-data" ? activeFormFields : null,
+          binary_file_path:
+            bodyType === "binary" && binaryFilePath ? binaryFilePath : null,
           timeout_ms: timeoutMs || null,
           cert_path: certPath || null,
           cert_passphrase: certPassphrase || null,
+          allow_local: allowLocal,
+          insecure_tls: insecureTls,
+          use_cookie_jar: useCookieJar,
         },
       });
 
@@ -690,7 +1105,7 @@ export default function PingZero() {
 
       // ---- Post-response Script Execution ----
       if (postResponseCode.trim()) {
-        const scriptResult = executeScript(postResponseCode.trim(), {
+        const scriptResult = await executeScript(postResponseCode.trim(), {
           method,
           url: finalUrl,
           headers: finalHeaders,
@@ -708,6 +1123,19 @@ export default function PingZero() {
       }
 
       setResponse(responseData);
+      setTabs((prev) =>
+        prev.map((t) =>
+          t.id === activeTabId
+            ? {
+                ...t,
+                title: t.customTitle ? t.title : deriveTabTitle(url),
+                method,
+                url,
+                response: responseData,
+              }
+            : t,
+        ),
+      );
 
       if (responseData.testResults && responseData.testResults.length > 0) {
         setResTab("tests");
@@ -1371,22 +1799,7 @@ export default function PingZero() {
             {/* COLLECTIONS TAB */}
             {sidebarTab === "collections" && (
               <PingZeroCollections
-                onLoadRequest={(req) => {
-                  // Load a collection request into the main form
-                  setMethod(req.method);
-                  setUrl(req.url);
-                  setBody(req.body || "");
-                  setBodyType(req.bodyType as BodyType);
-                  setAuthType(req.authType as AuthType);
-                  setBearerToken(req.bearerToken || "");
-                  setBasicUsername(req.basicUsername || "");
-                  setBasicPassword(req.basicPassword || "");
-                  setApiKeyName(req.apiKeyName || "");
-                  setApiKeyValue(req.apiKeyValue || "");
-                  setApiKeyAddto(
-                    (req.apiKeyAddto as "header" | "query") || "header",
-                  );
-                  // Map headers
+                onLoadRequest={(req, name) => {
                   const mappedHeaders: HeaderItem[] = (req.headers || [])
                     .filter((h) => h.key)
                     .map((h) => ({
@@ -1395,10 +1808,37 @@ export default function PingZero() {
                       enabled: h.enabled,
                     }));
                   mappedHeaders.push({ key: "", value: "", enabled: true });
-                  setHeaders(mappedHeaders);
-                  // Parse URL params
-                  parseUrlIntoParams(req.url);
+
+                  const parsedParams: QueryParam[] = [];
+                  try {
+                    const urlObj = new URL(req.url);
+                    urlObj.searchParams.forEach((value, key) => {
+                      parsedParams.push({ key, value, enabled: true });
+                    });
+                  } catch {}
+                  parsedParams.push({ key: "", value: "", enabled: true });
+
+                  handleNewTab({
+                    title: name || deriveTabTitle(req.url),
+                    method: req.method,
+                    url: req.url,
+                    queryParams: parsedParams,
+                    headers: mappedHeaders,
+                    body: req.body || "",
+                    bodyType: (req.bodyType as BodyType) || "none",
+                    authType: (req.authType as AuthType) || "none",
+                    bearerToken: req.bearerToken || "",
+                    basicUsername: req.basicUsername || "",
+                    basicPassword: req.basicPassword || "",
+                    apiKeyName: req.apiKeyName || "",
+                    apiKeyValue: req.apiKeyValue || "",
+                    apiKeyAddto: (req.apiKeyAddto as "header" | "query") || "header",
+                    preRequestCode: req.preRequestCode || "",
+                    postResponseCode: req.postResponseCode || "",
+                  });
+                  syncWorkspaceToDisk();
                 }}
+                onRunCollection={handleRunCollection}
               />
             )}
 
@@ -1416,6 +1856,167 @@ export default function PingZero() {
         {/* MAIN WORKSPACE                                                */}
         {/* -------------------------------------------------------------- */}
         <div className="pingzero-main-workspace">
+          {/* ---- MULTI-TAB REQUEST BAR ---- */}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              padding: "4px 8px",
+              borderBottom: "1px solid var(--border-primary)",
+              backgroundColor: "var(--bg-secondary)",
+              overflowX: "auto",
+              flexShrink: 0,
+            }}
+          >
+            {tabs.map((tab) => {
+              const isActive = tab.id === activeTabId;
+              const tabMethod = isActive ? method : tab.method;
+              const tabTitle = tab.customTitle
+                ? tab.title
+                : isActive
+                  ? deriveTabTitle(url)
+                  : tab.title;
+              const tabStatus = isActive ? response?.status : tab.response?.status;
+              const isEditing = editingTabId === tab.id;
+
+              const commitRename = () => {
+                const trimmed = editingTabTitle.trim();
+                setTabs((prev) =>
+                  prev.map((t) => {
+                    if (t.id !== tab.id) return t;
+                    if (!trimmed) {
+                      return {
+                        ...t,
+                        customTitle: false,
+                        title: deriveTabTitle(t.id === activeTabId ? url : t.url),
+                      };
+                    }
+                    return { ...t, customTitle: true, title: trimmed };
+                  }),
+                );
+                setEditingTabId(null);
+              };
+
+              return (
+                <div
+                  key={tab.id}
+                  onClick={() => !isEditing && handleSwitchTab(tab.id)}
+                  onDoubleClick={(e) => {
+                    e.stopPropagation();
+                    setEditingTabId(tab.id);
+                    setEditingTabTitle(tabTitle);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setEditingTabId(tab.id);
+                    setEditingTabTitle(tabTitle);
+                  }}
+                  title="Double-click hoặc chuột phải để đổi tên tab"
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "4px 10px",
+                    borderRadius: "5px",
+                    fontSize: "11px",
+                    cursor: "pointer",
+                    backgroundColor: isActive ? "var(--bg-primary)" : "transparent",
+                    border: isActive
+                      ? "1px solid var(--border-primary)"
+                      : "1px solid transparent",
+                    color: isActive ? "var(--text-primary)" : "var(--text-muted)",
+                    maxWidth: "220px",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    className={`method-badge ${tabMethod.toLowerCase()}`}
+                    style={{ fontSize: "9px", padding: "1px 4px" }}
+                  >
+                    {tabMethod}
+                  </span>
+                  {isEditing ? (
+                    <input
+                      type="text"
+                      autoFocus
+                      value={editingTabTitle}
+                      onChange={(e) => setEditingTabTitle(e.target.value)}
+                      onBlur={commitRename}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitRename();
+                        } else if (e.key === "Escape") {
+                          setEditingTabId(null);
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: "110px",
+                        fontSize: "11px",
+                        padding: "1px 4px",
+                        backgroundColor: "var(--bg-secondary)",
+                        color: "var(--text-primary)",
+                        border: "1px solid var(--accent-color, #3b82f6)",
+                        borderRadius: "3px",
+                        outline: "none",
+                      }}
+                    />
+                  ) : (
+                    <span
+                      style={{
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {tabTitle}
+                    </span>
+                  )}
+                  {tabStatus && (
+                    <span
+                      style={{
+                        fontSize: "9px",
+                        fontWeight: 700,
+                        color: tabStatus >= 200 && tabStatus < 300 ? "#34d399" : "#f87171",
+                      }}
+                    >
+                      {tabStatus}
+                    </span>
+                  )}
+                  {tabs.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={(e) => handleCloseTab(tab.id, e)}
+                      title="Close tab"
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--text-muted)",
+                        cursor: "pointer",
+                        padding: 0,
+                        display: "flex",
+                        alignItems: "center",
+                      }}
+                    >
+                      <X size={10} />
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => handleNewTab()}
+              title="New Request Tab"
+              className="btn btn-ghost btn-xs"
+              style={{ padding: "3px 6px", flexShrink: 0 }}
+            >
+              <Plus size={12} />
+            </button>
+          </div>
+
           {/* ---- REQUEST BAR ---- */}
           <div className="request-bar">
             <select
@@ -1430,6 +2031,8 @@ export default function PingZero() {
               <option value="PATCH">PATCH</option>
               <option value="OPTIONS">OPTIONS</option>
               <option value="HEAD">HEAD</option>
+              <option value="WS">WS</option>
+              <option value="SSE">SSE</option>
             </select>
 
             <input
@@ -1512,8 +2115,6 @@ export default function PingZero() {
             <PingZeroWebSocket url={url} />
           ) : method === "SSE" ? (
             <PingZeroSse url={url} headers={headers} />
-          ) : method === "gRPC" ? (
-            <PingZeroGrpc url={url} headers={headers} body={body} />
           ) : (
           <>
           <div className="pingzero-workspace-tabs">
@@ -2387,24 +2988,25 @@ export default function PingZero() {
                                           />
                                           <button
                                             className="btn btn-ghost btn-xs"
-                                            onClick={() => {
-                                              const filePath =
-                                                window.prompt(
-                                                  "Enter file path:",
-                                                );
-                                              if (filePath) {
-                                                const updated = [
-                                                  ...formDataFields,
-                                                ];
-                                                updated[index].fileName =
-                                                  filePath;
-                                                updated[index].value =
-                                                  "[FILE: " +
-                                                  filePath
-                                                    .split(/\\|\//)
-                                                    .pop() +
-                                                  "]";
-                                                setFormDataFields(updated);
+                                            onClick={async () => {
+                                              try {
+                                                const filePath = await invoke<string | null>("open_file_dialog");
+                                                if (filePath) {
+                                                  const updated = [
+                                                    ...formDataFields,
+                                                  ];
+                                                  updated[index].fileName =
+                                                    filePath;
+                                                  updated[index].value =
+                                                    "[FILE: " +
+                                                    filePath
+                                                      .split(/\\|\//)
+                                                      .pop() +
+                                                    "]";
+                                                  setFormDataFields(updated);
+                                                }
+                                              } catch (e) {
+                                                console.error(e);
                                               }
                                             }}
                                             style={{ flexShrink: 0 }}
@@ -2487,17 +3089,19 @@ export default function PingZero() {
                             {!binaryFilePath ? (
                               <div
                                 className="binary-dropzone"
-                                onClick={() => {
-                                  const filePath = window.prompt(
-                                    "Select file path for binary upload:",
-                                  );
-                                  if (filePath) {
-                                    setBinaryFilePath(filePath);
-                                    setBody(
-                                      "[BINARY FILE: " +
-                                        filePath.split(/\\|\//).pop() +
-                                        "]",
-                                    );
+                                onClick={async () => {
+                                  try {
+                                    const filePath = await invoke<string | null>("open_file_dialog");
+                                    if (filePath) {
+                                      setBinaryFilePath(filePath);
+                                      setBody(
+                                        "[BINARY FILE: " +
+                                          filePath.split(/\\|\//).pop() +
+                                          "]",
+                                      );
+                                    }
+                                  } catch (e) {
+                                    console.error(e);
                                   }
                                 }}
                               >
@@ -2802,7 +3406,7 @@ export default function PingZero() {
 
                   <div className="settings-item flex flex-col gap-1 mt-2">
                     <label className="font-bold text-xs">
-                      Certificate Passphrase (Optional)
+                      Certificate Passphrase (Optional, .p12/.pfx)
                     </label>
                     <input
                       type="password"
@@ -2818,6 +3422,45 @@ export default function PingZero() {
                       value={certPassphrase}
                       onChange={(e) => setCertPassphrase(e.target.value)}
                     />
+                  </div>
+
+                  <div className="settings-item flex flex-col gap-2 mt-4" style={{ borderTop: "1px solid var(--border-primary)", paddingTop: "12px" }}>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={allowLocal}
+                        onChange={(e) => setAllowLocal(e.target.checked)}
+                      />
+                      <span className="font-bold">Allow Localhost / Private LAN (127.0.0.1, 192.168.x.x)</span>
+                    </label>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!insecureTls}
+                        onChange={(e) => setInsecureTls(!e.target.checked)}
+                      />
+                      <span className="font-bold">Verify SSL Certificates (tắt khi test HTTPS self-signed local)</span>
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={useCookieJar}
+                          onChange={(e) => setUseCookieJar(e.target.checked)}
+                        />
+                        <span className="font-bold">Auto Cookie Jar (tự động lưu & gửi Cookie giữa các request)</span>
+                      </label>
+                      <button
+                        type="button"
+                        className="btn btn-secondary btn-xs"
+                        onClick={async () => {
+                          await invoke("clear_pingzero_cookies");
+                          alert("Đã xóa toàn bộ Cookie trong Cookie Jar.");
+                        }}
+                      >
+                        Clear Cookies
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -3872,6 +4515,84 @@ export default function PingZero() {
                     {diffResult}
                   </pre>
                 )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ================================================================ */}
+      {/* COLLECTION RUNNER REPORT MODAL                                   */}
+      {/* ================================================================ */}
+      {runnerModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 140 }}>
+          <div className="modal-content" style={{ width: "680px", maxHeight: "80vh" }}>
+            <header className="modal-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <Play size={14} style={{ color: "#34d399" }} />
+                <h3 className="modal-title">Collection Runner — {runnerTitle}</h3>
+              </div>
+              <button
+                className="btn btn-secondary"
+                style={{ padding: "3px 6px" }}
+                onClick={() => setRunnerModalOpen(false)}
+              >
+                <X size={12} />
+              </button>
+            </header>
+            <div className="modal-body" style={{ maxHeight: "60vh", overflow: "auto", padding: "12px" }}>
+              <div style={{ display: "flex", gap: "12px", marginBottom: "10px", fontSize: "12px" }}>
+                <span>
+                  Status: <strong>{isRunningCollection ? "Running..." : "Completed"}</strong>
+                </span>
+                <span style={{ color: "#34d399" }}>
+                  Passed: <strong>{runnerResults.filter((r) => r.passed).length}</strong>
+                </span>
+                <span style={{ color: "#f87171" }}>
+                  Failed: <strong>{runnerResults.filter((r) => !r.passed).length}</strong>
+                </span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {runnerResults.map((r, idx) => (
+                  <div
+                    key={idx}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "8px 10px",
+                      borderRadius: "6px",
+                      backgroundColor: "var(--bg-primary)",
+                      border: "1px solid var(--border-primary)",
+                      fontSize: "11.5px",
+                      gap: "10px",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, flex: 1 }}>
+                      <span
+                        className={`method-badge ${r.method.toLowerCase()}`}
+                        style={{ fontSize: "9.5px", flexShrink: 0 }}
+                      >
+                        {r.method}
+                      </span>
+                      <span style={{ fontWeight: 600, flexShrink: 0 }}>{r.name}</span>
+                      <span style={{ color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {r.error ? r.error : r.url}
+                      </span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                      <span style={{ color: "var(--text-muted)" }}>{r.elapsedMs} ms</span>
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: r.passed ? "#34d399" : "#f87171",
+                        }}
+                      >
+                        {r.status > 0 ? `${r.status}` : "ERR"} · {r.passed ? "PASS" : "FAIL"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>

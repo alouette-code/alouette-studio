@@ -8,15 +8,28 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 #[derive(Debug, Deserialize)]
+pub struct FormDataFieldInput {
+    pub key: String,
+    pub value: Option<String>,
+    pub field_type: String, // "text" | "file"
+    pub file_path: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct HttpRequestInput {
     pub url: String,
     pub method: String,
     pub headers: HashMap<String, String>,
     pub body: Option<String>,
-    pub body_type: String, // "none", "text", "json", "urlencoded"
+    pub body_type: String, // "none", "text", "json", "urlencoded", "xml", "form-data", "binary", "graphql"
+    pub form_data: Option<Vec<FormDataFieldInput>>,
+    pub binary_file_path: Option<String>,
     pub timeout_ms: Option<u64>,
     pub cert_path: Option<String>,
     pub cert_passphrase: Option<String>,
+    pub allow_local: Option<bool>,
+    pub insecure_tls: Option<bool>,
+    pub use_cookie_jar: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -241,11 +254,47 @@ pub async fn open_ping_window(app_handle: tauri::AppHandle) -> Result<(), String
     Ok(())
 }
 
-struct SafeDnsResolver;
+lazy_static::lazy_static! {
+    static ref PINGZERO_COOKIE_JAR: tokio::sync::RwLock<std::sync::Arc<reqwest::cookie::Jar>> =
+        tokio::sync::RwLock::new(std::sync::Arc::new(reqwest::cookie::Jar::default()));
+}
+
+#[tauri::command]
+pub async fn clear_pingzero_cookies() -> Result<String, String> {
+    let mut guard = PINGZERO_COOKIE_JAR.write().await;
+    *guard = std::sync::Arc::new(reqwest::cookie::Jar::default());
+    Ok("Cleared PingZero Cookie Jar".to_string())
+}
+
+#[tauri::command]
+pub async fn load_pingzero_workspace() -> Result<String, String> {
+    let path = crate::state::app_data_dir().join("pingzero_workspace.json");
+    if !path.exists() {
+        return Ok("{}".to_string());
+    }
+    tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("Failed to read PingZero workspace: {}", e))
+}
+
+#[tauri::command]
+pub async fn save_pingzero_workspace(data: String) -> Result<(), String> {
+    let dir = crate::state::app_data_dir();
+    let _ = tokio::fs::create_dir_all(&dir).await;
+    let path = dir.join("pingzero_workspace.json");
+    tokio::fs::write(&path, data)
+        .await
+        .map_err(|e| format!("Failed to save PingZero workspace: {}", e))
+}
+
+struct SafeDnsResolver {
+    allow_local: bool,
+}
 
 impl reqwest::dns::Resolve for SafeDnsResolver {
     fn resolve(&self, name: reqwest::dns::Name) -> reqwest::dns::Resolving {
         let host = name.as_str().to_string();
+        let allow_local = self.allow_local;
         let fut = async move {
             let addrs = tokio::net::lookup_host(format!("{}:0", host))
                 .await
@@ -255,39 +304,41 @@ impl reqwest::dns::Resolve for SafeDnsResolver {
             for addr in addrs {
                 let ip = addr.ip();
 
-                if ip.is_loopback() {
-                    return Err(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::PermissionDenied,
-                        "Access to loopback IP addresses is blocked for security reasons (SSRF Protection).",
-                    )) as Box<dyn std::error::Error + Send + Sync>);
-                }
-
-                if ip.is_unspecified() {
-                    return Err(Box::new(std::io::Error::new(
-                        std::io::ErrorKind::PermissionDenied,
-                        "Access to unspecified IP addresses is blocked for security reasons (SSRF Protection).",
-                    )) as Box<dyn std::error::Error + Send + Sync>);
-                }
-
-                match ip {
-                    std::net::IpAddr::V4(ipv4) => {
-                        if ipv4.is_private() || ipv4.is_link_local() {
-                            return Err(Box::new(std::io::Error::new(
-                                std::io::ErrorKind::PermissionDenied,
-                                format!("Access to private/local IP address {} is blocked for security reasons (SSRF Protection).", ipv4),
-                            )) as Box<dyn std::error::Error + Send + Sync>);
-                        }
+                if !allow_local {
+                    if ip.is_loopback() {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "Access to loopback IP addresses is blocked (SSRF Protection). Bật 'Allow Localhost / LAN' trong Settings để test server local.",
+                        )) as Box<dyn std::error::Error + Send + Sync>);
                     }
-                    std::net::IpAddr::V6(ipv6) => {
-                        let segments = ipv6.segments();
-                        let is_private_v6 = (segments[0] & 0xfe00) == 0xfc00;
-                        let is_link_local_v6 = (segments[0] & 0xffc0) == 0xfe80;
 
-                        if is_private_v6 || is_link_local_v6 {
-                            return Err(Box::new(std::io::Error::new(
-                                std::io::ErrorKind::PermissionDenied,
-                                format!("Access to private/local IP address {} is blocked for security reasons (SSRF Protection).", ipv6),
-                            )) as Box<dyn std::error::Error + Send + Sync>);
+                    if ip.is_unspecified() {
+                        return Err(Box::new(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "Access to unspecified IP addresses is blocked (SSRF Protection).",
+                        )) as Box<dyn std::error::Error + Send + Sync>);
+                    }
+
+                    match ip {
+                        std::net::IpAddr::V4(ipv4) => {
+                            if ipv4.is_private() || ipv4.is_link_local() {
+                                return Err(Box::new(std::io::Error::new(
+                                    std::io::ErrorKind::PermissionDenied,
+                                    format!("Access to private/local IP {} is blocked (SSRF Protection). Bật 'Allow Localhost / LAN' trong Settings để test LAN.", ipv4),
+                                )) as Box<dyn std::error::Error + Send + Sync>);
+                            }
+                        }
+                        std::net::IpAddr::V6(ipv6) => {
+                            let segments = ipv6.segments();
+                            let is_private_v6 = (segments[0] & 0xfe00) == 0xfc00;
+                            let is_link_local_v6 = (segments[0] & 0xffc0) == 0xfe80;
+
+                            if is_private_v6 || is_link_local_v6 {
+                                return Err(Box::new(std::io::Error::new(
+                                    std::io::ErrorKind::PermissionDenied,
+                                    format!("Access to private/local IP {} is blocked (SSRF Protection).", ipv6),
+                                )) as Box<dyn std::error::Error + Send + Sync>);
+                            }
                         }
                     }
                 }
@@ -302,28 +353,37 @@ impl reqwest::dns::Resolve for SafeDnsResolver {
 }
 
 // ============================================================================
-// Main HTTP Request Sender (Enhanced with timing, redirects, cookies)
+// Main HTTP Request Sender (Enhanced with Cookie Jar, Multipart, Binary, Localhost)
 // ============================================================================
 
 #[tauri::command]
 pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutput, String> {
+    let allow_local = req.allow_local.unwrap_or(true);
+    let insecure_tls = req.insecure_tls.unwrap_or(false);
+    let use_cookie_jar = req.use_cookie_jar.unwrap_or(true);
+
     let mut client_builder = reqwest::Client::builder()
-        .danger_accept_invalid_certs(false)
+        .danger_accept_invalid_certs(insecure_tls)
         .redirect(reqwest::redirect::Policy::limited(10))
-        .dns_resolver(std::sync::Arc::new(SafeDnsResolver));
+        .dns_resolver(std::sync::Arc::new(SafeDnsResolver { allow_local }));
+
+    if use_cookie_jar {
+        let jar = PINGZERO_COOKIE_JAR.read().await.clone();
+        client_builder = client_builder.cookie_provider(jar);
+    }
 
     if let Some(cert_path) = &req.cert_path {
         if !cert_path.is_empty() {
             let cert_bytes = std::fs::read(cert_path)
                 .map_err(|e| format!("Failed to read client certificate: {}", e))?;
-            
-            
-            
+
+            let _pass = req.cert_passphrase.as_deref().unwrap_or("");
             let identity = if cert_path.ends_with(".pem") {
                 reqwest::Identity::from_pem(&cert_bytes)
             } else {
-                return Err("Unsupported certificate format. Must be .pem".to_string());
-            }.map_err(|e| format!("Failed to parse client certificate: {}", e))?;
+                return Err("Unsupported certificate format. Please provide a .pem client certificate (combined cert + private key).".to_string());
+            }
+            .map_err(|e| format!("Failed to parse client certificate: {}", e))?;
 
             client_builder = client_builder.identity(identity);
         }
@@ -352,14 +412,62 @@ pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutp
 
     for (k, v) in req.headers {
         if !k.trim().is_empty() {
+            // For multipart/form-data, let reqwest set Content-Type with the real boundary!
+            if req.body_type == "form-data" && k.trim().eq_ignore_ascii_case("content-type") {
+                continue;
+            }
             request_builder = request_builder.header(k.trim(), v);
         }
     }
 
-    if let Some(body_content) = req.body {
+    if req.body_type == "form-data" {
+        if let Some(fields) = req.form_data {
+            let mut form = reqwest::multipart::Form::new();
+            for field in fields {
+                if field.key.trim().is_empty() {
+                    continue;
+                }
+                if field.field_type == "file" {
+                    if let Some(ref fpath) = field.file_path {
+                        if !fpath.trim().is_empty() {
+                            let bytes = tokio::fs::read(fpath).await.map_err(|e| {
+                                format!("Failed to read form-data file '{}': {}", fpath, e)
+                            })?;
+                            let fname = std::path::Path::new(fpath)
+                                .file_name()
+                                .map(|n| n.to_string_lossy().to_string())
+                                .unwrap_or_else(|| "upload.bin".to_string());
+                            let part = reqwest::multipart::Part::bytes(bytes).file_name(fname);
+                            form = form.part(field.key, part);
+                        }
+                    }
+                } else {
+                    form = form.text(field.key, field.value.unwrap_or_default());
+                }
+            }
+            request_builder = request_builder.multipart(form);
+        }
+    } else if req.body_type == "binary" {
+        if let Some(ref bin_path) = req.binary_file_path {
+            if !bin_path.trim().is_empty() {
+                let bytes = tokio::fs::read(bin_path).await.map_err(|e| {
+                    format!("Failed to read binary upload file '{}': {}", bin_path, e)
+                })?;
+                request_builder = request_builder
+                    .header("Content-Type", "application/octet-stream")
+                    .body(bytes);
+            }
+        } else if let Some(body_content) = req.body {
+            if !body_content.is_empty() {
+                request_builder = request_builder
+                    .header("Content-Type", "application/octet-stream")
+                    .body(body_content);
+            }
+        }
+    } else if let Some(body_content) = req.body {
         if !body_content.is_empty() && req.body_type != "none" {
             match req.body_type.as_str() {
-                "json" => {
+                "json" | "graphql" => {
                     request_builder = request_builder
                         .header("Content-Type", "application/json")
                         .body(body_content);
@@ -374,16 +482,6 @@ pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutp
                         .header("Content-Type", "application/xml")
                         .body(body_content);
                 }
-                "form-data" => {
-                    request_builder = request_builder
-                        .header("Content-Type", "multipart/form-data")
-                        .body(body_content);
-                }
-                "binary" => {
-                    request_builder = request_builder
-                        .header("Content-Type", "application/octet-stream")
-                        .body(body_content);
-                }
                 _ => {
                     request_builder = request_builder.body(body_content);
                 }
@@ -393,16 +491,7 @@ pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutp
 
     let start = Instant::now();
     let response = request_builder.send().await.map_err(|e| format!("Request failed: {}", e))?;
-    let elapsed = start.elapsed().as_millis() as u64;
-
-    // Timing breakdown (approximate since reqwest doesn't expose low-level timings)
-    let timing_breakdown = TimingBreakdown {
-        dns_lookup_ms: 0.0,     // reqwest doesn't expose DNS time
-        tcp_connect_ms: 0.0,    // reqwest doesn't expose TCP time
-        tls_handshake_ms: 0.0,  // reqwest doesn't expose TLS time
-        first_byte_ms: elapsed as f64 * 0.85,
-        total_ms: elapsed,
-    };
+    let first_byte_ms = start.elapsed().as_secs_f64() * 1000.0;
 
     let status = response.status().as_u16();
     let status_text = response.status().canonical_reason().unwrap_or("").to_string();
@@ -490,14 +579,23 @@ pub async fn send_http_request(req: HttpRequestInput) -> Result<HttpResponseOutp
     }
 
     let size_bytes = body_bytes.len();
+    let total_ms = start.elapsed().as_millis() as u64;
     let body = String::from_utf8_lossy(&body_bytes).to_string();
+
+    let timing_breakdown = TimingBreakdown {
+        dns_lookup_ms: 0.0,
+        tcp_connect_ms: 0.0,
+        tls_handshake_ms: 0.0,
+        first_byte_ms,
+        total_ms,
+    };
 
     Ok(HttpResponseOutput {
         status,
         status_text,
         headers,
         body,
-        elapsed_ms: elapsed,
+        elapsed_ms: total_ms,
         size_bytes,
         redirect_chain: chain,
         cookies,

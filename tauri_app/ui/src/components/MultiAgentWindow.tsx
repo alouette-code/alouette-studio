@@ -46,7 +46,7 @@ export default function MultiAgentWindow({ theme }: MultiAgentWindowProps) {
       unlisten = await listen<any>("multi-agent-step", (event) => {
         const payload = event.payload;
         // In the new execution engine, step 999 is emitted with the final output of an agent.
-        if (payload && payload.agent_role === "planner" && payload.step === 999) {
+        if (payload && (payload.agent_role === "planner" || payload.agent_role === "secretary") && payload.step === 999) {
           setGeneratedPlan(payload.content);
           setIsPlanOpen(true);
         }

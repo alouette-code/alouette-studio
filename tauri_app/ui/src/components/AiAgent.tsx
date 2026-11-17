@@ -43,6 +43,12 @@ import {
   ChartBarStacked,
   Play,
   AlertTriangle,
+  Crown,
+  Scroll,
+  Braces,
+  CodeXml,
+  ImagePlus,
+  RotateCcw,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -60,6 +66,13 @@ interface ToolItem {
     | "failed";
 }
 
+interface ImageAttachment {
+  id: string;
+  name: string;
+  mime: string;
+  dataUrl: string;
+}
+
 interface ChatItem {
   id: string;
   type:
@@ -71,6 +84,8 @@ interface ChatItem {
     | "skill_call";
   sender: "user" | "agent";
   text?: string;
+  images?: ImageAttachment[];
+  opencodeMessageId?: string;
   toolName?: string;
   args?: string;
   tools?: ToolItem[];
@@ -902,9 +917,17 @@ export default function AiAgent({
   const [activeThought, setActiveThought] = useState<string | null>(null);
 
   const [inputVal, setInputVal] = useState("");
+  const [attachedImages, setAttachedImages] = useState<ImageAttachment[]>([]);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [selectedModel, setSelectedModel] = useState("gemini-3.5-flash");
   const [selectedMode, setSelectedMode] = useState("interactive");
+  const [opencodeStatus, setOpencodeStatus] = useState<{
+    installed: boolean;
+    running: boolean;
+    version?: string | null;
+  } | null>(null);
   const [isMultiAgentActive, setIsMultiAgentActive] = useState<boolean>(false);
   const [showTokenWarningModal, setShowTokenWarningModal] = useState<boolean>(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -1432,6 +1455,9 @@ export default function AiAgent({
   const modeDropdownRef = useRef<HTMLDivElement>(null);
   const processedIters = useRef<Set<string>>(new Set());
   const panelRef = useRef<HTMLDivElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const pendingUserBubbleIdRef = useRef<string | null>(null);
+  const sendEpochRef = useRef(0);
   const [isCompact, setIsCompact] = useState(false);
 
   // Track panel width and toggle compact mode
@@ -1518,6 +1544,20 @@ export default function AiAgent({
       );
     };
 
+    const unlistenUserMsgIdPromise = listen(
+      "agent-user-message-id",
+      (event: any) => {
+        const msgId = event.payload?.message_id;
+        const targetBubbleId = pendingUserBubbleIdRef.current;
+        if (!msgId || !targetBubbleId) return;
+        setChatHistory((prev) =>
+          prev.map((m) =>
+            m.id === targetBubbleId ? { ...m, opencodeMessageId: msgId } : m,
+          ),
+        );
+      },
+    );
+
     setupStreamListeners();
 
     return () => {
@@ -1526,6 +1566,7 @@ export default function AiAgent({
       Promise.resolve(unlistenThought).then(fn => fn && fn());
       Promise.resolve(unlistenThoughtFinal).then(fn => fn && fn());
       Promise.resolve(unlistenStreamComplete).then(fn => fn && fn());
+      unlistenUserMsgIdPromise.then(fn => fn && fn());
     };
   }, []);
 
@@ -1623,6 +1664,10 @@ export default function AiAgent({
     };
 
     loadActiveModels();
+
+    invoke<any>("opencode_health")
+      .then((res) => setOpencodeStatus(res))
+      .catch(() => {});
 
       window.addEventListener("storage", loadActiveModels);
 
@@ -1792,27 +1837,212 @@ export default function AiAgent({
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, [isTyping]);
 
-  const triggerSendMessage = async (messageText: string) => {
-    if (!messageText.trim()) return;
+  const processImageFiles = (files: FileList | File[]) => {
+    const fileArr = Array.from(files);
+    for (const file of fileArr) {
+      if (!file.type.startsWith("image/")) continue;
+      if (file.size > 15 * 1024 * 1024) {
+        alert(`Ảnh "${file.name}" vượt quá giới hạn 15MB.`);
+        continue;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = typeof reader.result === "string" ? reader.result : "";
+        if (!dataUrl) return;
+        setAttachedImages((prev) => [
+          ...prev,
+          {
+            id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+            name: file.name || `pasted-image-${Date.now()}.png`,
+            mime: file.type || "image/png",
+            dataUrl,
+          },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleImagePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFiles: File[] = [];
+
+    // 1. Check clipboardData.files first
+    if (e.clipboardData?.files && e.clipboardData.files.length > 0) {
+      for (const f of Array.from(e.clipboardData.files)) {
+        if (
+          f.type.startsWith("image/") ||
+          /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name || "")
+        ) {
+          imageFiles.push(f);
+        }
+      }
+    }
+
+    // 2. Check clipboardData.items
+    if (imageFiles.length === 0 && e.clipboardData?.items) {
+      for (let i = 0; i < e.clipboardData.items.length; i++) {
+        const item = e.clipboardData.items[i];
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (
+            f &&
+            (f.type.startsWith("image/") ||
+              item.type.startsWith("image/") ||
+              /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(f.name || ""))
+          ) {
+            imageFiles.push(f);
+          }
+        }
+      }
+    }
+
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      processImageFiles(imageFiles);
+      return;
+    }
+
+    // 3. If no text was pasted, probe Web Clipboard API + native OS clipboard (Linux Wayland/X11 GTK)
+    const plainText = e.clipboardData?.getData("text/plain") || "";
+    if (!plainText) {
+      try {
+        if (navigator.clipboard && typeof navigator.clipboard.read === "function") {
+          const clipItems = await navigator.clipboard.read();
+          for (const ci of clipItems) {
+            const imgType = ci.types.find((t) => t.startsWith("image/"));
+            if (imgType) {
+              const blob = await ci.getType(imgType);
+              const reader = new FileReader();
+              reader.onload = () => {
+                const dataUrl = typeof reader.result === "string" ? reader.result : "";
+                if (!dataUrl) return;
+                setAttachedImages((prev) => [
+                  ...prev,
+                  {
+                    id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+                    name: `clipboard-${Date.now()}.png`,
+                    mime: imgType,
+                    dataUrl,
+                  },
+                ]);
+              };
+              reader.readAsDataURL(blob);
+              return;
+            }
+          }
+        }
+      } catch (_) {}
+
+      try {
+        const nativeImg = await invoke<{
+          name: string;
+          mime: string;
+          data_url: string;
+        } | null>("read_clipboard_image");
+        if (nativeImg && nativeImg.data_url) {
+          setAttachedImages((prev) => [
+            ...prev,
+            {
+              id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+              name: nativeImg.name,
+              mime: nativeImg.mime,
+              dataUrl: nativeImg.data_url,
+            },
+          ]);
+        }
+      } catch (err) {
+        console.warn("Native clipboard image read failed:", err);
+      }
+    }
+  };
+
+  const handleImageDrop = (e: React.DragEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setIsDraggingImage(false);
+    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+      processImageFiles(e.dataTransfer.files);
+    }
+  };
+
+  const handleRewindAndEdit = async (msgIndex: number) => {
+    const target = chatHistory[msgIndex];
+    if (!target || target.sender !== "user") return;
+
+    sendEpochRef.current += 1;
+    setIsTyping(false);
+    setActiveThought(null);
+    activeStreamMessageIdRef.current = null;
+    isActiveSender.current = false;
+
+    try {
+      await invoke("agent_revert_to_message", {
+        messageId: target.opencodeMessageId ?? null,
+        activeCwd: activeProjectCwd,
+      });
+    } catch (err) {
+      console.warn("Failed to revert OpenCode session:", err);
+    }
+
+    setChatHistory((prev) => prev.slice(0, msgIndex));
+    setInputVal(target.text || "");
+    setAttachedImages(target.images ? [...target.images] : []);
+    setTimeout(() => {
+      textareaRef.current?.focus();
+    }, 30);
+  };
+
+  const handleRetryFromMessage = async (msgIndex: number) => {
+    const target = chatHistory[msgIndex];
+    if (!target || target.sender !== "user") return;
+
+    sendEpochRef.current += 1;
+    setIsTyping(false);
+    setActiveThought(null);
+    activeStreamMessageIdRef.current = null;
+    isActiveSender.current = false;
+
+    try {
+      await invoke("agent_revert_to_message", {
+        messageId: target.opencodeMessageId ?? null,
+        activeCwd: activeProjectCwd,
+      });
+    } catch (err) {
+      console.warn("Failed to revert OpenCode session:", err);
+    }
+
+    setChatHistory((prev) => prev.slice(0, msgIndex));
+    await triggerSendMessage(target.text || "", target.images || []);
+  };
+
+  const triggerSendMessage = async (
+    messageText: string,
+    imagesToSend: ImageAttachment[] = [],
+  ) => {
+    if (!messageText.trim() && imagesToSend.length === 0) return;
+
+    const myEpoch = ++sendEpochRef.current;
 
     const userMsg: ChatItem = {
       id: Date.now().toString(),
       type: "text",
       sender: "user",
       text: messageText,
+      images: imagesToSend.length > 0 ? imagesToSend : undefined,
       timestamp: new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
       }),
     };
+    pendingUserBubbleIdRef.current = userMsg.id;
 
     let isFirstMessage = chatHistory.length === 0;
     let newTitle = sessionTitle;
     if (isFirstMessage) {
-      const words = messageText.trim().split(/\s+/);
+      const labelSource = messageText.trim() || `[${imagesToSend.length} ảnh]`;
+      const words = labelSource.split(/\s+/);
       newTitle =
         words.length <= 6
-          ? messageText.trim()
+          ? labelSource
           : words.slice(0, 6).join(" ") + "...";
       setSessionTitle(newTitle);
     }
@@ -1866,11 +2096,18 @@ export default function AiAgent({
         total_iterations?: number;
       } = await invoke("agent_send_message", {
         message: messageText,
+        images: imagesToSend.map((img) => ({
+          name: img.name,
+          mime: img.mime,
+          data_url: img.dataUrl,
+        })),
         model: backendModelName,
         mode: isMultiAgentActive ? "multi_agent" : selectedMode,
         activeCwd: activeProjectCwd,
         thinkingMode: thinkingMode,
       });
+
+      if (myEpoch !== sendEpochRef.current) return;
 
       setIsTyping(false);
       setActiveThought(null);
@@ -2023,6 +2260,7 @@ export default function AiAgent({
         setChatHistory((prev) => [...prev, agentMsg]);
       }
     } catch (err: any) {
+      if (myEpoch !== sendEpochRef.current) return;
       setIsTyping(false);
       const errorMsg: ChatItem = {
         id: Date.now().toString(),
@@ -2043,9 +2281,11 @@ export default function AiAgent({
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isTyping) return;
     const hasText = !!inputVal.trim();
     const hasContext = selectedContextItems.length > 0;
-    if (!hasText && !hasContext) return;
+    const hasImages = attachedImages.length > 0;
+    if (!hasText && !hasContext && !hasImages) return;
 
     let text = inputVal;
     if (hasContext) {
@@ -2055,12 +2295,14 @@ export default function AiAgent({
       text = contextPrefix + (text.trim() ? "\n\n" + text : "");
     }
 
+    const imagesToSend = [...attachedImages];
     setInputVal("");
+    setAttachedImages([]);
     setSelectedContextItems([]);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
-    await triggerSendMessage(text);
+    await triggerSendMessage(text, imagesToSend);
   };
 
   const handleStartAnalyze = async (errorLog: string) => {
@@ -2093,6 +2335,8 @@ export default function AiAgent({
       }
     }
 
+    const myEpoch = ++sendEpochRef.current;
+
     try {
       const response: {
         session_id?: string;
@@ -2124,6 +2368,8 @@ export default function AiAgent({
         toolIndex: toolIndex ?? null,
         thinkingMode: thinkingMode,
       });
+
+      if (myEpoch !== sendEpochRef.current) return;
 
       setIsTyping(false);
       setActiveThought(null);
@@ -2313,6 +2559,8 @@ export default function AiAgent({
       }
     }
 
+    const myEpoch = ++sendEpochRef.current;
+
     try {
       const response: {
         session_id?: string;
@@ -2326,6 +2574,8 @@ export default function AiAgent({
         toolIndex: toolIndex ?? null,
         thinkingMode: thinkingMode,
       });
+
+      if (myEpoch !== sendEpochRef.current) return;
 
       setIsTyping(false);
       setActiveThought(null);
@@ -2445,8 +2695,12 @@ export default function AiAgent({
   };
 
   const handleCancel = async () => {
+    // Bump epoch & deactivate stream listeners immediately so trailing chunks cannot spawn a ghost bubble
+    sendEpochRef.current += 1;
+    isActiveSender.current = false;
     setIsTyping(false);
     setActiveThought(null);
+    setActiveTool({ status: "idle" });
     activeStreamMessageIdRef.current = null;
     try {
       await invoke("agent_cancel");
@@ -2476,6 +2730,21 @@ export default function AiAgent({
         e.preventDefault();
         setShowMentions(false);
         return;
+      }
+    }
+
+    if (
+      e.key === "ArrowUp" &&
+      !isTyping &&
+      !inputVal.trim() &&
+      attachedImages.length === 0
+    ) {
+      for (let i = chatHistory.length - 1; i >= 0; i--) {
+        if (chatHistory[i].sender === "user") {
+          e.preventDefault();
+          handleRewindAndEdit(i);
+          return;
+        }
       }
     }
 
@@ -2683,6 +2952,9 @@ export default function AiAgent({
               }}
             >
               {chatHistory.length} tin nhắn · {selectedMode}
+              {opencodeStatus?.installed
+                ? ` · OpenCode${opencodeStatus.version ? ` v${opencodeStatus.version}` : ""}`
+                : ""}
             </span>
           </div>
         </div>
@@ -2898,7 +3170,7 @@ export default function AiAgent({
           </div>
         )}
 
-        {chatHistory.map((item) => {
+        {chatHistory.map((item, msgIdx) => {
           const isUser = item.sender === "user";
           if (item.type === "agent_activity") {
             const isExpanded = !!expandedSkills[item.id];
@@ -3201,9 +3473,9 @@ export default function AiAgent({
                       color: item.agentRole
                         ? item.agentRole === "leader"
                           ? "#c084fc"
-                          : item.agentRole === "planner"
+                          : item.agentRole === "secretary" || item.agentRole === "planner"
                           ? "#60a5fa"
-                          : item.agentRole === "reviewer"
+                          : item.agentRole === "reviewer" || item.agentRole === "verifier"
                           ? "#fbbf24"
                           : item.agentRole === "coder1"
                           ? "#34d399"
@@ -3213,7 +3485,15 @@ export default function AiAgent({
                         : "var(--text-secondary)",
                     }}
                   >
-                    {isUser ? "Bạn" : item.agentName ? `${item.avatar || ""} ${item.agentName}` : "Agent"}
+                    {isUser ? "Bạn" : (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        {item.agentRole === "leader" && <Crown size={14} />}
+                        {(item.agentRole === "secretary" || item.agentRole === "planner") && <Scroll size={14} />}
+                        {item.agentRole === "coder1" && <Braces size={14} />}
+                        {(item.agentRole === "coder2" || item.agentRole === "coder" || item.agentRole === "verifier") && <CodeXml size={14} />}
+                        {item.agentName ? item.agentName : "Agent"}
+                      </span>
+                    )}
                   </span>
                   <span style={{ fontSize: "9px", opacity: 0.5 }}>•</span>
                   <span style={{ fontSize: "9px" }}>{item.timestamp}</span>
@@ -3264,6 +3544,34 @@ export default function AiAgent({
                       </div>
                     ) : (
                       <>
+                        {isUser && item.images && item.images.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: "6px",
+                              marginBottom: item.text ? "8px" : "0",
+                            }}
+                          >
+                            {item.images.map((img) => (
+                              <img
+                                key={img.id}
+                                src={img.dataUrl}
+                                alt={img.name}
+                                onClick={() => setPreviewImageUrl(img.dataUrl)}
+                                title={img.name}
+                                style={{
+                                  maxWidth: "140px",
+                                  maxHeight: "100px",
+                                  borderRadius: "6px",
+                                  border: "1px solid var(--border-primary)",
+                                  objectFit: "cover",
+                                  cursor: "zoom-in",
+                                }}
+                              />
+                            ))}
+                          </div>
+                        )}
                         <SafeMarkdown content={item.text || ""} />
 
                         {item.sender === "agent" && item.text && (item.text.includes("iterations)") || item.text.includes("maximum limit") || item.text.includes("giới hạn vòng lặp")) && (
@@ -3341,6 +3649,62 @@ export default function AiAgent({
                   </button>
                 )}
               </div>
+
+              {/* Action buttons BELOW user bubble */}
+              {isUser && (
+                <div
+                  className="copy-button-hover"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    gap: "4px",
+                    marginTop: "4px",
+                    opacity: 0,
+                    transition: "opacity 0.15s",
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => handleRewindAndEdit(msgIdx)}
+                    title="Quay lại & chỉnh sửa câu này"
+                    style={{
+                      background: "var(--bg-tertiary)",
+                      border: "1px solid var(--border-primary)",
+                      color: "var(--text-secondary)",
+                      borderRadius: "4px",
+                      padding: "2px 6px",
+                      fontSize: "9.5px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "3px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <Pencil size={9} />
+                    <span>Sửa</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRetryFromMessage(msgIdx)}
+                    title="Gửi lại từ câu này"
+                    style={{
+                      background: "var(--bg-tertiary)",
+                      border: "1px solid var(--border-primary)",
+                      color: "var(--text-secondary)",
+                      borderRadius: "4px",
+                      padding: "2px 6px",
+                      fontSize: "9.5px",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: "3px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <RotateCcw size={9} />
+                  </button>
+                </div>
+              )}
             </div>
           );
         })}
@@ -3603,11 +3967,18 @@ export default function AiAgent({
         {/* Input box styled dynamically */}
         <form
           onSubmit={handleSend}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!isDraggingImage) setIsDraggingImage(true);
+          }}
+          onDragLeave={() => setIsDraggingImage(false)}
+          onDrop={handleImageDrop}
           style={{
             display: "flex",
             flexDirection: "column",
-            background: "transparent",
-            border: "none",
+            background: isDraggingImage ? "rgba(59, 130, 246, 0.06)" : "transparent",
+            border: isDraggingImage ? "1px dashed #3b82f6" : "none",
+            borderRadius: isDraggingImage ? "8px" : undefined,
             padding: variant === "full" ? "14px 0" : "12px 0",
             gap: "8px",
             position: "relative",
@@ -3872,6 +4243,74 @@ export default function AiAgent({
             </div>
           )}
 
+          {/* Attached Image Previews */}
+          {attachedImages.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "8px",
+                padding: "4px 0",
+              }}
+            >
+              {attachedImages.map((img) => (
+                <div
+                  key={img.id}
+                  style={{
+                    position: "relative",
+                    width: "52px",
+                    height: "52px",
+                    borderRadius: "6px",
+                    overflow: "hidden",
+                    border: "1px solid var(--border-primary)",
+                    background: "var(--bg-secondary)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <img
+                    src={img.dataUrl}
+                    alt={img.name}
+                    onClick={() => setPreviewImageUrl(img.dataUrl)}
+                    title={`${img.name} (Click để phóng to)`}
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      cursor: "zoom-in",
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAttachedImages((prev) =>
+                        prev.filter((x) => x.id !== img.id),
+                      )
+                    }
+                    title="Gỡ ảnh"
+                    style={{
+                      position: "absolute",
+                      top: "2px",
+                      right: "2px",
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "50%",
+                      background: "rgba(0,0,0,0.75)",
+                      color: "#fff",
+                      border: "none",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Text Area and Mentions Dropdown Wrapper */}
           <div style={{ position: "relative", width: "100%" }}>
             {/* Mentions Autocomplete Dropdown */}
@@ -3964,7 +4403,7 @@ export default function AiAgent({
             <textarea
               ref={textareaRef}
               rows={1}
-              placeholder="Ask anything, '@' to add context"
+              placeholder="Ask anything, '@' context, dán hoặc kéo ảnh vào đây"
               value={inputVal}
               onChange={(e) => {
                 setInputVal(e.target.value);
@@ -3974,8 +4413,8 @@ export default function AiAgent({
                 const target = e.target as HTMLTextAreaElement;
                 checkMentionTrigger(target.value, target.selectionStart);
               }}
+              onPaste={handleImagePaste}
               onKeyDown={handleKeyDown}
-              disabled={isTyping}
               style={{
                 width: "100%",
                 background: "transparent",
@@ -4082,9 +4521,11 @@ export default function AiAgent({
                   <span>
                     {selectedMode === "interactive"
                       ? "Agent"
-                      : selectedMode === "autonomous"
-                        ? "Autonomous"
-                        : "Copilot"}
+                      : selectedMode === "plan"
+                        ? "Plan"
+                        : selectedMode === "autonomous"
+                          ? "Autonomous"
+                          : "Copilot"}
                   </span>
                   <ChevronDown size={11} style={{ opacity: 0.6 }} />
                 </button>
@@ -4101,11 +4542,12 @@ export default function AiAgent({
                       boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
                       zIndex: 1000,
                       padding: "4px",
-                      minWidth: "120px",
+                      minWidth: "135px",
                     }}
                   >
                     {[
                       { value: "interactive", label: "Agent (Interactive)" },
+                      { value: "plan", label: "Plan (Read-only)" },
                       { value: "autonomous", label: "Autonomous" },
                       { value: "copilot", label: "Copilot" },
                     ].map((mode) => (
@@ -4242,6 +4684,51 @@ export default function AiAgent({
                 title="Add context (@)"
               >
                 @
+              </button>
+
+              {/* Image attachment button */}
+              <input
+                ref={imageInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                style={{ display: "none" }}
+                onChange={(e) => {
+                  if (e.target.files) {
+                    processImageFiles(e.target.files);
+                    e.target.value = "";
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                style={{
+                  background: "none",
+                  border: "none",
+                  padding: "4px 6px",
+                  color:
+                    attachedImages.length > 0
+                      ? "#60a5fa"
+                      : "var(--text-secondary)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  transition: "color 0.2s",
+                }}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.color = "var(--text-primary)")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.color =
+                    attachedImages.length > 0
+                      ? "#60a5fa"
+                      : "var(--text-secondary)")
+                }
+                title="Đính kèm hình ảnh (hoặc Ctrl+V / kéo thả)"
+              >
+                <ImagePlus size={14} />
               </button>
             </div>
 
@@ -4747,19 +5234,39 @@ export default function AiAgent({
             ) : (
               <button
                 type="submit"
-                disabled={!inputVal.trim()}
+                disabled={
+                  !inputVal.trim() &&
+                  attachedImages.length === 0 &&
+                  selectedContextItems.length === 0
+                }
                 style={{
-                  background: inputVal.trim()
-                    ? "#0078d4"
-                    : "var(--bg-secondary)",
-                  border: inputVal.trim()
-                    ? "none"
-                    : "1px solid var(--border-primary)",
-                  color: inputVal.trim() ? "var(--text-primary)" : "var(--text-muted)",
+                  background:
+                    inputVal.trim() ||
+                    attachedImages.length > 0 ||
+                    selectedContextItems.length > 0
+                      ? "#0078d4"
+                      : "var(--bg-secondary)",
+                  border:
+                    inputVal.trim() ||
+                    attachedImages.length > 0 ||
+                    selectedContextItems.length > 0
+                      ? "none"
+                      : "1px solid var(--border-primary)",
+                  color:
+                    inputVal.trim() ||
+                    attachedImages.length > 0 ||
+                    selectedContextItems.length > 0
+                      ? "var(--text-primary)"
+                      : "var(--text-muted)",
                   width: "28px",
                   height: "28px",
                   borderRadius: "8px",
-                  cursor: inputVal.trim() ? "pointer" : "default",
+                  cursor:
+                    inputVal.trim() ||
+                    attachedImages.length > 0 ||
+                    selectedContextItems.length > 0
+                      ? "pointer"
+                      : "default",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -5069,6 +5576,36 @@ export default function AiAgent({
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ===== IMAGE PREVIEW LIGHTBOX ===== */}
+      {previewImageUrl && (
+        <div
+          onClick={() => setPreviewImageUrl(null)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0, 0, 0, 0.85)",
+            backdropFilter: "blur(6px)",
+            zIndex: 5000,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+            cursor: "zoom-out",
+          }}
+        >
+          <img
+            src={previewImageUrl}
+            alt="Preview"
+            style={{
+              maxWidth: "90vw",
+              maxHeight: "90vh",
+              borderRadius: "8px",
+              boxShadow: "0 16px 48px rgba(0,0,0,0.6)",
+            }}
+          />
         </div>
       )}
     </div>
