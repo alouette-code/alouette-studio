@@ -23,6 +23,7 @@ pub mod settings;
 pub mod sqlite;
 pub mod terminal;
 pub mod vm;
+pub mod vm_mcp;
 pub mod memory_inspector;
 pub mod docker;
 pub mod extension;

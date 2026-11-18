@@ -248,6 +248,8 @@ pub async fn open_ping_window(app_handle: tauri::AppHandle) -> Result<(), String
     .inner_size(1100.0, 780.0)
     .resizable(true)
     .decorations(false)
+    .devtools(false)
+    .zoom_hotkeys_enabled(false)
     .build()
     .map_err(|e| e.to_string())?;
 
@@ -1764,6 +1766,8 @@ pub async fn open_admin_window(app_handle: tauri::AppHandle) -> Result<(), Strin
     .min_inner_size(800.0, 500.0)
     .resizable(true)
     .decorations(false)
+    .devtools(false)
+    .zoom_hotkeys_enabled(false)
     .build()
     .map_err(|e: tauri::Error| e.to_string())?;
 

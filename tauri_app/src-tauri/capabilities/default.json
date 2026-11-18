@@ -19,6 +19,8 @@
     "core:webview:allow-webview-close",
     "core:webview:allow-set-webview-position",
     "core:webview:allow-set-webview-size",
-    "core:webview:allow-reparent"
+    "core:webview:allow-reparent",
+    "core:webview:deny-internal-toggle-devtools",
+    "core:webview:deny-set-webview-zoom"
   ]
 }

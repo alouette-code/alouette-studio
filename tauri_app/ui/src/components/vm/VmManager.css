@@ -91,16 +91,20 @@
   flex-direction: column;
   background-color: var(--bg-primary);
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
 }
 
 .vm-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  flex-wrap: wrap;
+  padding: 6px 10px;
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-primary);
   gap: 8px;
+  flex-shrink: 0;
 }
 
 .vm-notice {
@@ -132,14 +136,17 @@
   display: flex;
   flex: 1;
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
 }
 
 .vm-details-panel {
-  width: 390px;
+  width: 370px;
   padding: 14px 16px 28px 16px;
   overflow-y: auto;
   border-right: 1px solid var(--border-primary);
   flex-shrink: 0;
+  min-height: 0;
 }
 
 .vm-rename-trigger {
@@ -255,19 +262,203 @@
   border-color: var(--color-danger);
 }
 
+.vm-btn-active {
+  background-color: rgba(58, 134, 255, 0.16);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.vm-btn-icon {
+  padding: 4px 7px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.vm-toolbar-divider {
+  width: 1px;
+  height: 18px;
+  background-color: var(--border-primary);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
 .vm-console {
   flex: 1;
   display: flex;
   flex-direction: column;
-  background-color: #000;
+  background-color: #0b0d10;
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
+}
+
+.vm-console.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  width: 100vw;
+  height: 100vh;
 }
 
 .vm-console-tabs {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
+  padding-right: 8px;
+}
+
+.vm-console-controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 3px 0;
+}
+
+.vm-vnc-stage {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #090a0d;
+}
+
+.vm-vnc-stage.fit,
+.vm-vnc-stage.fill {
+  overflow: hidden;
+}
+
+.vm-vnc-stage.native {
+  overflow: auto;
+}
+
+.vm-vnc-container {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.vm-vnc-stage.fit .vm-vnc-container > div {
+  width: 100% !important;
+  height: 100% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden !important;
+}
+
+.vm-vnc-stage.fit .vm-vnc-container canvas {
+  max-width: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain !important;
+}
+
+.vm-vnc-stage.fill .vm-vnc-container > div {
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+}
+
+.vm-vnc-stage.fill .vm-vnc-container canvas {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: fill !important;
+}
+
+.vm-scale-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--border-primary);
+  background-color: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.vm-scale-btn {
+  padding: 3px 7px;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border-primary);
+  color: var(--text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  white-space: nowrap;
+}
+
+.vm-scale-btn:last-child {
+  border-right: none;
+}
+
+.vm-scale-btn:hover {
+  color: var(--text-primary);
+}
+
+.vm-scale-btn.active {
+  background-color: rgba(58, 134, 255, 0.2);
+  color: var(--color-accent);
+}
+
+.vm-keys-dropdown {
+  position: relative;
+}
+
+.vm-keys-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 170px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  padding: 4px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vm-keys-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  text-align: left;
+  padding: 5px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.vm-keys-menu-item:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.vm-paste-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-primary);
+  flex-shrink: 0;
 }
 
 .vm-console-tab {

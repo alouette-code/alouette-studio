@@ -478,6 +478,8 @@ pub async fn open_new_window(app_handle: tauri::AppHandle) -> Result<(), String>
     .inner_size(1200.0, 800.0)
     .resizable(true)
     .decorations(true)
+    .devtools(false)
+    .zoom_hotkeys_enabled(false)
     .build()
     .map_err(|e: tauri::Error| e.to_string())?;
     Ok(())
@@ -500,6 +502,8 @@ pub async fn open_vm_window(app_handle: tauri::AppHandle) -> Result<(), String> 
     .inner_size(800.0, 650.0)
     .resizable(true)
     .decorations(false)
+    .devtools(false)
+    .zoom_hotkeys_enabled(false)
     .build()
     .map_err(|e: tauri::Error| e.to_string())?;
 
@@ -523,6 +527,8 @@ pub async fn open_docker_window(app_handle: tauri::AppHandle) -> Result<(), Stri
     .inner_size(800.0, 650.0)
     .resizable(true)
     .decorations(false)
+    .devtools(false)
+    .zoom_hotkeys_enabled(false)
     .build()
     .map_err(|e: tauri::Error| e.to_string())?;
 
@@ -542,6 +548,8 @@ pub async fn open_empty_window(app_handle: tauri::AppHandle) -> Result<(), Strin
     .resizable(true)
     .decorations(false) // No OS title bar
     .transparent(true)
+    .devtools(false)
+    .zoom_hotkeys_enabled(false)
     .build()
     .map_err(|e: tauri::Error| e.to_string())?;
 

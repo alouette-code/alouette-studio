@@ -4,8 +4,10 @@ import App from "./App.tsx";
 import "./index.css";
 
 import { initDeviconOfflineInterceptor } from "./utils/deviconOffline";
+import { initNativeAppLockdown } from "./utils/nativeAppLockdown";
 
 initDeviconOfflineInterceptor();
+initNativeAppLockdown();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

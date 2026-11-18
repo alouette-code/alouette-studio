@@ -81,6 +81,8 @@ pub async fn open_memory_inspector_window(app_handle: tauri::AppHandle) -> Resul
     .inner_size(1200.0, 800.0)
     .resizable(true)
     .decorations(false)
+    .devtools(false)
+    .zoom_hotkeys_enabled(false)
     .build()
     .map_err(|e| e.to_string())?;
 

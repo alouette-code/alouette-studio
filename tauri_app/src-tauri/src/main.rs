@@ -75,7 +75,8 @@ fn main() {
 
     let agent_registry = Arc::new(DashMap::new());
     let active_agent_project = Arc::new(RwLock::new(None));
-    let opencode_manager = commands::opencode_bridge::new_shared_manager();
+    let opencode_manager = commands::opencode_bridge::new_shared_manager(Some(vm_manager.clone()));
+    let opencode_manager_setup = opencode_manager.clone();
     let code_rag_state = Arc::new(init_code_rag(&project_root().join("app_data")));
 
     let pm_clone = process_manager.clone();
@@ -101,6 +102,7 @@ fn main() {
         })
         .manage(code_rag_state)
         .setup(move |app| {
+            opencode_manager_setup.set_app_handle(app.handle().clone());
             let memory_manager = tauri::async_runtime::block_on(async {
                 MemoryInspectorManager::new()
             });
@@ -297,6 +299,7 @@ fn main() {
             commands::agent::switch_agent_project,
             commands::agent::load_history_page,
             commands::opencode_bridge::opencode_health,
+            commands::opencode_bridge::opencode_list_free_models,
             commands::opencode_bridge::opencode_restart,
             commands::opencode_bridge::agent_revert_to_message,
             commands::opencode_bridge::read_clipboard_image,

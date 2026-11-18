@@ -54,6 +54,31 @@ pub enum VmInputAction {
     Wait {
         ms: u64,
     },
+    ClickText {
+        text: String,
+        #[serde(default)]
+        occurrence: Option<usize>,
+        #[serde(default)]
+        button: Option<String>,
+        #[serde(default)]
+        double: Option<bool>,
+    },
+    MoveText {
+        text: String,
+        #[serde(default)]
+        occurrence: Option<usize>,
+    },
+    WaitForText {
+        text: String,
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
+    WaitForIdle {
+        #[serde(default)]
+        idle_ms: Option<u64>,
+        #[serde(default)]
+        timeout_ms: Option<u64>,
+    },
 }
 
 pub struct QmpClient {
@@ -401,9 +426,29 @@ impl QmpClient {
     }
 
     pub fn type_text(&mut self, text: &str, delay_ms: u64) -> Result<(), String> {
-        for ch in text.chars() {
-            if let Some((qcode, need_shift)) = Self::char_to_qcode(ch) {
-                let mut events = Vec::new();
+        let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+        let mut mapped: Vec<(&'static str, bool)> = Vec::with_capacity(normalized.chars().count());
+        let mut unsupported: Vec<char> = Vec::new();
+
+        for ch in normalized.chars() {
+            if let Some(pair) = Self::char_to_qcode(ch) {
+                mapped.push(pair);
+            } else if !unsupported.contains(&ch) {
+                unsupported.push(ch);
+            }
+        }
+
+        if !unsupported.is_empty() {
+            let list: String = unsupported.into_iter().collect();
+            return Err(format!(
+                "Unsupported non-ASCII characters for QMP keyboard injection: '{}'. Use ASCII characters or write files via vm_file_io.",
+                list
+            ));
+        }
+
+        if delay_ms > 2 {
+            for (qcode, need_shift) in mapped {
+                let mut events = Vec::with_capacity(4);
                 if need_shift {
                     events.push(Self::key_event("shift", true));
                 }
@@ -413,15 +458,123 @@ impl QmpClient {
                     events.push(Self::key_event("shift", false));
                 }
                 self.send_input_events(&events)?;
-                if delay_ms > 0 {
-                    std::thread::sleep(Duration::from_millis(delay_ms));
+                std::thread::sleep(Duration::from_millis(delay_ms));
+            }
+            return Ok(());
+        }
+
+        // Batch up to 8 keystrokes per QMP input-send-event call for fast, low-latency typing
+        for chunk in mapped.chunks(8) {
+            let mut events = Vec::with_capacity(chunk.len() * 4);
+            for &(qcode, need_shift) in chunk {
+                if need_shift {
+                    events.push(Self::key_event("shift", true));
                 }
+                events.push(Self::key_event(qcode, true));
+                events.push(Self::key_event(qcode, false));
+                if need_shift {
+                    events.push(Self::key_event("shift", false));
+                }
+            }
+            self.send_input_events(&events)?;
+            if delay_ms > 0 {
+                std::thread::sleep(Duration::from_millis(delay_ms));
             }
         }
         Ok(())
     }
 
-    /// Executes a batch of GUI actions over this persistent QMP connection.
+    /// Executes a single primitive QMP input action over this QMP connection.
+    pub fn execute_single_action(
+        &mut self,
+        action: &VmInputAction,
+        default_w: u32,
+        default_h: u32,
+    ) -> Result<(), String> {
+        match action {
+            VmInputAction::Move { x, y, screen_w, screen_h } => {
+                let w = screen_w.unwrap_or(default_w);
+                let h = screen_h.unwrap_or(default_h);
+                let events = Self::abs_move_events(*x, *y, w, h);
+                self.send_input_events(&events)?;
+            }
+            VmInputAction::Click {
+                x,
+                y,
+                button,
+                double,
+                screen_w,
+                screen_h,
+            } => {
+                let w = screen_w.unwrap_or(default_w);
+                let h = screen_h.unwrap_or(default_h);
+                let btn = match button.as_deref().unwrap_or("left") {
+                    "right" => "right",
+                    "middle" => "middle",
+                    _ => "left",
+                };
+                let move_ev = Self::abs_move_events(*x, *y, w, h);
+                self.send_input_events(&move_ev)?;
+                std::thread::sleep(Duration::from_millis(20));
+
+                let clicks = if double.unwrap_or(false) { 2 } else { 1 };
+                for i in 0..clicks {
+                    self.send_input_events(&[
+                        Self::btn_event(btn, true),
+                        Self::btn_event(btn, false),
+                    ])?;
+                    if i + 1 < clicks {
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                }
+            }
+            VmInputAction::Scroll {
+                x,
+                y,
+                direction,
+                amount,
+                screen_w,
+                screen_h,
+            } => {
+                if let (Some(px), Some(py)) = (x, y) {
+                    let w = screen_w.unwrap_or(default_w);
+                    let h = screen_h.unwrap_or(default_h);
+                    let move_ev = Self::abs_move_events(*px, *py, w, h);
+                    self.send_input_events(&move_ev)?;
+                }
+                let wheel_btn = if direction.eq_ignore_ascii_case("up") {
+                    "wheel-up"
+                } else {
+                    "wheel-down"
+                };
+                let count = amount.unwrap_or(3).min(20);
+                for _ in 0..count {
+                    self.send_input_events(&[
+                        Self::btn_event(wheel_btn, true),
+                        Self::btn_event(wheel_btn, false),
+                    ])?;
+                }
+            }
+            VmInputAction::Key { key, down } => {
+                self.send_key_combo(key, *down)?;
+            }
+            VmInputAction::Type { text, delay_ms } => {
+                self.type_text(text, delay_ms.unwrap_or(0))?;
+            }
+            VmInputAction::Wait { ms } => {
+                std::thread::sleep(Duration::from_millis((*ms).min(15_000)));
+            }
+            VmInputAction::ClickText { .. }
+            | VmInputAction::MoveText { .. }
+            | VmInputAction::WaitForText { .. }
+            | VmInputAction::WaitForIdle { .. } => {
+                return Err("OCR/wait actions must be resolved via VmManager::act_on_vm".to_string());
+            }
+        }
+        Ok(())
+    }
+
+    /// Executes a batch of primitive GUI actions over this persistent QMP connection.
     pub fn execute_action_batch(
         &mut self,
         actions: &[VmInputAction],
@@ -430,80 +583,7 @@ impl QmpClient {
     ) -> Result<usize, String> {
         let mut executed = 0usize;
         for action in actions {
-            match action {
-                VmInputAction::Move { x, y, screen_w, screen_h } => {
-                    let w = screen_w.unwrap_or(default_w);
-                    let h = screen_h.unwrap_or(default_h);
-                    let events = Self::abs_move_events(*x, *y, w, h);
-                    self.send_input_events(&events)?;
-                }
-                VmInputAction::Click {
-                    x,
-                    y,
-                    button,
-                    double,
-                    screen_w,
-                    screen_h,
-                } => {
-                    let w = screen_w.unwrap_or(default_w);
-                    let h = screen_h.unwrap_or(default_h);
-                    let btn = match button.as_deref().unwrap_or("left") {
-                        "right" => "right",
-                        "middle" => "middle",
-                        _ => "left",
-                    };
-                    let move_ev = Self::abs_move_events(*x, *y, w, h);
-                    self.send_input_events(&move_ev)?;
-                    std::thread::sleep(Duration::from_millis(20));
-
-                    let clicks = if double.unwrap_or(false) { 2 } else { 1 };
-                    for i in 0..clicks {
-                        self.send_input_events(&[
-                            Self::btn_event(btn, true),
-                            Self::btn_event(btn, false),
-                        ])?;
-                        if i + 1 < clicks {
-                            std::thread::sleep(Duration::from_millis(50));
-                        }
-                    }
-                }
-                VmInputAction::Scroll {
-                    x,
-                    y,
-                    direction,
-                    amount,
-                    screen_w,
-                    screen_h,
-                } => {
-                    if let (Some(px), Some(py)) = (x, y) {
-                        let w = screen_w.unwrap_or(default_w);
-                        let h = screen_h.unwrap_or(default_h);
-                        let move_ev = Self::abs_move_events(*px, *py, w, h);
-                        self.send_input_events(&move_ev)?;
-                    }
-                    let wheel_btn = if direction.eq_ignore_ascii_case("up") {
-                        "wheel-up"
-                    } else {
-                        "wheel-down"
-                    };
-                    let count = amount.unwrap_or(3).min(20);
-                    for _ in 0..count {
-                        self.send_input_events(&[
-                            Self::btn_event(wheel_btn, true),
-                            Self::btn_event(wheel_btn, false),
-                        ])?;
-                    }
-                }
-                VmInputAction::Key { key, down } => {
-                    self.send_key_combo(key, *down)?;
-                }
-                VmInputAction::Type { text, delay_ms } => {
-                    self.type_text(text, delay_ms.unwrap_or(8))?;
-                }
-                VmInputAction::Wait { ms } => {
-                    std::thread::sleep(Duration::from_millis((*ms).min(15_000)));
-                }
-            }
+            self.execute_single_action(action, default_w, default_h)?;
             executed += 1;
         }
         Ok(executed)

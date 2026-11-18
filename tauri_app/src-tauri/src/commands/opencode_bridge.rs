@@ -78,6 +78,9 @@ pub struct OpenCodeManager {
     /// Immediate turn cancellation signal (stops SSE emission in 0ms)
     active_cancel: Mutex<Option<(Arc<AtomicBool>, Arc<Notify>)>>,
     http: reqwest::Client,
+    vm_manager: Option<Arc<core_engine::vm_engine::VmManager>>,
+    app_handle: std::sync::Mutex<Option<tauri::AppHandle>>,
+    vm_mcp: Mutex<Option<crate::commands::vm_mcp::VmMcpServerHandle>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -90,7 +93,7 @@ pub struct OpenCodeHealthStatus {
 }
 
 impl OpenCodeManager {
-    pub fn new() -> Self {
+    pub fn new(vm_manager: Option<Arc<core_engine::vm_engine::VmManager>>) -> Self {
         let http = reqwest::Client::builder()
             .connect_timeout(std::time::Duration::from_secs(10))
             .build()
@@ -103,6 +106,15 @@ impl OpenCodeManager {
             active_session_meta: Mutex::new(None),
             active_cancel: Mutex::new(None),
             http,
+            vm_manager,
+            app_handle: std::sync::Mutex::new(None),
+            vm_mcp: Mutex::new(None),
+        }
+    }
+
+    pub fn set_app_handle(&self, handle: tauri::AppHandle) {
+        if let Ok(mut guard) = self.app_handle.lock() {
+            *guard = Some(handle);
         }
     }
 
@@ -121,6 +133,7 @@ impl OpenCodeManager {
         if let Some(mut proc_info) = guard.take() {
             let _ = proc_info.child.kill().await;
         }
+        *self.vm_mcp.lock().await = None;
     }
 
     /// Check OpenCode installation & daemon status.
@@ -167,7 +180,33 @@ impl OpenCodeManager {
         ai_cfg: &CustomAiConfig,
         window: Option<&WebviewWindow>,
     ) -> Result<(String, String), String> {
-        let (config_json, env_vars, config_hash) = build_opencode_config_and_env(ai_cfg);
+        let mcp_endpoint = if let Some(ref vm_mgr) = self.vm_manager {
+            let mut mcp_guard = self.vm_mcp.lock().await;
+            if mcp_guard.is_none() {
+                let handle = self.app_handle.lock().ok().and_then(|g| g.clone());
+                match crate::commands::vm_mcp::start_vm_mcp_server(vm_mgr.clone(), handle).await {
+                    Ok(srv) => {
+                        agent_log(
+                            window,
+                            &format!("[OPENCODE] Đã bật Alouette VM MCP server tại {}", srv.url),
+                        );
+                        *mcp_guard = Some(srv);
+                    }
+                    Err(e) => {
+                        agent_log(
+                            window,
+                            &format!("[OPENCODE] Cảnh báo không bật được Alouette VM MCP: {}", e),
+                        );
+                    }
+                }
+            }
+            mcp_guard.as_ref().map(|s| (s.url.clone(), s.auth_token.clone()))
+        } else {
+            None
+        };
+
+        let (config_json, env_vars, config_hash) =
+            build_opencode_config_and_env(ai_cfg, mcp_endpoint.as_ref());
 
         let mut proc_guard = self.process.lock().await;
 
@@ -461,14 +500,17 @@ impl OpenCodeManager {
 
         let directory = resolve_workspace_dir(active_cwd);
         let ai_cfg = load_custom_ai_config();
+        let resolved_model = resolve_opencode_model(&ai_cfg, &model_hint);
 
-        // Validate key availability for selected model before invoking OpenCode
-        let model_cfg = resolve_model_config(&ai_cfg, &model_hint);
-        if !is_local_url(&model_cfg.api_url) {
-            let _ = resolve_api_key(&model_cfg)?;
+        // Validate key availability for custom/external providers; OpenCode built-in `opencode/*`
+        // models (including free Zen models) are authenticated by OpenCode itself.
+        if resolved_model.provider_id != "opencode" {
+            let model_cfg = resolve_model_config(&ai_cfg, &model_hint);
+            if !is_local_url(&model_cfg.api_url) {
+                let _ = resolve_api_key(&model_cfg)?;
+            }
         }
 
-        let resolved_model = resolve_opencode_model(&ai_cfg, &model_hint);
         let (base_url, auth) = self.ensure_server(&ai_cfg, Some(&window)).await?;
         let session_id = self
             .get_or_create_session(&base_url, &auth, &directory)
@@ -586,6 +628,15 @@ impl OpenCodeManager {
         system_parts.push(
             "Formatting rule: When drawing architecture diagrams, module relationships, or data flows, ALWAYS use fenced ```mermaid code blocks (e.g. `flowchart TD` or `sequenceDiagram`) instead of plain ASCII box art so the IDE renders interactive clickable diagrams.".to_string(),
         );
+        if self.vm_manager.is_some() {
+            system_parts.push(
+                "Alouette Built-in VM Manager Skill: Alouette Studio provides a dedicated QEMU VM Manager with integrated VNC display, QMP monitor, serial console, and QEMU Guest Agent (QGA), exposed via the `alouette_*` MCP tools (`alouette_vm_list`, `alouette_vm_create`, `alouette_vm_start`, `alouette_vm_stop`, `alouette_vm_shutdown`, `alouette_vm_logs`, `alouette_vm_execute_command`, `alouette_vm_file_io`, `alouette_vm_inject_file`, `alouette_vm_checkpoint`, `alouette_vm_observe`, `alouette_vm_act`, `alouette_vm_fast_dispatch`, `alouette_vm_qmp`, `alouette_vm_open_window`).\n\
+                 RULES FOR VIRTUAL MACHINES:\n\
+                 1. Whenever the user asks to list, create, open/start, stop, inspect, or run tasks inside a virtual machine (VM / máy ảo), ALWAYS use the `alouette_vm_*` tools instead of running `qemu-system-*` or launching standalone host VM processes via `bash`.\n\
+                 2. Start with `alouette_vm_list` to find existing Alouette VMs; call `alouette_vm_start` (which opens Alouette's built-in VM Manager/VNC window) or `alouette_vm_create` if no suitable VM exists.\n\
+                 3. Deep-level VM control has two tiers: (a) Tier-1 OS control via QGA (`alouette_vm_execute_command`, `alouette_vm_file_io`, `alouette_vm_inject_file`) when qemu-guest-agent is running inside the guest; (b) Tier-2 hardware/display/input control (`alouette_vm_observe` with `include_ocr: true`, `wait_idle_ms`, or `include_image_base64: true`, `alouette_vm_act` supporting deterministic `click_text`, `move_text`, `wait_for_text`, `wait_for_idle` plus `click`/`key`/`type` via QMP input-send-event, `alouette_vm_fast_dispatch`, `alouette_vm_logs`, `alouette_vm_qmp`, `alouette_vm_checkpoint`) which works even during boot, BIOS/UEFI, or when QGA is not installed. Prefer `click_text` over guessing raw (x, y) coordinates whenever clicking visible text.".to_string(),
+            );
+        }
         if thinking_mode.as_deref() == Some("high") {
             system_parts.push(
                 "Think step-by-step carefully before editing code or running commands. Verify changes after editing.".to_string(),
@@ -928,6 +979,29 @@ async fn pump_opencode_sse(
                                     if let Some(mid) = info["id"].as_str() {
                                         assistant_msg_ids.insert(mid.to_string());
                                     }
+                                    let tokens = &info["tokens"];
+                                    let input_tokens = tokens["input"].as_u64().unwrap_or(0);
+                                    let output_tokens = tokens["output"].as_u64().unwrap_or(0);
+                                    let reasoning_tokens = tokens["reasoning"].as_u64().unwrap_or(0);
+                                    let cache_read = tokens["cache"]["read"].as_u64().unwrap_or(0);
+                                    let cache_write = tokens["cache"]["write"].as_u64().unwrap_or(0);
+                                    if input_tokens + output_tokens + cache_read + cache_write > 0 {
+                                        let _ = window.emit(
+                                            "agent-usage-update",
+                                            json!({
+                                                "session_id": session_id,
+                                                "message_id": info["id"].as_str().unwrap_or(""),
+                                                "provider_id": info["providerID"].as_str().unwrap_or(""),
+                                                "model_id": info["modelID"].as_str().unwrap_or(""),
+                                                "input_tokens": input_tokens,
+                                                "output_tokens": output_tokens,
+                                                "reasoning_tokens": reasoning_tokens,
+                                                "cache_read": cache_read,
+                                                "cache_write": cache_write,
+                                                "cost": info["cost"].as_f64().unwrap_or(0.0),
+                                            }),
+                                        );
+                                    }
                                 } else if role == "user" {
                                     if let Some(mid) = info["id"].as_str() {
                                         let _ = window.emit(
@@ -1235,6 +1309,7 @@ fn is_local_url(url: &str) -> bool {
 /// Build dynamic `OPENCODE_CONFIG_CONTENT` and secret environment variables from Alouette's `CustomAiConfig`.
 fn build_opencode_config_and_env(
     ai_cfg: &CustomAiConfig,
+    mcp_endpoint: Option<&(String, String)>,
 ) -> (String, Vec<(String, String)>, String) {
     let mut providers_obj = serde_json::Map::new();
     let mut env_vars: Vec<(String, String)> = Vec::new();
@@ -1329,7 +1404,7 @@ fn build_opencode_config_and_env(
         );
     }
 
-    let config_val = json!({
+    let mut config_val = json!({
         "$schema": "https://opencode.ai/config.json",
         "provider": Value::Object(providers_obj),
         "agent": {
@@ -1366,6 +1441,20 @@ fn build_opencode_config_and_env(
             }
         }
     });
+
+    if let Some((mcp_url, mcp_token)) = mcp_endpoint {
+        config_val["mcp"] = json!({
+            "alouette": {
+                "type": "remote",
+                "url": mcp_url,
+                "enabled": true,
+                "headers": {
+                    "Authorization": format!("Bearer {}", mcp_token)
+                }
+            }
+        });
+        hash_input.push_str(&format!("mcp:{}|", mcp_url));
+    }
 
     let config_json = serde_json::to_string(&config_val).unwrap_or_else(|_| "{}".to_string());
     let mut hasher = Sha256::new();
@@ -1521,6 +1610,148 @@ pub fn resolve_opencode_bin() -> Option<PathBuf> {
 
 // ─── Tauri Commands ─────────────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenCodeFreeModel {
+    pub id: String,
+    pub name: String,
+    pub context_limit: u64,
+    pub output_limit: u64,
+    pub supports_vision: bool,
+    pub supports_reasoning: bool,
+}
+
+fn format_opencode_model_name(raw_id: &str) -> String {
+    let slug = raw_id.strip_prefix("opencode/").unwrap_or(raw_id);
+    let clean = slug.strip_suffix("-free").unwrap_or(slug);
+    clean
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_ascii_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn parse_opencode_models_verbose(stdout: &str) -> Vec<OpenCodeFreeModel> {
+    let mut models = Vec::new();
+    let lines: Vec<&str> = stdout.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let trimmed = lines[i].trim();
+        if trimmed.starts_with("opencode/") {
+            let full_id = trimmed.to_string();
+            let mut json_buf = String::new();
+            let mut j = i + 1;
+            let mut depth = 0i32;
+            let mut started = false;
+
+            while j < lines.len() {
+                let l = lines[j];
+                if !started {
+                    if l.trim_start().starts_with('{') {
+                        started = true;
+                    } else if !l.trim().is_empty() {
+                        break;
+                    }
+                }
+                if started {
+                    for ch in l.chars() {
+                        if ch == '{' {
+                            depth += 1;
+                        } else if ch == '}' {
+                            depth -= 1;
+                        }
+                    }
+                    json_buf.push_str(l);
+                    json_buf.push('\n');
+                    if depth <= 0 {
+                        j += 1;
+                        break;
+                    }
+                }
+                j += 1;
+            }
+
+            let meta: Value = serde_json::from_str(&json_buf).unwrap_or(Value::Null);
+            let is_free = full_id.ends_with("-free")
+                || (meta["cost"]["input"].as_f64() == Some(0.0)
+                    && meta["cost"]["output"].as_f64() == Some(0.0))
+                || meta.is_null();
+
+            if is_free {
+                let context_limit = meta["limit"]["context"].as_u64().unwrap_or(128_000).max(8_192);
+                let output_limit = meta["limit"]["output"].as_u64().unwrap_or(16_384);
+                let supports_vision = meta["capabilities"]["input"]["image"]
+                    .as_bool()
+                    .unwrap_or(false);
+                let supports_reasoning = meta["capabilities"]["reasoning"]
+                    .as_bool()
+                    .unwrap_or(false);
+                let raw_name = meta["name"].as_str().map(str::trim).filter(|s| !s.is_empty());
+                let name = raw_name
+                    .map(|s| s.strip_suffix(" Free").unwrap_or(s).to_string())
+                    .unwrap_or_else(|| format_opencode_model_name(&full_id));
+
+                models.push(OpenCodeFreeModel {
+                    id: full_id,
+                    name,
+                    context_limit,
+                    output_limit,
+                    supports_vision,
+                    supports_reasoning,
+                });
+            }
+            i = j;
+            continue;
+        }
+        i += 1;
+    }
+
+    models.sort_by(|a, b| a.id.cmp(&b.id));
+    models.dedup_by(|a, b| a.id == b.id);
+    models
+}
+
+#[tauri::command]
+pub async fn opencode_list_free_models() -> Result<Vec<OpenCodeFreeModel>, String> {
+    let Some(bin_path) = resolve_opencode_bin() else {
+        return Ok(Vec::new());
+    };
+
+    let mut cmd = Command::new(&bin_path);
+    cmd.args(["models", "--verbose"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+
+    if let Some(parent) = bin_path.parent() {
+        let current_path = std::env::var("PATH").unwrap_or_default();
+        let separator = if cfg!(windows) { ";" } else { ":" };
+        cmd.env(
+            "PATH",
+            format!("{}{}{}", parent.to_string_lossy(), separator, current_path),
+        );
+    }
+
+    let output = tokio::time::timeout(std::time::Duration::from_secs(6), cmd.output())
+        .await
+        .map_err(|_| "Timeout listing OpenCode models".to_string())?
+        .map_err(|e| format!("Failed to run `opencode models --verbose`: {}", e))?;
+
+    if !output.status.success() {
+        return Ok(Vec::new());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(parse_opencode_models_verbose(&stdout))
+}
+
 #[tauri::command]
 pub async fn opencode_health(
     app_state: tauri::State<'_, crate::state::AppState>,
@@ -1650,6 +1881,42 @@ if ($img -ne $null) {
     .map_err(|e| format!("Clipboard task error: {}", e))?
 }
 
-pub fn new_shared_manager() -> Arc<OpenCodeManager> {
-    Arc::new(OpenCodeManager::new())
+pub fn new_shared_manager(
+    vm_manager: Option<Arc<core_engine::vm_engine::VmManager>>,
+) -> Arc<OpenCodeManager> {
+    Arc::new(OpenCodeManager::new(vm_manager))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_opencode_models_verbose_extracts_limits() {
+        let sample = r#"
+opencode/beam-free
+{
+  "id": "beam-free",
+  "name": "Beam Free",
+  "cost": { "input": 0, "output": 0 },
+  "limit": { "context": 1048576, "output": 131072 },
+  "capabilities": { "reasoning": true, "input": { "image": false } }
+}
+opencode/deepseek-v4.1-flash-free
+{
+  "id": "deepseek-v4.1-flash-free",
+  "name": "DeepSeek V4.1 Flash",
+  "cost": { "input": 0, "output": 0 },
+  "limit": { "context": 200000, "output": 32000 },
+  "capabilities": { "reasoning": true, "input": { "image": true } }
+}
+"#;
+        let parsed = parse_opencode_models_verbose(sample);
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0].id, "opencode/beam-free");
+        assert_eq!(parsed[0].name, "Beam");
+        assert_eq!(parsed[0].context_limit, 1_048_576);
+        assert_eq!(parsed[1].supports_vision, true);
+        assert_eq!(parsed[1].context_limit, 200_000);
+    }
 }

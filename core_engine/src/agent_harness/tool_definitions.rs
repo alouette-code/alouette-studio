@@ -181,13 +181,13 @@ pub fn all_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "vm_act",
-            description: "Inject a batch of mouse/keyboard actions directly into the VM via QEMU QMP input-send-event + virtio-tablet-pci (isolated from host mouse/keyboard). Supports move, click, scroll, key, type, wait.",
+            description: "Inject a batch of mouse/keyboard actions directly into the VM via QEMU QMP input-send-event + virtio-tablet-pci (isolated from host mouse/keyboard). Supports move, click, click_text (OCR target), move_text, scroll, key, type, wait, wait_for_text, wait_for_idle.",
             parameters: json!({
                 "type": "object",
                 "properties": {
                     "vm_id": {
                         "type": "string",
-                        "description": "The ID of the running virtual machine."
+                        "description": "The ID or name of the running virtual machine."
                     },
                     "actions": {
                         "type": "array",
@@ -195,16 +195,19 @@ pub fn all_tools() -> Vec<ToolDef> {
                         "items": {
                             "type": "object",
                             "properties": {
-                                "type": { "type": "string", "enum": ["move", "click", "scroll", "key", "type", "wait"] },
+                                "type": { "type": "string", "enum": ["move", "click", "click_text", "move_text", "scroll", "key", "type", "wait", "wait_for_text", "wait_for_idle"] },
                                 "x": { "type": "integer" },
                                 "y": { "type": "integer" },
                                 "button": { "type": "string", "enum": ["left", "right", "middle"] },
                                 "double": { "type": "boolean" },
+                                "occurrence": { "type": "integer", "description": "0-based match index for click_text/move_text." },
                                 "direction": { "type": "string", "enum": ["up", "down"] },
                                 "amount": { "type": "integer" },
                                 "key": { "type": "string" },
                                 "text": { "type": "string" },
-                                "ms": { "type": "integer" }
+                                "ms": { "type": "integer" },
+                                "idle_ms": { "type": "integer" },
+                                "timeout_ms": { "type": "integer" }
                             },
                             "required": ["type"]
                         }

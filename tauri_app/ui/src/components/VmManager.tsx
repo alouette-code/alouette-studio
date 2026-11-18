@@ -1,5 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
-import { Pencil, Play, Power, Save, Square, Trash2, X } from "lucide-react";
+import {
+  Focus,
+  PanelLeft,
+  Pencil,
+  Play,
+  Power,
+  Save,
+  SlidersHorizontal,
+  Square,
+  Trash2,
+  X,
+} from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import WindowResizer from "./WindowResizer";
 import brandIcon from "./logo_alouette.png";
@@ -20,10 +31,30 @@ export default function VmManager() {
   const [notice, setNotice] = useState<VmNotice | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [showConfigPanel, setShowConfigPanel] = useState(true);
 
   // Inline click-to-rename state in toolbar
   const [isRenamingToolbar, setIsRenamingToolbar] = useState(false);
   const [toolbarRenameValue, setToolbarRenameValue] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      window.dispatchEvent(new Event("resize"));
+    }, 60);
+    return () => clearTimeout(timer);
+  }, [showSidebar, showConfigPanel, activeView]);
+
+  const isFocusMode = !showSidebar && !showConfigPanel;
+  const toggleFocusMode = () => {
+    if (isFocusMode) {
+      setShowSidebar(true);
+      setShowConfigPanel(true);
+    } else {
+      setShowSidebar(false);
+      setShowConfigPanel(false);
+    }
+  };
 
   const showNotice = useCallback((next: VmNotice) => {
     setNotice(next);
@@ -218,20 +249,22 @@ export default function VmManager() {
       </div>
 
       <div className="vm-layout">
-        <VmSidebar
-          vms={vms}
-          activeView={activeView}
-          selectedVmId={selectedVmId}
-          onCreateClick={() => {
-            setActiveView("create");
-            setSelectedVmId(null);
-          }}
-          onSelectVm={(id) => {
-            setActiveView("manage");
-            setSelectedVmId(id);
-          }}
-          onRenameVm={handleRenameVm}
-        />
+        {showSidebar && (
+          <VmSidebar
+            vms={vms}
+            activeView={activeView}
+            selectedVmId={selectedVmId}
+            onCreateClick={() => {
+              setActiveView("create");
+              setSelectedVmId(null);
+            }}
+            onSelectVm={(id) => {
+              setActiveView("manage");
+              setSelectedVmId(id);
+            }}
+            onRenameVm={handleRenameVm}
+          />
+        )}
 
         <div className="vm-main">
           {notice && (
@@ -250,7 +283,36 @@ export default function VmManager() {
           {activeView === "manage" && currentVm && draftConfig ? (
             <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
               <div className="vm-toolbar">
-                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowSidebar((v) => !v)}
+                    className={`vm-btn vm-btn-icon ${showSidebar ? "vm-btn-active" : ""}`}
+                    title={showSidebar ? "Hide VM list" : "Show VM list"}
+                  >
+                    <PanelLeft size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowConfigPanel((v) => !v)}
+                    className={`vm-btn vm-btn-icon ${showConfigPanel ? "vm-btn-active" : ""}`}
+                    title={showConfigPanel ? "Hide config panel" : "Show config panel"}
+                  >
+                    <SlidersHorizontal size={13} />
+                    <span>Config</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={toggleFocusMode}
+                    className={`vm-btn vm-btn-icon ${isFocusMode ? "vm-btn-active" : ""}`}
+                    title={isFocusMode ? "Restore sidebars" : "Focus mode (hide sidebars)"}
+                  >
+                    <Focus size={13} />
+                    <span>Focus</span>
+                  </button>
+
+                  <span className="vm-toolbar-divider" />
+
                   {isRenamingToolbar ? (
                     <input
                       type="text"
@@ -334,13 +396,23 @@ export default function VmManager() {
               </div>
 
               <div className="vm-manage-body">
-                <VmDetailsPanel
+                {showConfigPanel && (
+                  <VmDetailsPanel
+                    vm={currentVm}
+                    draftConfig={draftConfig}
+                    onDraftChange={setDraftConfig}
+                    onNotice={showNotice}
+                    onHidePanel={() => setShowConfigPanel(false)}
+                  />
+                )}
+                <VmConsole
                   vm={currentVm}
-                  draftConfig={draftConfig}
-                  onDraftChange={setDraftConfig}
+                  logs={logs}
+                  onClearLogs={() => setLogs("")}
                   onNotice={showNotice}
+                  showConfigPanel={showConfigPanel}
+                  onToggleConfigPanel={() => setShowConfigPanel((v) => !v)}
                 />
-                <VmConsole vm={currentVm} logs={logs} onClearLogs={() => setLogs("")} />
               </div>
             </div>
           ) : (

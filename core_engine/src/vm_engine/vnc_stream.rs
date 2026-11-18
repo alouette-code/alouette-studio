@@ -45,6 +45,164 @@ pub struct VmObservation {
     pub stream_error: Option<String>,
 }
 
+impl VmObservation {
+    /// Deterministically resolves a target UI element from OCR boxes:
+    /// 1. Exact case-sensitive match
+    /// 2. Exact case-insensitive match
+    /// 3. Substring / multi-word phrase match across adjacent boxes on the same line
+    /// 4. Fuzzy match (Levenshtein distance <= 2 for queries >= 4 chars)
+    /// Returns `(cx, cy, matched_text)`.
+    pub fn find_text_target(&self, query: &str, occurrence: usize) -> Option<(i32, i32, String)> {
+        let q = query.trim();
+        if q.is_empty() || self.ocr_boxes.is_empty() {
+            return None;
+        }
+        let q_lower = q.to_lowercase();
+
+        // 1. Exact case-sensitive
+        let exact: Vec<(i32, i32, String)> = self
+            .ocr_boxes
+            .iter()
+            .filter(|b| b.text == q)
+            .map(|b| (b.cx, b.cy, b.text.clone()))
+            .collect();
+        if let Some(hit) = exact.get(occurrence) {
+            return Some(hit.clone());
+        }
+
+        // 2. Exact case-insensitive
+        let exact_ci: Vec<(i32, i32, String)> = self
+            .ocr_boxes
+            .iter()
+            .filter(|b| b.text.to_lowercase() == q_lower)
+            .map(|b| (b.cx, b.cy, b.text.clone()))
+            .collect();
+        if let Some(hit) = exact_ci.get(occurrence) {
+            return Some(hit.clone());
+        }
+
+        // 3. Multi-word phrase across adjacent boxes on the same horizontal row
+        if q_lower.contains(' ') {
+            let phrase_hits = self.find_phrase_matches(&q_lower);
+            if let Some(hit) = phrase_hits.get(occurrence) {
+                return Some(hit.clone());
+            }
+        }
+
+        // 4. Case-insensitive substring match on individual boxes
+        let substr: Vec<(i32, i32, String)> = self
+            .ocr_boxes
+            .iter()
+            .filter(|b| b.text.to_lowercase().contains(&q_lower))
+            .map(|b| (b.cx, b.cy, b.text.clone()))
+            .collect();
+        if let Some(hit) = substr.get(occurrence) {
+            return Some(hit.clone());
+        }
+
+        // 5. Fuzzy match (Levenshtein <= 2) for OCR character noise (e.g. 'l' vs '1', 'O' vs '0')
+        if q_lower.chars().count() >= 4 {
+            let max_dist = if q_lower.chars().count() >= 7 { 2 } else { 1 };
+            let mut fuzzy: Vec<(usize, i32, i32, String)> = self
+                .ocr_boxes
+                .iter()
+                .filter_map(|b| {
+                    let b_lower = b.text.to_lowercase();
+                    let d = levenshtein(&q_lower, &b_lower);
+                    if d <= max_dist {
+                        Some((d, b.cx, b.cy, b.text.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            fuzzy.sort_by_key(|item| item.0);
+            if let Some((_, cx, cy, txt)) = fuzzy.get(occurrence) {
+                return Some((*cx, *cy, txt.clone()));
+            }
+        }
+
+        None
+    }
+
+    fn find_phrase_matches(&self, q_lower: &str) -> Vec<(i32, i32, String)> {
+        let mut sorted: Vec<&OcrTextBox> = self.ocr_boxes.iter().collect();
+        sorted.sort_by(|a, b| a.cy.cmp(&b.cy).then_with(|| a.x.cmp(&b.x)));
+
+        // Group boxes into horizontal lines
+        let mut lines: Vec<Vec<&OcrTextBox>> = Vec::new();
+        for b in sorted {
+            if let Some(last_line) = lines.last_mut() {
+                let ref_box = last_line[0];
+                let tol = (ref_box.h.max(b.h) / 2).max(10);
+                if (b.cy - ref_box.cy).abs() <= tol {
+                    last_line.push(b);
+                    continue;
+                }
+            }
+            lines.push(vec![b]);
+        }
+
+        let mut hits = Vec::new();
+        for mut line in lines {
+            line.sort_by_key(|b| b.x);
+            for start in 0..line.len() {
+                let mut combined = String::new();
+                let mut min_x = i32::MAX;
+                let mut min_y = i32::MAX;
+                let mut max_x = i32::MIN;
+                let mut max_y = i32::MIN;
+                for end in start..line.len() {
+                    if !combined.is_empty() {
+                        combined.push(' ');
+                    }
+                    combined.push_str(&line[end].text);
+                    min_x = min_x.min(line[end].x);
+                    min_y = min_y.min(line[end].y);
+                    max_x = max_x.max(line[end].x + line[end].w);
+                    max_y = max_y.max(line[end].y + line[end].h);
+
+                    let c_lower = combined.to_lowercase();
+                    if c_lower == q_lower || c_lower.contains(q_lower) {
+                        hits.push(((min_x + max_x) / 2, (min_y + max_y) / 2, combined.clone()));
+                        break;
+                    }
+                    if c_lower.len() > q_lower.len() + 12 {
+                        break;
+                    }
+                }
+            }
+        }
+        hits
+    }
+}
+
+pub fn levenshtein(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let m = a_chars.len();
+    let n = b_chars.len();
+    if m == 0 {
+        return n;
+    }
+    if n == 0 {
+        return m;
+    }
+    let mut prev: Vec<usize> = (0..=n).collect();
+    let mut curr = vec![0; n + 1];
+    for (i, &ca) in a_chars.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, &cb) in b_chars.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            curr[j + 1] = (prev[j + 1] + 1)
+                .min(curr[j] + 1)
+                .min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[n]
+}
+
 struct FrameState {
     width: u32,
     height: u32,
@@ -105,6 +263,70 @@ impl VmFrameStream {
 
     pub fn stop(&self) {
         self.stop_flag.store(true, Ordering::Relaxed);
+    }
+
+    /// Waits until the framebuffer stops changing for `idle_ms` (or until `timeout_ms` elapses).
+    /// Returns the stabilized `frame_seq`.
+    pub fn wait_for_idle(&self, idle_ms: u64, timeout_ms: u64) -> u64 {
+        let idle_dur = Duration::from_millis(idle_ms.clamp(50, 5000));
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms.clamp(50, 15_000));
+        let mut last_seq = self.current_seq();
+        let mut last_change = Instant::now();
+
+        while Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(40));
+            let now_seq = self.current_seq();
+            if now_seq != last_seq {
+                last_seq = now_seq;
+                last_change = Instant::now();
+            } else if last_seq > 0 && last_change.elapsed() >= idle_dur {
+                return now_seq;
+            }
+        }
+        self.current_seq()
+    }
+
+    /// Polls OCR only when `frame_seq` changes until `query` appears on screen or `timeout_ms` expires.
+    pub fn wait_for_text(&self, query: &str, timeout_ms: u64) -> Result<VmObservation, String> {
+        let deadline = Instant::now() + Duration::from_millis(timeout_ms.clamp(100, 15_000));
+        let mut last_checked_seq: Option<u64> = None;
+
+        loop {
+            let cur_seq = self.current_seq();
+            if last_checked_seq != Some(cur_seq) {
+                let obs = self.observe(None, 0, true, false, 1024);
+                last_checked_seq = Some(obs.frame_seq);
+                if obs.find_text_target(query, 0).is_some() {
+                    return Ok(obs);
+                }
+                if Instant::now() >= deadline {
+                    return Err(format!(
+                        "Timed out after {}ms waiting for text '{}' on VM display. Visible OCR: {}",
+                        timeout_ms,
+                        query,
+                        if obs.ocr_summary.is_empty() {
+                            "(none)".to_string()
+                        } else {
+                            obs.ocr_summary
+                        }
+                    ));
+                }
+            }
+            if Instant::now() >= deadline {
+                let obs = self.observe(None, 0, true, false, 1024);
+                return Err(format!(
+                    "Timed out after {}ms waiting for text '{}' on VM display. Visible OCR: {}",
+                    timeout_ms,
+                    query,
+                    if obs.ocr_summary.is_empty() {
+                        "(none)".to_string()
+                    } else {
+                        obs.ocr_summary
+                    }
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(80));
+        }
     }
 
     pub fn current_resolution(&self) -> (u32, u32) {
@@ -526,5 +748,35 @@ impl VmFrameStream {
 impl Drop for VmFrameStream {
     fn drop(&mut self) {
         self.stop();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_text_target_phrase_and_fuzzy() {
+        let obs = VmObservation {
+            frame_seq: 1,
+            changed: true,
+            width: 1024,
+            height: 768,
+            dirty_regions: vec![],
+            ocr_boxes: vec![
+                OcrTextBox { text: "Sign".into(), x: 100, y: 200, w: 40, h: 20, cx: 120, cy: 210 },
+                OcrTextBox { text: "In".into(), x: 146, y: 200, w: 20, h: 20, cx: 156, cy: 210 },
+                OcrTextBox { text: "Terminal".into(), x: 10, y: 50, w: 80, h: 20, cx: 50, cy: 60 },
+            ],
+            ocr_summary: String::new(),
+            image_base64_png: None,
+            stream_error: None,
+        };
+
+        let phrase = obs.find_text_target("sign in", 0).expect("phrase match");
+        assert_eq!((phrase.0, phrase.1), (133, 210));
+
+        let fuzzy = obs.find_text_target("Termnal", 0).expect("fuzzy match");
+        assert_eq!((fuzzy.0, fuzzy.1), (50, 60));
     }
 }

@@ -107,6 +107,10 @@
     /* Forces rigid square theme everywhere */
 }
 
+html, body {
+    overscroll-behavior: none;
+}
+
 body {
     background-color: var(--bg-primary);
     color: var(--text-primary);
@@ -116,6 +120,10 @@ body {
     overflow: hidden;
     font-size: 13px;
     user-select: none;
+}
+
+img, a {
+    -webkit-user-drag: none;
 }
 
 /* Custom Styled Checkboxes & Selects to avoid default OS styling */

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRight, Folder, FolderOpen, Plus, Trash2, X } from "lucide-react";
+import { ArrowRight, ChevronsLeft, Folder, FolderOpen, Plus, Trash2, X } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlouetteCheckbox, AlouetteNumberInput } from "../AlouetteControls";
 import { AlouetteSelect, SelectOption } from "../AlouetteSelect";
@@ -11,6 +11,7 @@ interface VmDetailsPanelProps {
   draftConfig: VmConfig;
   onDraftChange: (next: VmConfig) => void;
   onNotice: (notice: VmNotice) => void;
+  onHidePanel?: () => void;
 }
 
 export function VmDetailsPanel({
@@ -18,6 +19,7 @@ export function VmDetailsPanel({
   draftConfig,
   onDraftChange,
   onNotice,
+  onHidePanel,
 }: VmDetailsPanelProps) {
   const [snapshots, setSnapshots] = useState<string[]>([]);
   const [newSnapshotName, setNewSnapshotName] = useState("");
@@ -171,7 +173,34 @@ export function VmDetailsPanel({
 
   return (
     <div className="vm-details-panel">
-      <h3 className="vm-section-title">Hardware &amp; Profile</h3>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottom: "1px solid var(--border-primary)",
+          paddingBottom: "4px",
+          marginBottom: "10px",
+        }}
+      >
+        <h3
+          className="vm-section-title"
+          style={{ borderBottom: "none", paddingBottom: 0, margin: 0 }}
+        >
+          Hardware &amp; Profile
+        </h3>
+        {onHidePanel && (
+          <button
+            type="button"
+            onClick={onHidePanel}
+            className="vm-btn vm-btn-icon"
+            title="Collapse config panel"
+            style={{ padding: "3px 6px" }}
+          >
+            <ChevronsLeft size={13} />
+          </button>
+        )}
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 110px", gap: "8px", marginBottom: "10px" }}>
         <div>
           <label className="vm-label">OS Profile</label>

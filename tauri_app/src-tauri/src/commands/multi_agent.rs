@@ -158,6 +158,7 @@ pub async fn run_multi_agent_workflow(
     model: String,
     active_cwd: Option<String>,
     thinking_mode: Option<String>,
+    vm_manager: Option<Arc<core_engine::vm_engine::VmManager>>,
     window: WebviewWindow,
     session_id: String,
 ) -> Result<AgentResponse, String> {
@@ -194,6 +195,9 @@ pub async fn run_multi_agent_workflow(
 
     // 2. Initialize the core_engine's Coordinator V2
     let mut harness = AgentHarness::new(cwd.clone());
+    if let Some(vm_mgr) = vm_manager {
+        harness.set_vm_manager(vm_mgr);
+    }
     let mut coordinator = core_engine::multi_agent::orchestration::coordinator::Coordinator::new(&mut harness);
     
     // Set auto-approvals options from defaults (reads approved, writes/executes require approval)

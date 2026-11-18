@@ -2,7 +2,7 @@ use crate::vm_engine::config::VmConfig;
 use crate::vm_engine::qemu_wrapper::{QemuInstance, SOCKET_DIR};
 use crate::vm_engine::qga_client::QgaClient;
 use crate::vm_engine::qmp_client::{QmpClient, VmInputAction};
-use crate::vm_engine::vnc_stream::{VmFrameStream, VmObservation};
+use crate::vm_engine::vnc_stream::{levenshtein, VmFrameStream, VmObservation};
 use parking_lot::Mutex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -139,6 +139,104 @@ impl VmManager {
             .into_iter()
             .find(|c| c.id == id)
             .ok_or_else(|| format!("VM with ID '{}' not found", id))
+    }
+
+    /// Deterministically resolves a VM identifier or name even with partial prefix
+    /// or minor LLM character drift (e.g. `abcss1324343` -> `abcss132434v`).
+    pub fn resolve_vm_id(&self, id_or_name: &str) -> Result<String, String> {
+        let query = id_or_name.trim();
+        let vms = self.list_vms_with_runtime()?;
+
+        if vms.is_empty() {
+            return Err("No VMs configured in Alouette VM Manager. Call vm_create first.".to_string());
+        }
+
+        // 0. Explicit active/running shorthand when exactly one VM is running
+        if query.is_empty()
+            || query.eq_ignore_ascii_case("active")
+            || query.eq_ignore_ascii_case("current")
+            || query.eq_ignore_ascii_case("running")
+        {
+            let running: Vec<&VmRuntimeInfo> =
+                vms.iter().filter(|v| v.status == "running").collect();
+            if running.len() == 1 {
+                return Ok(running[0].config.id.clone());
+            }
+        }
+
+        // 1. Exact ID match
+        if let Some(exact) = vms.iter().find(|v| v.config.id == query) {
+            return Ok(exact.config.id.clone());
+        }
+
+        // 2. Exact case-insensitive Name match (prefer running if duplicate names exist)
+        let q_lower = query.to_lowercase();
+        let name_matches: Vec<&VmRuntimeInfo> = vms
+            .iter()
+            .filter(|v| v.config.name.to_lowercase() == q_lower)
+            .collect();
+        if name_matches.len() == 1 {
+            return Ok(name_matches[0].config.id.clone());
+        } else if name_matches.len() > 1 {
+            if let Some(running) = name_matches.iter().find(|v| v.status == "running") {
+                return Ok(running.config.id.clone());
+            }
+            let choices: Vec<String> = name_matches
+                .iter()
+                .map(|v| format!("{} (id={})", v.config.name, v.config.id))
+                .collect();
+            return Err(format!(
+                "Multiple VMs named '{}': {}. Specify the exact VM ID.",
+                query,
+                choices.join(", ")
+            ));
+        }
+
+        // 3. Unique prefix match on ID or Name (min 3 chars)
+        if query.chars().count() >= 3 {
+            let prefix_matches: Vec<&VmRuntimeInfo> = vms
+                .iter()
+                .filter(|v| {
+                    v.config.id.starts_with(query)
+                        || v.config.name.to_lowercase().starts_with(&q_lower)
+                })
+                .collect();
+            if prefix_matches.len() == 1 {
+                return Ok(prefix_matches[0].config.id.clone());
+            }
+        }
+
+        // 4. Unique fuzzy match (Levenshtein <= 2) to recover from 1-2 char LLM drift
+        if query.chars().count() >= 4 {
+            let max_dist = if query.chars().count() >= 8 { 2 } else { 1 };
+            let mut scored: Vec<(usize, &VmRuntimeInfo)> = vms
+                .iter()
+                .filter_map(|v| {
+                    let d_id = levenshtein(query, &v.config.id);
+                    let d_name = levenshtein(&q_lower, &v.config.name.to_lowercase());
+                    let best = d_id.min(d_name);
+                    if best <= max_dist {
+                        Some((best, v))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            scored.sort_by_key(|s| s.0);
+            if scored.len() == 1 || (scored.len() >= 2 && scored[0].0 < scored[1].0) {
+                return Ok(scored[0].1.config.id.clone());
+            }
+        }
+
+        let available: Vec<String> = vms
+            .iter()
+            .map(|v| format!("'{}' (id={}, status={})", v.config.name, v.config.id, v.status))
+            .collect();
+        Err(format!(
+            "VM '{}' not found. Available VMs: {}",
+            query,
+            available.join(", ")
+        ))
     }
 
     /// Creates or updates a virtual machine configuration (stored as vm.json).
@@ -637,7 +735,9 @@ impl VmManager {
         ))
     }
 
-    /// Executes a batch of GUI actions directly in the VM via QMP `input-send-event`.
+    /// Executes a batch of GUI actions directly in the VM via QMP `input-send-event`,
+    /// resolving OCR text targets (`click_text`, `move_text`) and wait conditions
+    /// (`wait_for_text`, `wait_for_idle`) deterministically from the live VNC stream.
     /// Returns `(executed_actions_count, (screen_w, screen_h), pre_action_frame_seq)`.
     pub fn act_on_vm(
         &self,
@@ -649,8 +749,76 @@ impl VmManager {
         let pre_seq = stream.current_seq();
         let qmp_socket_path = QemuInstance::qmp_socket_path(id);
         let mut qmp = QmpClient::connect(qmp_socket_path)?;
-        let count = qmp.execute_action_batch(actions, w, h)?;
-        Ok((count, (w, h), pre_seq))
+
+        let mut executed = 0usize;
+        for action in actions {
+            match action {
+                VmInputAction::ClickText {
+                    text,
+                    occurrence,
+                    button,
+                    double,
+                } => {
+                    let obs = stream.observe(None, 0, true, false, 1024);
+                    let (cx, cy, _) = obs.find_text_target(text, occurrence.unwrap_or(0)).ok_or_else(|| {
+                        format!(
+                            "Text '{}' not found on VM display for click_text. Visible OCR: {}",
+                            text,
+                            if obs.ocr_summary.is_empty() {
+                                "(none)".to_string()
+                            } else {
+                                obs.ocr_summary
+                            }
+                        )
+                    })?;
+                    let click = VmInputAction::Click {
+                        x: cx.max(0) as u32,
+                        y: cy.max(0) as u32,
+                        button: button.clone(),
+                        double: *double,
+                        screen_w: Some(obs.width.max(1)),
+                        screen_h: Some(obs.height.max(1)),
+                    };
+                    qmp.execute_single_action(&click, w, h)?;
+                }
+                VmInputAction::MoveText { text, occurrence } => {
+                    let obs = stream.observe(None, 0, true, false, 1024);
+                    let (cx, cy, _) = obs.find_text_target(text, occurrence.unwrap_or(0)).ok_or_else(|| {
+                        format!(
+                            "Text '{}' not found on VM display for move_text. Visible OCR: {}",
+                            text,
+                            if obs.ocr_summary.is_empty() {
+                                "(none)".to_string()
+                            } else {
+                                obs.ocr_summary
+                            }
+                        )
+                    })?;
+                    let mv = VmInputAction::Move {
+                        x: cx.max(0) as u32,
+                        y: cy.max(0) as u32,
+                        screen_w: Some(obs.width.max(1)),
+                        screen_h: Some(obs.height.max(1)),
+                    };
+                    qmp.execute_single_action(&mv, w, h)?;
+                }
+                VmInputAction::WaitForText { text, timeout_ms } => {
+                    stream.wait_for_text(text, timeout_ms.unwrap_or(5000))?;
+                }
+                VmInputAction::WaitForIdle {
+                    idle_ms,
+                    timeout_ms,
+                } => {
+                    stream.wait_for_idle(idle_ms.unwrap_or(250), timeout_ms.unwrap_or(5000));
+                }
+                primitive => {
+                    qmp.execute_single_action(primitive, w, h)?;
+                }
+            }
+            executed += 1;
+        }
+
+        Ok((executed, (w, h), pre_seq))
     }
 
     pub fn read_guest_file(
@@ -685,6 +853,115 @@ impl VmManager {
         let mut client = QgaClient::connect(qga_socket_path)?;
         client.write_file_bytes(guest_path, bytes)?;
         Ok(bytes.len())
+    }
+
+    /// Executes a command inside a running VM via QEMU Guest Agent (`guest-exec`).
+    pub fn exec_guest_command(
+        &self,
+        id: &str,
+        command: &str,
+        args: &[String],
+        connect_timeout_secs: u64,
+        exec_timeout_secs: u64,
+    ) -> Result<String, String> {
+        if !self.is_vm_running(id) {
+            return Err(format!("VM '{}' is not running. Start it with vm_start first.", id));
+        }
+
+        let qga_socket_path = QemuInstance::qga_socket_path(id);
+        let arg_values: Vec<serde_json::Value> =
+            args.iter().map(|s| serde_json::Value::String(s.clone())).collect();
+
+        let start = std::time::Instant::now();
+        let (mut client, res) = loop {
+            match QgaClient::connect(&qga_socket_path) {
+                Ok(mut c) => {
+                    match c.execute(
+                        "guest-exec",
+                        Some(serde_json::json!({
+                            "path": command,
+                            "arg": &arg_values,
+                            "capture-output": true
+                        })),
+                    ) {
+                        Ok(r) => break (c, r),
+                        Err(_) if start.elapsed().as_secs() < connect_timeout_secs => {}
+                        Err(e) => {
+                            return Ok(format!(
+                                "VM_NOT_READY: QEMU Guest Agent did not respond ({}). If the VM is still booting, retry shortly; otherwise install/start qemu-guest-agent inside the guest OR use deep-level control tools (vm_observe, vm_act, vm_logs) instead.",
+                                e
+                            ));
+                        }
+                    }
+                }
+                Err(_) if start.elapsed().as_secs() < connect_timeout_secs => {}
+                Err(e) => {
+                    return Ok(format!(
+                        "VM_NOT_READY: Cannot reach QGA socket ({}). If the VM is still booting, retry shortly; otherwise install/start qemu-guest-agent inside the guest OR use deep-level control tools (vm_observe, vm_act, vm_logs) instead.",
+                        e
+                    ));
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        };
+
+        let pid = res
+            .get("pid")
+            .and_then(|p| p.as_i64())
+            .ok_or_else(|| "Failed to get pid from guest-exec".to_string())?;
+
+        let exec_start = std::time::Instant::now();
+        loop {
+            if exec_start.elapsed().as_secs() > exec_timeout_secs {
+                return Ok(format!(
+                    "COMMAND_TIMEOUT: Command exceeded {} seconds. Run long-running commands in the background.",
+                    exec_timeout_secs
+                ));
+            }
+
+            let status = client.execute("guest-exec-status", Some(serde_json::json!({ "pid": pid })))?;
+            if status.get("exited").and_then(|e| e.as_bool()).unwrap_or(false) {
+                let exitcode = status.get("exitcode").and_then(|c| c.as_i64()).unwrap_or(0);
+                use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
+                let decode_b64 = |key: &str| -> String {
+                    status
+                        .get(key)
+                        .and_then(|d| d.as_str())
+                        .and_then(|s| BASE64.decode(s).ok())
+                        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                        .unwrap_or_default()
+                };
+
+                let out_str = decode_b64("out-data");
+                let err_str = decode_b64("err-data");
+
+                return if exitcode == 0 {
+                    Ok(out_str)
+                } else {
+                    Ok(format!(
+                        "Command exited with code {}\nStdout:\n{}\nStderr:\n{}",
+                        exitcode, out_str, err_str
+                    ))
+                };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(300));
+        }
+    }
+
+    /// Executes a raw QMP command on a running VM for low-level QEMU monitor introspection/control.
+    pub fn execute_qmp_command(
+        &self,
+        id: &str,
+        command: &str,
+        arguments: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, String> {
+        if !self.is_vm_running(id) {
+            return Err(format!("VM '{}' is not running.", id));
+        }
+        let qmp_socket_path = QemuInstance::qmp_socket_path(id);
+        let mut client = QmpClient::connect(qmp_socket_path)?;
+        client.execute(command, arguments)
     }
 }
 
@@ -762,5 +1039,31 @@ mod tests {
 
         let list = mgr.list_vms_with_runtime().unwrap();
         assert_eq!(list.len(), 2);
+    }
+
+    #[test]
+    fn test_resolve_vm_id_exact_prefix_and_fuzzy_drift() {
+        let dir = tempdir().unwrap();
+        let mgr = VmManager::new(dir.path());
+        let dummy_disk = dir.path().join("shared_dummy.qcow2");
+        fs::write(&dummy_disk, b"dummy").unwrap();
+
+        let mut cfg = VmConfig::default();
+        cfg.id = "abcss1324343".to_string();
+        cfg.name = "Alpine-Lab".to_string();
+        cfg.disk_path = Some(dummy_disk.to_string_lossy().into_owned());
+        mgr.save_vm(cfg, None).unwrap();
+
+        // Exact ID & Name
+        assert_eq!(mgr.resolve_vm_id("abcss1324343").unwrap(), "abcss1324343");
+        assert_eq!(mgr.resolve_vm_id("alpine-lab").unwrap(), "abcss1324343");
+        // Prefix
+        assert_eq!(mgr.resolve_vm_id("abcss13").unwrap(), "abcss1324343");
+        assert_eq!(mgr.resolve_vm_id("alpine").unwrap(), "abcss1324343");
+        // 1-char LLM drift (abcss1324343 -> abcss132434v)
+        assert_eq!(mgr.resolve_vm_id("abcss132434v").unwrap(), "abcss1324343");
+        assert_eq!(mgr.resolve_vm_id("Alpne-Lab").unwrap(), "abcss1324343");
+        // Completely unrelated string still fails clearly
+        assert!(mgr.resolve_vm_id("windows-prod-99").is_err());
     }
 }

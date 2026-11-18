@@ -278,6 +278,7 @@ pub async fn agent_send_message(
             model,
             active_cwd,
             thinking_mode,
+            Some(app_state.vm_manager.clone()),
             window,
             session_id,
         )

@@ -1601,88 +1601,31 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         &mut self,
         tool: &parser::ToolCall,
     ) -> Result<String, String> {
+        let vm_manager = self
+            .vm_manager
+            .as_ref()
+            .ok_or_else(|| "VM Manager not initialized".to_string())?
+            .clone();
         let vm_id = tool.arguments["vm_id"]
             .as_str()
             .ok_or_else(|| "Missing 'vm_id' argument".to_string())?
             .to_string();
-            
         let command = tool.arguments["command"]
             .as_str()
             .ok_or_else(|| "Missing 'command' argument".to_string())?
             .to_string();
-
-        let args: Vec<serde_json::Value> = if let Some(arr) = tool.arguments["args"].as_array() {
-            arr.clone()
-        } else {
-            Vec::new()
-        };
+        let args: Vec<String> = tool.arguments["args"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(ToString::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         tokio::task::spawn_blocking(move || {
-            let qga_socket_path = std::path::Path::new("/tmp/alouette_vms").join(format!("{}_qga.sock", vm_id));
-            
-            let start = std::time::Instant::now();
-            let (mut client, res) = loop {
-                match crate::vm_engine::qga_client::QgaClient::connect(&qga_socket_path) {
-                    Ok(mut c) => {
-                        match c.execute("guest-exec", Some(serde_json::json!({
-                            "path": &command,
-                            "arg": &args,
-                            "capture-output": true
-                        }))) {
-                            Ok(r) => break (c, r),
-                            Err(_e) => {
-                                if start.elapsed().as_secs() > 30 {
-                                    return Ok(format!("VM_NOT_READY: The virtual machine is still booting or QGA is not installed. Please call vm_execute_command again to retry. CRITICAL INSTRUCTION: If you receive this VM_NOT_READY message 3 times in a row, STOP retrying immediately. You MUST inform the user that their VM is missing the Guest Agent and instruct them to open the 'VM Display (VNC)' tab on the right to manually log in and run 'sudo apt install qemu-guest-agent -y' (for Linux) or install virtio-win guest agent (for Windows)."));
-                                }
-                            }
-                        }
-                    }
-                    Err(_e) => {
-                        if start.elapsed().as_secs() > 30 {
-                            return Ok(format!("VM_NOT_READY: The virtual machine is still booting or QGA is not installed. Please call vm_execute_command again to retry. CRITICAL INSTRUCTION: If you receive this VM_NOT_READY message 3 times in a row, STOP retrying immediately. You MUST inform the user that their VM is missing the Guest Agent and instruct them to open the 'VM Display (VNC)' tab on the right to manually log in and run 'sudo apt install qemu-guest-agent -y' (for Linux) or install virtio-win guest agent (for Windows)."));
-                        }
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_secs(2));
-            };
-            
-            let pid = res.get("pid").and_then(|p| p.as_i64()).ok_or_else(|| "Failed to get pid from guest-exec".to_string())?;
-            
-            let start = std::time::Instant::now();
-            loop {
-                if start.elapsed().as_secs() > 45 {
-                    return Ok("COMMAND_TIMEOUT: The command is taking longer than 45 seconds to execute. Please run long-running commands in the background.".to_string());
-                }
-                
-                let status = client.execute("guest-exec-status", Some(serde_json::json!({"pid": pid})))?;
-                
-                if status.get("exited").and_then(|e| e.as_bool()).unwrap_or(false) {
-                    let exitcode = status.get("exitcode").and_then(|c| c.as_i64()).unwrap_or(0);
-                    
-                    use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-                    
-                    let mut out_str = String::new();
-                    if let Some(out_data) = status.get("out-data").and_then(|d| d.as_str()) {
-                        if let Ok(decoded) = BASE64.decode(out_data) {
-                            out_str = String::from_utf8_lossy(&decoded).to_string();
-                        }
-                    }
-                    
-                    let mut err_str = String::new();
-                    if let Some(err_data) = status.get("err-data").and_then(|d| d.as_str()) {
-                        if let Ok(decoded) = BASE64.decode(err_data) {
-                            err_str = String::from_utf8_lossy(&decoded).to_string();
-                        }
-                    }
-                    
-                    if exitcode == 0 {
-                        return Ok(out_str);
-                    } else {
-                        return Ok(format!("Command exited with code {}\nStdout:\n{}\nStderr:\n{}", exitcode, out_str, err_str));
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(500));
-            }
+            let resolved_id = vm_manager.resolve_vm_id(&vm_id)?;
+            vm_manager.exec_guest_command(&resolved_id, &command, &args, 30, 45)
         })
         .await
         .map_err(|e| format!("Tokio task failed: {}", e))?
@@ -1704,11 +1647,12 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
     fn execute_vm_start(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let vm_manager = self.vm_manager.as_ref().ok_or_else(|| "VM Manager not initialized".to_string())?;
-        let vm_id = tool.arguments["vm_id"]
+        let raw_id = tool.arguments["vm_id"]
             .as_str()
             .ok_or_else(|| "Missing 'vm_id' argument".to_string())?;
-        
-        match vm_manager.start_vm(vm_id, None, None) {
+        let vm_id = vm_manager.resolve_vm_id(raw_id)?;
+
+        match vm_manager.start_vm(&vm_id, None, None) {
             Ok(_) => Ok(format!("Successfully sent start signal to VM {}.", vm_id)),
             Err(e) => {
                 if e.contains("Failed to get \"write\" lock") || e.contains("already running") {
@@ -1722,11 +1666,12 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
     fn execute_vm_stop(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let vm_manager = self.vm_manager.as_ref().ok_or_else(|| "VM Manager not initialized".to_string())?;
-        let vm_id = tool.arguments["vm_id"]
+        let raw_id = tool.arguments["vm_id"]
             .as_str()
             .ok_or_else(|| "Missing 'vm_id' argument".to_string())?;
-        
-        vm_manager.stop_vm(vm_id)?;
+        let vm_id = vm_manager.resolve_vm_id(raw_id)?;
+
+        vm_manager.stop_vm(&vm_id)?;
         Ok(format!("Successfully sent stop signal to VM {}.", vm_id))
     }
 
@@ -1821,8 +1766,9 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         let max_image_dim = tool.arguments.get("max_image_dim").and_then(|v| v.as_u64()).unwrap_or(1024) as u32;
 
         tokio::task::spawn_blocking(move || {
+            let resolved_id = vm_manager.resolve_vm_id(&vm_id)?;
             let obs = vm_manager.observe_vm(
-                &vm_id,
+                &resolved_id,
                 since_seq,
                 wait_change_ms,
                 include_ocr,
@@ -1854,8 +1800,9 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         let wait_after_ms = tool.arguments.get("wait_after_ms").and_then(|v| v.as_u64()).unwrap_or(350);
 
         tokio::task::spawn_blocking(move || {
-            let (count, (w, h), pre_seq) = vm_manager.act_on_vm(&vm_id, &actions)?;
-            let post_obs = vm_manager.observe_vm(&vm_id, Some(pre_seq), wait_after_ms, true, false, 1024)?;
+            let resolved_id = vm_manager.resolve_vm_id(&vm_id)?;
+            let (count, (w, h), pre_seq) = vm_manager.act_on_vm(&resolved_id, &actions)?;
+            let post_obs = vm_manager.observe_vm(&resolved_id, Some(pre_seq), wait_after_ms, true, false, 1024)?;
             Ok(serde_json::to_string_pretty(&serde_json::json!({
                 "executed_actions": count,
                 "screen_resolution": [w, h],

@@ -2,7 +2,7 @@ use crate::state::AppState;
 use core_engine::vm_engine::{VmConfig, VmRuntimeInfo};
 use tauri::{Manager, State};
 
-fn resolve_qemu_binaries(app_handle: &tauri::AppHandle) -> (Option<String>, Option<String>) {
+pub(crate) fn resolve_qemu_binaries(app_handle: &tauri::AppHandle) -> (Option<String>, Option<String>) {
     let qemu_path = app_handle
         .path()
         .resolve("bin/qemu-system-x86_64", tauri::path::BaseDirectory::Resource)

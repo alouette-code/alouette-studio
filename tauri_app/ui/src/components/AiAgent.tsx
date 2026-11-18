@@ -948,6 +948,150 @@ const SafeMarkdown = React.memo(({ content }: { content: string }) => {
   );
 });
 
+type ModelSourceType = "free" | "apikey" | "local";
+
+interface AgentModelOption {
+  id: string;
+  name: string;
+  sourceType: ModelSourceType;
+  providerLabel: string;
+  contextLimit: number;
+  outputLimit?: number;
+  supportsVision?: boolean;
+  supportsReasoning?: boolean;
+}
+
+interface DailyModelUsage {
+  requests: number;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheRead: number;
+  cost: number;
+}
+
+interface ServerUsageSnapshot {
+  sessionId?: string;
+  messageId?: string;
+  providerId?: string;
+  modelId?: string;
+  inputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  cacheRead: number;
+  cacheWrite: number;
+  cost: number;
+  updatedAt: number;
+}
+
+interface RateLimitAlertState {
+  message: string;
+  at: number;
+}
+
+const getTodayUsageStorageKey = () =>
+  `alouette_daily_usage_${new Date().toISOString().slice(0, 10)}`;
+
+const readDailyUsageMap = (): Record<string, DailyModelUsage> => {
+  try {
+    const raw = localStorage.getItem(getTodayUsageStorageKey());
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const readModelDailyCaps = (): Record<string, number> => {
+  try {
+    const raw = localStorage.getItem("alouette_model_daily_caps");
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+};
+
+const formatCompactTokens = (value: number): string => {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (value >= 1_000_000) {
+    const m = value / 1_000_000;
+    return `${Number.isInteger(m) ? m : m.toFixed(1)}M`;
+  }
+  if (value >= 1_000) {
+    return `${Math.round(value / 1_000)}k`;
+  }
+  return `${Math.round(value)}`;
+};
+
+const inferDefaultContextLimit = (modelId: string): number => {
+  const id = (modelId || "").toLowerCase();
+  if (id.includes("gemini")) return 1048576;
+  if (id.includes("claude")) return 200000;
+  if (id.includes("gpt-4o") || id.includes("o1") || id.includes("o3")) return 128000;
+  return 128000;
+};
+
+const isLocalProviderEndpoint = (provKey?: string, apiUrl?: string): boolean => {
+  const key = (provKey || "").toLowerCase();
+  const url = (apiUrl || "").toLowerCase();
+  if (key.includes("ollama") || key.includes("lmstudio") || key === "local") {
+    return true;
+  }
+  return (
+    url.includes("localhost") ||
+    url.includes("127.0.0.1") ||
+    url.includes("0.0.0.0") ||
+    url.includes(":11434") ||
+    url.includes(":1234")
+  );
+};
+
+const formatProviderLabel = (provKey: string): string => {
+  const k = (provKey || "").toLowerCase();
+  if (k === "opencode") return "OpenCode Free";
+  if (k === "google" || k === "gemini") return "Google Gemini";
+  if (k === "anthropic") return "Anthropic";
+  if (k === "openai") return "OpenAI";
+  if (k === "deepseek") return "DeepSeek";
+  if (k === "openrouter") return "OpenRouter";
+  if (k === "groq") return "Groq";
+  if (k === "ollama") return "Ollama";
+  return provKey ? provKey.charAt(0).toUpperCase() + provKey.slice(1) : "Custom";
+};
+
+const getModelSourceBadge = (sourceType: ModelSourceType) => {
+  if (sourceType === "free") {
+    return {
+      label: "Free",
+      title: "Miễn phí tích hợp qua OpenCode (không cần API key)",
+    };
+  }
+  if (sourceType === "local") {
+    return {
+      label: "Local",
+      title: "Model chạy local (Ollama / LM Studio / Localhost)",
+    };
+  }
+  return {
+    label: "API Key",
+    title: "Dùng API Key cá nhân đã cấu hình",
+  };
+};
+
+const isRateLimitErrorText = (text?: string | null): boolean => {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("429") ||
+    lower.includes("rate limit") ||
+    lower.includes("rate_limit") ||
+    lower.includes("ratelimit") ||
+    lower.includes("too many requests") ||
+    lower.includes("quota") ||
+    lower.includes("limit exceeded") ||
+    lower.includes("credit balance")
+  );
+};
+
 export default function AiAgent({
   onBack,
   activeProjectCwd,
@@ -1000,7 +1144,84 @@ export default function AiAgent({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [thinkingMode, setThinkingMode] = useState<"high" | "low">("low");
   const [showTokenTooltip, setShowTokenTooltip] = useState(false);
-  const [totalSessionTokens, setTotalSessionTokens] = useState<number>(0);
+  const [limitPopoverOpen, setLimitPopoverOpen] = useState(false);
+  const [availableModels, setAvailableModels] = useState<AgentModelOption[]>([]);
+  const [dailyUsageMap, setDailyUsageMap] = useState<Record<string, DailyModelUsage>>(
+    () => readDailyUsageMap(),
+  );
+  const [modelDailyCaps, setModelDailyCaps] = useState<Record<string, number>>(
+    () => readModelDailyCaps(),
+  );
+  const [lastServerUsage, setLastServerUsage] = useState<ServerUsageSnapshot | null>(
+    null,
+  );
+  const [rateLimitAlerts, setRateLimitAlerts] = useState<
+    Record<string, RateLimitAlertState>
+  >({});
+  const selectedModelRef = useRef(selectedModel);
+  const availableModelsRef = useRef<AgentModelOption[]>([]);
+  const limitContainerRef = useRef<HTMLDivElement>(null);
+  const seenUsageMessagesRef = useRef<
+    Record<
+      string,
+      {
+        inputTokens: number;
+        outputTokens: number;
+        reasoningTokens: number;
+        cacheRead: number;
+        cost: number;
+      }
+    >
+  >({});
+
+  useEffect(() => {
+    selectedModelRef.current = selectedModel;
+  }, [selectedModel]);
+
+  useEffect(() => {
+    availableModelsRef.current = availableModels;
+  }, [availableModels]);
+
+  const markModelRateLimitIfMatched = (
+    modelId: string,
+    errText?: string | null,
+  ) => {
+    if (!isRateLimitErrorText(errText)) return;
+    setRateLimitAlerts((prev) => ({
+      ...prev,
+      [modelId]: {
+        message: (errText || "Rate limit / Quota exceeded (429)").slice(0, 180),
+        at: Date.now(),
+      },
+    }));
+  };
+
+  const clearModelRateLimitAlert = (modelId: string) => {
+    setRateLimitAlerts((prev) => {
+      if (!prev[modelId]) return prev;
+      const next = { ...prev };
+      delete next[modelId];
+      return next;
+    });
+  };
+
+  const updateModelDailyCap = (modelId: string, rawCap: number) => {
+    const cap = Number.isFinite(rawCap) && rawCap > 0 ? Math.floor(rawCap) : 0;
+    setModelDailyCaps((prev) => {
+      const next = { ...prev };
+      if (cap > 0) {
+        next[modelId] = cap;
+      } else {
+        delete next[modelId];
+      }
+      try {
+        localStorage.setItem("alouette_model_daily_caps", JSON.stringify(next));
+      } catch {
+        // Ignore storage errors
+      }
+      return next;
+    });
+  };
   const [expandedSkills, setExpandedSkills] = useState<Record<string, boolean>>(
     {},
   );
@@ -1071,12 +1292,11 @@ export default function AiAgent({
   };
 
   const getModelMaxContext = (modelId: string): number => {
-    const id = (modelId || "").toLowerCase();
-    if (id.includes("gemini")) return 1048576; // 1M tokens
-    if (id.includes("claude")) return 200000;
-    if (id.includes("gpt-4o") || id.includes("o1") || id.includes("o3")) return 128000;
-    if (id.includes("deepseek") || id.includes("qwen") || id.includes("llama") || id.includes("mistral")) return 128000;
-    return 128000; // Default fallback: 128k
+    const matched = availableModels.find((m) => m.id === modelId);
+    if (matched && matched.contextLimit > 0) {
+      return matched.contextLimit;
+    }
+    return inferDefaultContextLimit(modelId);
   };
 
   const estimatedInputTokens = useMemo(
@@ -1111,9 +1331,14 @@ export default function AiAgent({
     const inputTokens = estimatedInputTokens;
     const total = systemTokens + chatTokens + toolTokens + inputTokens;
     const maxContext = getModelMaxContext(selectedModel);
+    const remainingContext = Math.max(0, maxContext - total);
     const usagePercent = Math.min(
       100,
       Number(((total / maxContext) * 100).toFixed(1)),
+    );
+    const remainingPercent = Math.max(
+      0,
+      Number((100 - usagePercent).toFixed(1)),
     );
 
     return {
@@ -1123,9 +1348,11 @@ export default function AiAgent({
       inputTokens,
       total,
       maxContext,
+      remainingContext,
       usagePercent,
+      remainingPercent,
     };
-  }, [chatHistory, estimatedInputTokens, selectedModel]);
+  }, [chatHistory, estimatedInputTokens, selectedModel, availableModels]);
 
   // ─── Multi-Session: Switch Project ─────────────────────────────────
   const prevProjectIdRef = useRef<string | undefined>(undefined);
@@ -1501,10 +1728,6 @@ export default function AiAgent({
     }, 2000);
   };
 
-  const [availableModels, setAvailableModels] = useState<
-    { id: string; name: string }[]
-  >([]);
-
   const [capabilities, setCapabilities] = useState(() => {
     const saved = localStorage.getItem("alouette_capabilities");
     return saved
@@ -1579,13 +1802,16 @@ export default function AiAgent({
   const pendingUserBubbleIdRef = useRef<string | null>(null);
   const sendEpochRef = useRef(0);
   const [isCompact, setIsCompact] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(false);
 
-  // Track panel width and toggle compact mode
+  // Track panel width and toggle compact/narrow mode
   useEffect(() => {
     if (!panelRef.current) return;
     const obs = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setIsCompact(entry.contentRect.width < 320);
+        const w = entry.contentRect.width;
+        setIsCompact(w < 260);
+        setIsNarrow(w < 380);
       }
     });
     obs.observe(panelRef.current);
@@ -1658,11 +1884,122 @@ export default function AiAgent({
           );
           if (!isActiveSender.current) return;
           if (watchdogTimer) clearTimeout(watchdogTimer);
+          const payload = event.payload || {};
+          const currentModelId = selectedModelRef.current;
+          if (payload.has_error && payload.error) {
+            markModelRateLimitIfMatched(currentModelId, String(payload.error));
+          } else if (payload.has_error === false) {
+            clearModelRateLimitAlert(currentModelId);
+          }
           // Do NOT set isTyping(false) here, because the agent might still be executing tools!
           // isTyping will be set to false when agent_send_message completely resolves.
         },
       );
     };
+
+    const unlistenUsageUpdatePromise = listen(
+      "agent-usage-update",
+      (event: any) => {
+        const p = event.payload;
+        if (!p) return;
+
+        const inputTokens = Number(p.input_tokens) || 0;
+        const outputTokens = Number(p.output_tokens) || 0;
+        const reasoningTokens = Number(p.reasoning_tokens) || 0;
+        const cacheRead = Number(p.cache_read) || 0;
+        const cacheWrite = Number(p.cache_write) || 0;
+        const cost = Number(p.cost) || 0;
+
+        setLastServerUsage({
+          sessionId: p.session_id,
+          messageId: p.message_id,
+          providerId: p.provider_id,
+          modelId: p.model_id,
+          inputTokens,
+          outputTokens,
+          reasoningTokens,
+          cacheRead,
+          cacheWrite,
+          cost,
+          updatedAt: Date.now(),
+        });
+
+        const rawComposite =
+          p.provider_id && p.model_id
+            ? `${p.provider_id}/${p.model_id}`
+            : p.model_id || "";
+        const matchedOption = availableModelsRef.current.find(
+          (m) =>
+            m.id === selectedModelRef.current ||
+            m.id === rawComposite ||
+            m.id === p.model_id,
+        );
+        const usageModelKey =
+          matchedOption?.id || selectedModelRef.current || rawComposite || "unknown";
+
+        clearModelRateLimitAlert(usageModelKey);
+
+        const msgKey = String(p.message_id || `${usageModelKey}_${Date.now()}`);
+        const prevSeen = seenUsageMessagesRef.current[msgKey];
+        const isFirstEventForMsg = !prevSeen;
+
+        const dInput = Math.max(0, inputTokens - (prevSeen?.inputTokens || 0));
+        const dOutput = Math.max(0, outputTokens - (prevSeen?.outputTokens || 0));
+        const dReasoning = Math.max(
+          0,
+          reasoningTokens - (prevSeen?.reasoningTokens || 0),
+        );
+        const dCacheRead = Math.max(0, cacheRead - (prevSeen?.cacheRead || 0));
+        const dCost = Math.max(0, cost - (prevSeen?.cost || 0));
+
+        seenUsageMessagesRef.current[msgKey] = {
+          inputTokens,
+          outputTokens,
+          reasoningTokens,
+          cacheRead,
+          cost,
+        };
+
+        if (
+          !isFirstEventForMsg &&
+          dInput === 0 &&
+          dOutput === 0 &&
+          dReasoning === 0 &&
+          dCacheRead === 0 &&
+          dCost === 0
+        ) {
+          return;
+        }
+
+        setDailyUsageMap((prev) => {
+          const cur = prev[usageModelKey] || {
+            requests: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            reasoningTokens: 0,
+            cacheRead: 0,
+            cost: 0,
+          };
+          const next = {
+            ...prev,
+            [usageModelKey]: {
+              requests: cur.requests + (isFirstEventForMsg ? 1 : 0),
+              inputTokens: cur.inputTokens + dInput,
+              outputTokens: cur.outputTokens + dOutput,
+              reasoningTokens: cur.reasoningTokens + dReasoning,
+              cacheRead: cur.cacheRead + dCacheRead,
+              cost: cur.cost + dCost,
+            },
+          };
+          try {
+            localStorage.setItem(getTodayUsageStorageKey(), JSON.stringify(next));
+          } catch {
+            // Ignore storage errors
+          }
+          return next;
+        });
+      },
+    );
 
     const unlistenUserMsgIdPromise = listen(
       "agent-user-message-id",
@@ -1686,14 +2023,10 @@ export default function AiAgent({
       Promise.resolve(unlistenThought).then(fn => fn && fn());
       Promise.resolve(unlistenThoughtFinal).then(fn => fn && fn());
       Promise.resolve(unlistenStreamComplete).then(fn => fn && fn());
+      unlistenUsageUpdatePromise.then(fn => fn && fn());
       unlistenUserMsgIdPromise.then(fn => fn && fn());
     };
   }, []);
-
-  // ─── Sync totalSessionTokens ────────────────────────────────────────
-  useEffect(() => {
-    setTotalSessionTokens(tokenBreakdown.total);
-  }, [tokenBreakdown.total]);
 
   useEffect(() => {
     const loadActiveModels = async () => {
@@ -1730,15 +2063,14 @@ export default function AiAgent({
       const savedCustom = localStorage.getItem("alouette_custom_models");
       const customs: any[] = savedCustom ? JSON.parse(savedCustom) : [];
 
-      const list: { id: string; name: string }[] = [];
+      const list: AgentModelOption[] = [];
 
       // Dynamically load models from backend config
       if (config && config.providers) {
-        Object.values(config.providers).forEach((provCfg: any) => {
+        Object.entries(config.providers).forEach(([provKey, provCfg]: [string, any]) => {
           if (provCfg && provCfg.models) {
-            Object.keys(provCfg.models).forEach((modelId) => {
+            Object.entries(provCfg.models).forEach(([modelId, modelCfg]: [string, any]) => {
               if (activeIds.includes(modelId)) {
-                // Generate a name similar to AdminPanel
                 let modelName = modelId
                   .split("-")
                   .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -1746,15 +2078,41 @@ export default function AiAgent({
                 if (modelId.startsWith("gpt-")) {
                   modelName = "GPT-" + modelId.substring(4).toUpperCase();
                 } else if (modelId.startsWith("gemini-")) {
-                  modelName = "Gemini " + modelId.substring(7).split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                  modelName =
+                    "Gemini " +
+                    modelId
+                      .substring(7)
+                      .split("-")
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(" ");
                 } else if (modelId.startsWith("claude-")) {
-                  modelName = "Claude " + modelId.substring(7).split("-").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+                  modelName =
+                    "Claude " +
+                    modelId
+                      .substring(7)
+                      .split("-")
+                      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+                      .join(" ");
                 } else if (modelId.startsWith("deepseek-")) {
                   modelName = "DeepSeek-" + modelId.substring(9).toUpperCase();
                 } else if (modelId.startsWith("qwen-")) {
                   modelName = "Qwen " + modelId.substring(5).toUpperCase();
                 }
-                list.push({ id: modelId, name: modelName });
+                const endpointUrl = modelCfg?.api_url || provCfg?.api_url;
+                const isLocal = isLocalProviderEndpoint(provKey, endpointUrl);
+                const sourceType: ModelSourceType =
+                  provKey === "opencode" ? "free" : isLocal ? "local" : "apikey";
+                const contextLimit =
+                  Number(modelCfg?.context_limit) > 0
+                    ? Number(modelCfg.context_limit)
+                    : inferDefaultContextLimit(modelId);
+                list.push({
+                  id: modelId,
+                  name: modelName,
+                  sourceType,
+                  providerLabel: formatProviderLabel(provKey),
+                  contextLimit,
+                });
               }
             });
           }
@@ -1763,12 +2121,58 @@ export default function AiAgent({
 
       customs.forEach((c) => {
         if (activeIds.includes(c.id)) {
-          list.push({ id: c.id, name: `${c.provider} - ${c.name}` });
+          const isLocal = isLocalProviderEndpoint(c.provider, c.apiUrl);
+          list.push({
+            id: c.id,
+            name: `${c.provider} - ${c.name}`,
+            sourceType: isLocal ? "local" : "apikey",
+            providerLabel: formatProviderLabel(c.provider || "Custom"),
+            contextLimit:
+              Number(c.contextLimit) > 0
+                ? Number(c.contextLimit)
+                : inferDefaultContextLimit(c.name || c.id),
+          });
         }
       });
 
+      list.sort((a, b) => a.id.localeCompare(b.id));
+
+      // Append OpenCode built-in free models (`opencode/*`) so users can use them out of the box
+      try {
+        const ocFree = await invoke<
+          {
+            id: string;
+            name: string;
+            context_limit?: number;
+            output_limit?: number;
+            supports_vision?: boolean;
+            supports_reasoning?: boolean;
+          }[]
+        >("opencode_list_free_models");
+        if (Array.isArray(ocFree)) {
+          for (const fm of ocFree) {
+            if (!list.some((m) => m.id === fm.id)) {
+              list.push({
+                id: fm.id,
+                name: fm.name,
+                sourceType: "free",
+                providerLabel: "OpenCode Free",
+                contextLimit:
+                  Number(fm.context_limit) > 0
+                    ? Number(fm.context_limit)
+                    : inferDefaultContextLimit(fm.id),
+                outputLimit: Number(fm.output_limit) || 0,
+                supportsVision: Boolean(fm.supports_vision),
+                supportsReasoning: Boolean(fm.supports_reasoning),
+              });
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Failed to list OpenCode free models:", e);
+      }
+
       if (list.length > 0) {
-        list.sort((a, b) => a.id.localeCompare(b.id));
         setAvailableModels(list);
         setSelectedModel((prev) => {
           if (list.some((m) => m.id === prev)) return prev;
@@ -1941,6 +2345,13 @@ export default function AiAgent({
         !modeDropdownRef.current.contains(e.target as Node)
       ) {
         setModeDropdownOpen(false);
+      }
+      if (
+        limitContainerRef.current &&
+        !limitContainerRef.current.contains(e.target as Node)
+      ) {
+        setLimitPopoverOpen(false);
+        setShowTokenTooltip(false);
       }
     };
     document.addEventListener("mousedown", handleOutsideClick);
@@ -2384,11 +2795,13 @@ export default function AiAgent({
     } catch (err: any) {
       if (myEpoch !== sendEpochRef.current) return;
       setIsTyping(false);
+      const errText = String(err?.message || err || "");
+      markModelRateLimitIfMatched(selectedModelRef.current, errText);
       const errorMsg: ChatItem = {
         id: Date.now().toString(),
         type: "text",
         sender: "agent",
-        text: `Lỗi kết nối Harness Backend: ${err?.message || err}`,
+        text: `Lỗi kết nối Harness Backend: ${errText}`,
         timestamp: new Date().toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
@@ -3045,14 +3458,19 @@ export default function AiAgent({
         }}
       >
         {/* Left: Brand + Session */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div style={{ display: "flex", flexDirection: "column", gap: "0px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: 0, marginRight: "8px" }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "0px", minWidth: 0, width: "100%" }}>
             <span
+              title={sessionTitle}
               style={{
                 fontSize: "11.5px",
                 fontWeight: 600,
                 color: "var(--text-primary)",
                 lineHeight: 1.2,
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                display: "block",
               }}
             >
               {sessionTitle}
@@ -3952,11 +4370,13 @@ export default function AiAgent({
           borderTopRightRadius: variant === "full" ? "24px" : "0px",
           borderTop: variant === "full" ? "none" : "1px solid var(--border-primary)",
           background: "var(--bg-secondary)",
-          padding: "0 16px 12px",
+          padding: variant === "full" ? "0 16px 12px" : "0 10px 10px",
           display: "flex",
           flexDirection: "column",
           gap: "8px",
           flexShrink: 0,
+          minWidth: 0,
+          boxSizing: "border-box",
           overflow: "visible",
           boxShadow: variant === "full" ? "0 -4px 12px rgba(0,0,0,0.05)" : "none",
         }}
@@ -4587,26 +5007,31 @@ export default function AiAgent({
             />
           </div>
 
-          {/* Bottom Row: Custom Dropdowns (Agent, Model, @) on Left, Blue Send Button on Right */}
+          {/* Bottom Row: Custom Dropdowns (Agent, Model, @) on Left, Blue Send/Stop Button on Right */}
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              gap: isNarrow ? "6px" : "8px",
               marginTop: "2px",
+              width: "100%",
+              minWidth: 0,
             }}
           >
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: "8px",
+                gap: isNarrow ? "4px" : "8px",
                 position: "relative",
+                flex: 1,
+                minWidth: 0,
               }}
             >
               {/* Multi Agent Button */}
               {isMultiAgentPage && (
-                <div style={{ position: "relative" }}>
+                <div style={{ position: "relative", flexShrink: 0 }}>
                   <button
                     type="button"
                     onClick={() => {
@@ -4621,7 +5046,7 @@ export default function AiAgent({
                       display: "flex",
                       alignItems: "center",
                       gap: "4px",
-                      padding: "5px 12px",
+                      padding: isNarrow ? "4px 8px" : "5px 12px",
                       background: isMultiAgentActive
                         ? "rgba(99, 102, 241, 0.15)"
                         : "var(--bg-secondary)",
@@ -4630,20 +5055,21 @@ export default function AiAgent({
                         : "1px solid var(--border-primary)",
                       borderRadius: "20px",
                       color: isMultiAgentActive ? "#a5b4fc" : "var(--text-secondary)",
-                      fontSize: "12px",
+                      fontSize: isNarrow ? "11.5px" : "12px",
                       fontWeight: isMultiAgentActive ? 600 : 400,
                       cursor: "pointer",
+                      whiteSpace: "nowrap",
                       transition: "all 0.2s",
                     }}
                   >
-                    <ChartBarStacked size={12} style={{ opacity: 0.8 }} />
+                    <ChartBarStacked size={12} style={{ opacity: 0.8, flexShrink: 0 }} />
                     <span>{isMultiAgentActive ? "Multi Agent (ON)" : "Multi Agent"}</span>
                   </button>
                 </div>
               )}
 
               {/* Agent Mode Pill Dropdown */}
-              <div ref={modeDropdownRef} style={{ position: "relative" }}>
+              <div ref={modeDropdownRef} style={{ position: "relative", flexShrink: 0 }}>
                 <button
                   type="button"
                   onClick={() => setModeDropdownOpen(!modeDropdownOpen)}
@@ -4651,12 +5077,13 @@ export default function AiAgent({
                     display: "flex",
                     alignItems: "center",
                     gap: "4px",
-                    padding: "5px 12px",
+                    padding: isNarrow ? "4px 8px" : "5px 12px",
                     background: "var(--bg-secondary)",
                     border: "1px solid var(--border-primary)",
                     borderRadius: "20px",
                     color: "var(--text-secondary)",
-                    fontSize: "12px",
+                    fontSize: isNarrow ? "11.5px" : "12px",
+                    whiteSpace: "nowrap",
                     cursor: "pointer",
                     transition: "all 0.2s",
                   }}
@@ -4735,21 +5162,41 @@ export default function AiAgent({
               </div>
 
               {/* Model Dropdown */}
-              <div ref={modelDropdownRef} style={{ position: "relative" }}>
+              {(() => {
+                const activeModelObj = availableModels.find(
+                  (m) => m.id === selectedModel,
+                );
+                const activeBadge = activeModelObj
+                  ? getModelSourceBadge(activeModelObj.sourceType)
+                  : null;
+                return (
+              <div
+                ref={modelDropdownRef}
+                style={{
+                  position: "relative",
+                  flex: "1 1 auto",
+                  minWidth: 0,
+                  maxWidth: isNarrow ? "155px" : "265px",
+                  display: isCompact ? "none" : "flex",
+                }}
+              >
                 <button
                   type="button"
+                  title={`${activeModelObj?.name || selectedModel}${activeBadge ? ` (${activeBadge.label} · Max ${formatCompactTokens(activeModelObj?.contextLimit || 0)} ctx)` : ""}`}
                   onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
                   style={{
-                    display: isCompact ? "none" : "flex",
+                    display: "flex",
                     alignItems: "center",
-                    gap: "4px",
-                    padding: "4px 8px",
+                    gap: "5px",
+                    padding: isNarrow ? "4px 4px" : "4px 8px",
                     background: "transparent",
                     border: "none",
                     color: "var(--text-secondary)",
-                    fontSize: "12px",
+                    fontSize: isNarrow ? "11.5px" : "12px",
                     cursor: "pointer",
                     transition: "color 0.2s",
+                    width: "100%",
+                    minWidth: 0,
                   }}
                   onMouseEnter={(e) =>
                     (e.currentTarget.style.color = "var(--text-primary)")
@@ -4758,11 +5205,18 @@ export default function AiAgent({
                     (e.currentTarget.style.color = "var(--text-secondary)")
                   }
                 >
-                  <span>
-                    {availableModels.find((m) => m.id === selectedModel)
-                      ?.name || selectedModel}
+                  <span
+                    style={{
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                      display: "block",
+                    }}
+                  >
+                    {activeModelObj?.name || selectedModel}
                   </span>
-                  <ChevronDown size={11} style={{ opacity: 0.6 }} />
+                  <ChevronDown size={11} style={{ opacity: 0.6, flexShrink: 0 }} />
                 </button>
 
                 {modelDropdownOpen && (
@@ -4774,43 +5228,119 @@ export default function AiAgent({
                       background: "var(--bg-primary)",
                       border: "1px solid var(--border-primary)",
                       borderRadius: "8px",
-                      boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+                      boxShadow: "0 6px 18px rgba(0,0,0,0.55)",
                       zIndex: 1000,
                       padding: "4px",
-                      minWidth: "160px",
-                      maxHeight: "200px",
+                      minWidth: "268px",
+                      maxWidth: "330px",
+                      maxHeight: "280px",
                       overflowY: "auto",
                     }}
                   >
-                    {availableModels.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedModel(m.id);
-                          setModelDropdownOpen(false);
-                        }}
-                        style={{
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "6px 8px",
-                          background:
-                            selectedModel === m.id
-                              ? "var(--bg-secondary)"
-                              : "transparent",
-                          border: "none",
-                          borderRadius: "4px",
-                          color: "var(--text-primary)",
-                          fontSize: "11px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {m.name}
-                      </button>
-                    ))}
+                    {availableModels.map((m) => {
+                      const badge = getModelSourceBadge(m.sourceType);
+                      const hasRateAlert = Boolean(rateLimitAlerts[m.id]);
+                      return (
+                        <button
+                          key={m.id}
+                          type="button"
+                          title={badge.title}
+                          onClick={() => {
+                            setSelectedModel(m.id);
+                            setModelDropdownOpen(false);
+                          }}
+                          style={{
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "6px 8px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "8px",
+                            background:
+                              selectedModel === m.id
+                                ? "var(--bg-secondary)"
+                                : "transparent",
+                            border: "none",
+                            borderRadius: "5px",
+                            color: "var(--text-primary)",
+                            fontSize: "11px",
+                            cursor: "pointer",
+                          }}
+                        >
+                          <div
+                            style={{
+                              minWidth: 0,
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: "1px",
+                            }}
+                          >
+                            <span
+                              style={{
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                                fontWeight: selectedModel === m.id ? 600 : 500,
+                              }}
+                            >
+                              {m.name}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: "9.5px",
+                                color: "var(--text-muted)",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {m.providerLabel} · {formatCompactTokens(m.contextLimit)} ctx
+                            </span>
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              flexShrink: 0,
+                            }}
+                          >
+                            {hasRateAlert && (
+                              <span
+                                style={{
+                                  fontSize: "8.5px",
+                                  fontWeight: 700,
+                                  padding: "1px 4px",
+                                  borderRadius: "4px",
+                                  background: "rgba(239, 68, 68, 0.16)",
+                                  color: "#f87171",
+                                  border: "1px solid rgba(239, 68, 68, 0.4)",
+                                }}
+                              >
+                                429
+                              </span>
+                            )}
+                            <span
+                              style={{
+                                fontSize: "9.5px",
+                                fontWeight: 500,
+                                color: "var(--text-muted)",
+                                opacity: 0.72,
+                                letterSpacing: "0.02em",
+                              }}
+                            >
+                              {badge.label}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
+                );
+              })()}
 
               {/* Mentions button: @ */}
               <button
@@ -4822,12 +5352,13 @@ export default function AiAgent({
                 style={{
                   background: "none",
                   border: "none",
-                  padding: "4px 8px",
+                  padding: isNarrow ? "4px 4px" : "4px 8px",
                   color: "var(--text-secondary)",
                   fontSize: "13px",
                   cursor: "pointer",
                   fontFamily: "var(--font-sans)",
                   transition: "color 0.2s",
+                  flexShrink: 0,
                 }}
                 onMouseEnter={(e) =>
                   (e.currentTarget.style.color = "var(--text-primary)")
@@ -4860,7 +5391,7 @@ export default function AiAgent({
                 style={{
                   background: "none",
                   border: "none",
-                  padding: "4px 6px",
+                  padding: isNarrow ? "4px 4px" : "4px 6px",
                   color:
                     attachedImages.length > 0
                       ? "#60a5fa"
@@ -4870,6 +5401,7 @@ export default function AiAgent({
                   justifyContent: "center",
                   cursor: "pointer",
                   transition: "color 0.2s",
+                  flexShrink: 0,
                 }}
                 onMouseEnter={(e) =>
                   (e.currentTarget.style.color = "var(--text-primary)")
@@ -4886,475 +5418,686 @@ export default function AiAgent({
               </button>
             </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              {/* Token counter (center) */}
-              <span
-                style={{
-                position: "relative",
-                display: isCompact ? "none" : "inline-flex",
-                alignItems: "center",
-                gap: "5px",
-                cursor: "help",
-                userSelect: "none",
-              }}
-              onMouseEnter={() => setShowTokenTooltip(true)}
-              onMouseLeave={() => setShowTokenTooltip(false)}
-            >
-              <span
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  width: "14px",
-                  height: "14px",
-                  borderRadius: "50%",
-                  background: showTokenTooltip
-                    ? "rgba(167, 139, 250, 0.15)"
-                    : "var(--bg-secondary)",
-                  border: showTokenTooltip
-                    ? "1px solid rgba(167, 139, 250, 0.5)"
-                    : "1px solid var(--border-primary)",
-                  fontSize: "7px",
-                  fontWeight: 700,
-                  color: showTokenTooltip
-                    ? "#a78bfa"
-                    : "var(--text-muted)",
-                  transition: "all 0.2s",
-                  lineHeight: 1,
-                  flexShrink: 0,
-                }}
-              >
-                Σ
-              </span>
-              <span
-                style={{
-                  fontSize: "11px",
-                  color: showTokenTooltip
-                    ? "var(--text-secondary)"
-                    : "var(--text-muted)",
-                  transition: "color 0.2s",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {inputVal.trim()
-                  ? `~${estimatedInputTokens}`
-                  : `~${totalSessionTokens.toLocaleString()}`}
-              </span>
+            <div style={{ display: "flex", alignItems: "center", gap: isNarrow ? "6px" : "10px", flexShrink: 0 }}>
+              {/* Limit & Context counter (click to pin / hover to inspect) */}
+              {(() => {
+                const activeModelObj = availableModels.find(
+                  (m) => m.id === selectedModel,
+                );
+                const sourceBadge = activeModelObj
+                  ? getModelSourceBadge(activeModelObj.sourceType)
+                  : getModelSourceBadge("apikey");
+                const todayUsage = dailyUsageMap[selectedModel] || {
+                  requests: 0,
+                  inputTokens: 0,
+                  outputTokens: 0,
+                  reasoningTokens: 0,
+                  cacheRead: 0,
+                  cost: 0,
+                };
+                const todayTotalTokens =
+                  todayUsage.inputTokens +
+                  todayUsage.outputTokens +
+                  todayUsage.reasoningTokens;
+                const dailyCap = modelDailyCaps[selectedModel] || 0;
+                const capRatio =
+                  dailyCap > 0
+                    ? Math.min(1, todayUsage.requests / dailyCap)
+                    : 0;
+                const remainingDailyRequests =
+                  dailyCap > 0
+                    ? Math.max(0, dailyCap - todayUsage.requests)
+                    : null;
+                const rateAlert = rateLimitAlerts[selectedModel];
+                const isCritical =
+                  Boolean(rateAlert) ||
+                  tokenBreakdown.usagePercent >= 90 ||
+                  (dailyCap > 0 && capRatio >= 0.9);
+                const isWarning =
+                  !isCritical &&
+                  (tokenBreakdown.usagePercent >= 75 ||
+                    (dailyCap > 0 && capRatio >= 0.75));
+                const accentColor = isCritical
+                  ? "#f87171"
+                  : isWarning
+                  ? "#fbbf24"
+                  : "#a78bfa";
+                const isLimitOpen = showTokenTooltip || limitPopoverOpen;
+                const remainingCtxPct = Math.max(
+                  0,
+                  Math.round(100 - tokenBreakdown.usagePercent),
+                );
+                const compactLabel = rateAlert
+                  ? "LIMIT 429"
+                  : isNarrow
+                  ? `${Math.round(tokenBreakdown.usagePercent)}%`
+                  : remainingDailyRequests !== null
+                  ? `Ctx ${remainingCtxPct}% · ${remainingDailyRequests}/${dailyCap}`
+                  : `Limit ${remainingCtxPct}%`;
 
-              {/* Tooltip (pops up above with Pie Chart Breakdown) */}
-              {showTokenTooltip && (
-                <div
+                return (
+              <div
+                ref={limitContainerRef}
+                style={{
+                  position: "relative",
+                  display: isCompact ? "none" : "inline-flex",
+                  alignItems: "center",
+                  userSelect: "none",
+                  whiteSpace: "nowrap",
+                }}
+                onMouseEnter={() => setShowTokenTooltip(true)}
+                onMouseLeave={() => setShowTokenTooltip(false)}
+              >
+                <button
+                  type="button"
+                  onClick={() => setLimitPopoverOpen((prev) => !prev)}
+                  title="Xem chi tiết Limit & Context còn lại (bấm để ghim)"
                   style={{
-                    position: "absolute",
-                    bottom: "calc(100% + 12px)",
-                    left: "50%",
-                    transform: "translateX(-50%)",
-                    background: "rgba(18, 18, 24, 0.96)",
-                    backdropFilter: "blur(16px)",
-                    border: "1px solid rgba(255,255,255,0.15)",
-                    borderRadius: "12px",
-                    padding: "12px 14px",
-                    whiteSpace: "nowrap",
-                    zIndex: 2000,
-                    boxShadow: "0 12px 32px rgba(0,0,0,0.7)",
-                    pointerEvents: "none",
-                    minWidth: "295px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "4px",
+                    background: limitPopoverOpen
+                      ? "rgba(255,255,255,0.06)"
+                      : "transparent",
+                    border: isCritical
+                      ? "1px solid rgba(239, 68, 68, 0.4)"
+                      : isWarning
+                      ? "1px solid rgba(245, 158, 11, 0.35)"
+                      : "1px solid transparent",
+                    borderRadius: "6px",
+                    padding: "2px 5px",
+                    cursor: "pointer",
                   }}
                 >
-                  {/* Top Header */}
-                  <div
+                  <span
                     style={{
-                      display: "flex",
+                      display: "inline-flex",
                       alignItems: "center",
-                      justifyContent: "space-between",
-                      marginBottom: "10px",
-                      paddingBottom: "6px",
-                      borderBottom: "1px solid rgba(255,255,255,0.08)",
+                      justifyContent: "center",
+                      width: "14px",
+                      height: "14px",
+                      borderRadius: "50%",
+                      background:
+                        isCritical
+                          ? "rgba(239, 68, 68, 0.2)"
+                          : isWarning
+                          ? "rgba(245, 158, 11, 0.2)"
+                          : isLimitOpen
+                          ? "rgba(167, 139, 250, 0.18)"
+                          : "var(--bg-secondary)",
+                      border:
+                        isCritical || isWarning || isLimitOpen
+                          ? `1px solid ${accentColor}`
+                          : "1px solid var(--border-primary)",
+                      fontSize: "7.5px",
+                      fontWeight: 700,
+                      color:
+                        isCritical || isWarning || isLimitOpen
+                          ? accentColor
+                          : "var(--text-muted)",
+                      transition: "all 0.2s",
+                      lineHeight: 1,
+                      flexShrink: 0,
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        color: "var(--text-primary)",
-                        letterSpacing: "0.02em",
-                      }}
-                    >
-                      Estimating the context window
-                    </span>
-                    <span
-                      style={{
-                        fontSize: "9px",
-                        fontWeight: 600,
-                        background: "rgba(167, 139, 250, 0.15)",
-                        color: "#a78bfa",
-                        padding: "2px 6px",
-                        borderRadius: "4px",
-                        border: "1px solid rgba(167, 139, 250, 0.3)",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      Max{" "}
-                      {tokenBreakdown.maxContext >= 1000000
-                        ? `${(tokenBreakdown.maxContext / 1000000).toFixed(1)}M`
-                        : `${Math.round(tokenBreakdown.maxContext / 1000)}k`}
-                    </span>
-                  </div>
+                    {isCritical ? "!" : "Σ"}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: "10.5px",
+                      color:
+                        isCritical || isWarning
+                          ? accentColor
+                          : isLimitOpen
+                          ? "var(--text-secondary)"
+                          : "var(--text-muted)",
+                      fontWeight: isCritical || isWarning ? 600 : 400,
+                      transition: "color 0.2s",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    {compactLabel}
+                  </span>
+                </button>
 
-                  {/* Body: Left Donut SVG Chart + Right Legend */}
+                {/* Popover (pops up above with Context + Daily Quota Limit Monitor) */}
+                {isLimitOpen && (
                   <div
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: "14px",
+                      position: "absolute",
+                      bottom: "calc(100% + 10px)",
+                      right: 0,
+                      background: "rgba(18, 18, 24, 0.97)",
+                      backdropFilter: "blur(16px)",
+                      border: isCritical
+                        ? "1px solid rgba(239, 68, 68, 0.45)"
+                        : isWarning
+                        ? "1px solid rgba(245, 158, 11, 0.4)"
+                        : "1px solid rgba(255,255,255,0.15)",
+                      borderRadius: "12px",
+                      padding: "12px 14px",
+                      zIndex: 2000,
+                      boxShadow: "0 12px 32px rgba(0,0,0,0.75)",
+                      pointerEvents: "auto",
+                      width: "320px",
+                      maxWidth: "calc(100vw - 24px)",
+                      whiteSpace: "normal",
                     }}
                   >
-                    {/* SVG Donut Chart */}
+                    {/* Invisible hover bridge so moving mouse into popover keeps hover active */}
                     <div
                       style={{
-                        position: "relative",
-                        width: "74px",
-                        height: "74px",
-                        flexShrink: 0,
+                        position: "absolute",
+                        left: 0,
+                        right: 0,
+                        bottom: "-12px",
+                        height: "12px",
                       }}
-                    >
-                      {(() => {
-                        const radius = 30;
-                        const circumference = 2 * Math.PI * radius; // ~188.495
-                        const {
-                          systemTokens,
-                          chatTokens,
-                          toolTokens,
-                          inputTokens,
-                          maxContext,
-                          usagePercent,
-                        } = tokenBreakdown;
+                    />
 
-                        const sysFrac = (systemTokens / maxContext) * circumference;
-                        const chatFrac = (chatTokens / maxContext) * circumference;
-                        const toolFrac = (toolTokens / maxContext) * circumference;
-                        const inputFrac = (inputTokens / maxContext) * circumference;
-
-                        let currentOffset = 0;
-                        const sysOff = currentOffset;
-                        currentOffset += sysFrac;
-
-                        const chatOff = currentOffset;
-                        currentOffset += chatFrac;
-
-                        const toolOff = currentOffset;
-                        currentOffset += toolFrac;
-
-                        const inputOff = currentOffset;
-
-                        return (
-                          <>
-                            <svg width="74" height="74" viewBox="0 0 80 80">
-                              {/* Background track (Max Capacity) */}
-                              <circle
-                                cx="40"
-                                cy="40"
-                                r={radius}
-                                fill="transparent"
-                                stroke="rgba(255, 255, 255, 0.08)"
-                                strokeWidth="8"
-                              />
-                              {/* System & Tools */}
-                              {sysFrac > 0 && (
-                                <circle
-                                  cx="40"
-                                  cy="40"
-                                  r={radius}
-                                  fill="transparent"
-                                  stroke="#a78bfa"
-                                  strokeWidth="8"
-                                  strokeDasharray={`${sysFrac} ${circumference - sysFrac}`}
-                                  strokeDashoffset={-sysOff}
-                                  transform="rotate(-90 40 40)"
-                                  strokeLinecap="round"
-                                />
-                              )}
-                              {/* Chat History */}
-                              {chatFrac > 0 && (
-                                <circle
-                                  cx="40"
-                                  cy="40"
-                                  r={radius}
-                                  fill="transparent"
-                                  stroke="#38bdf8"
-                                  strokeWidth="8"
-                                  strokeDasharray={`${chatFrac} ${circumference - chatFrac}`}
-                                  strokeDashoffset={-chatOff}
-                                  transform="rotate(-90 40 40)"
-                                  strokeLinecap="round"
-                                />
-                              )}
-                              {/* Tool Results */}
-                              {toolFrac > 0 && (
-                                <circle
-                                  cx="40"
-                                  cy="40"
-                                  r={radius}
-                                  fill="transparent"
-                                  stroke="#34d399"
-                                  strokeWidth="8"
-                                  strokeDasharray={`${toolFrac} ${circumference - toolFrac}`}
-                                  strokeDashoffset={-toolOff}
-                                  transform="rotate(-90 40 40)"
-                                  strokeLinecap="round"
-                                />
-                              )}
-                              {/* Current Input */}
-                              {inputFrac > 0 && (
-                                <circle
-                                  cx="40"
-                                  cy="40"
-                                  r={radius}
-                                  fill="transparent"
-                                  stroke="#fbbf24"
-                                  strokeWidth="8"
-                                  strokeDasharray={`${inputFrac} ${circumference - inputFrac}`}
-                                  strokeDashoffset={-inputOff}
-                                  transform="rotate(-90 40 40)"
-                                  strokeLinecap="round"
-                                />
-                              )}
-                            </svg>
-                            <div
-                              style={{
-                                position: "absolute",
-                                top: 0,
-                                left: 0,
-                                width: "100%",
-                                height: "100%",
-                                display: "flex",
-                                flexDirection: "column",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                pointerEvents: "none",
-                              }}
-                            >
-                              <span
-                                style={{
-                                  fontSize: "11px",
-                                  fontWeight: 700,
-                                  color: "#ffffff",
-                                  lineHeight: 1,
-                                  fontFamily: "var(--font-mono)",
-                                }}
-                              >
-                                {usagePercent < 0.1 ? "<0.1%" : `${usagePercent}%`}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: "7px",
-                                  color: "var(--text-muted)",
-                                  marginTop: "2px",
-                                }}
-                              >
-                                context
-                              </span>
-                            </div>
-                          </>
-                        );
-                      })()}
-                    </div>
-
-                    {/* Breakdown List */}
+                    {/* Top Header */}
                     <div
                       style={{
                         display: "flex",
-                        flexDirection: "column",
-                        gap: "4px",
-                        flexGrow: 1,
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "8px",
+                        marginBottom: "10px",
+                        paddingBottom: "6px",
+                        borderBottom: "1px solid rgba(255,255,255,0.08)",
                       }}
                     >
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <span
+                          style={{
+                            fontSize: "11px",
+                            fontWeight: 700,
+                            color: "var(--text-primary)",
+                            letterSpacing: "0.02em",
+                          }}
+                        >
+                          Limit & Context
+                        </span>
+                        <span
+                          style={{
+                            fontSize: "9.5px",
+                            fontWeight: 500,
+                            color: "var(--text-muted)",
+                            opacity: 0.75,
+                          }}
+                        >
+                          · {sourceBadge.label}
+                        </span>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          fontWeight: 600,
+                          background: "rgba(167, 139, 250, 0.15)",
+                          color: "#a78bfa",
+                          padding: "2px 6px",
+                          borderRadius: "4px",
+                          border: "1px solid rgba(167, 139, 250, 0.3)",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        Max {formatCompactTokens(tokenBreakdown.maxContext)}
+                      </span>
+                    </div>
+
+                    {/* 429 / Quota Error Banner */}
+                    {rateAlert && (
+                      <div
+                        style={{
+                          marginBottom: "10px",
+                          padding: "7px 9px",
+                          borderRadius: "8px",
+                          background: "rgba(239, 68, 68, 0.14)",
+                          border: "1px solid rgba(239, 68, 68, 0.4)",
+                          display: "flex",
+                          flexDirection: "column",
+                          gap: "4px",
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            fontSize: "10px",
+                            fontWeight: 700,
+                            color: "#f87171",
+                          }}
+                        >
+                          <span>Đã chạm giới hạn (Rate Limit / 429)</span>
+                          <button
+                            type="button"
+                            onClick={() => clearModelRateLimitAlert(selectedModel)}
+                            style={{
+                              background: "transparent",
+                              border: "none",
+                              color: "#fca5a5",
+                              fontSize: "9.5px",
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                              padding: 0,
+                            }}
+                          >
+                            Bỏ báo
+                          </button>
+                        </div>
+                        <div
+                          style={{
+                            fontSize: "9.5px",
+                            color: "#fecaca",
+                            lineHeight: 1.35,
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {rateAlert.message}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Body: Left Donut SVG Chart + Right Legend */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "12px",
+                      }}
+                    >
+                      {/* SVG Donut Chart */}
+                      <div
+                        style={{
+                          position: "relative",
+                          width: "74px",
+                          height: "74px",
+                          flexShrink: 0,
+                        }}
+                      >
+                        {(() => {
+                          const radius = 30;
+                          const circumference = 2 * Math.PI * radius;
+                          const {
+                            systemTokens,
+                            chatTokens,
+                            toolTokens,
+                            inputTokens,
+                            maxContext,
+                            usagePercent,
+                          } = tokenBreakdown;
+
+                          const sysFrac = (systemTokens / maxContext) * circumference;
+                          const chatFrac = (chatTokens / maxContext) * circumference;
+                          const toolFrac = (toolTokens / maxContext) * circumference;
+                          const inputFrac = (inputTokens / maxContext) * circumference;
+
+                          let currentOffset = 0;
+                          const sysOff = currentOffset;
+                          currentOffset += sysFrac;
+                          const chatOff = currentOffset;
+                          currentOffset += chatFrac;
+                          const toolOff = currentOffset;
+                          currentOffset += toolFrac;
+                          const inputOff = currentOffset;
+
+                          return (
+                            <>
+                              <svg width="74" height="74" viewBox="0 0 80 80">
+                                <circle
+                                  cx="40"
+                                  cy="40"
+                                  r={radius}
+                                  fill="transparent"
+                                  stroke="rgba(255, 255, 255, 0.08)"
+                                  strokeWidth="8"
+                                />
+                                {sysFrac > 0 && (
+                                  <circle
+                                    cx="40"
+                                    cy="40"
+                                    r={radius}
+                                    fill="transparent"
+                                    stroke="#a78bfa"
+                                    strokeWidth="8"
+                                    strokeDasharray={`${sysFrac} ${circumference - sysFrac}`}
+                                    strokeDashoffset={-sysOff}
+                                    transform="rotate(-90 40 40)"
+                                    strokeLinecap="round"
+                                  />
+                                )}
+                                {chatFrac > 0 && (
+                                  <circle
+                                    cx="40"
+                                    cy="40"
+                                    r={radius}
+                                    fill="transparent"
+                                    stroke="#38bdf8"
+                                    strokeWidth="8"
+                                    strokeDasharray={`${chatFrac} ${circumference - chatFrac}`}
+                                    strokeDashoffset={-chatOff}
+                                    transform="rotate(-90 40 40)"
+                                    strokeLinecap="round"
+                                  />
+                                )}
+                                {toolFrac > 0 && (
+                                  <circle
+                                    cx="40"
+                                    cy="40"
+                                    r={radius}
+                                    fill="transparent"
+                                    stroke="#34d399"
+                                    strokeWidth="8"
+                                    strokeDasharray={`${toolFrac} ${circumference - toolFrac}`}
+                                    strokeDashoffset={-toolOff}
+                                    transform="rotate(-90 40 40)"
+                                    strokeLinecap="round"
+                                  />
+                                )}
+                                {inputFrac > 0 && (
+                                  <circle
+                                    cx="40"
+                                    cy="40"
+                                    r={radius}
+                                    fill="transparent"
+                                    stroke="#fbbf24"
+                                    strokeWidth="8"
+                                    strokeDasharray={`${inputFrac} ${circumference - inputFrac}`}
+                                    strokeDashoffset={-inputOff}
+                                    transform="rotate(-90 40 40)"
+                                    strokeLinecap="round"
+                                  />
+                                )}
+                              </svg>
+                              <div
+                                style={{
+                                  position: "absolute",
+                                  top: 0,
+                                  left: 0,
+                                  width: "100%",
+                                  height: "100%",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  pointerEvents: "none",
+                                }}
+                              >
+                                <span
+                                  style={{
+                                    fontSize: "11px",
+                                    fontWeight: 700,
+                                    color:
+                                      usagePercent >= 90
+                                        ? "#f87171"
+                                        : usagePercent >= 75
+                                        ? "#fbbf24"
+                                        : "#ffffff",
+                                    lineHeight: 1,
+                                    fontFamily: "var(--font-mono)",
+                                  }}
+                                >
+                                  {usagePercent < 0.1 ? "<0.1%" : `${usagePercent}%`}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: "7px",
+                                    color: "var(--text-muted)",
+                                    marginTop: "2px",
+                                  }}
+                                >
+                                  đã dùng
+                                </span>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+
+                      {/* Breakdown List */}
                       <div
                         style={{
                           display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          fontSize: "10px",
+                          flexDirection: "column",
+                          gap: "4px",
+                          flexGrow: 1,
                         }}
                       >
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", fontSize: "10px" }}>
+                          <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "5px" }}>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#a78bfa", display: "inline-block" }} />
+                            System & Tools
+                          </span>
+                          <span style={{ color: "#a78bfa", fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+                            ~{tokenBreakdown.systemTokens.toLocaleString()}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", fontSize: "10px" }}>
+                          <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "5px" }}>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#38bdf8", display: "inline-block" }} />
+                            Hội thoại (Chat)
+                          </span>
+                          <span style={{ color: "#38bdf8", fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+                            ~{tokenBreakdown.chatTokens.toLocaleString()}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", fontSize: "10px" }}>
+                          <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "5px" }}>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#34d399", display: "inline-block" }} />
+                            Kết quả Tool
+                          </span>
+                          <span style={{ color: "#34d399", fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+                            ~{tokenBreakdown.toolTokens.toLocaleString()}
+                          </span>
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: "10px", fontSize: "10px" }}>
+                          <span style={{ color: "var(--text-secondary)", display: "flex", alignItems: "center", gap: "5px" }}>
+                            <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#fbbf24", display: "inline-block" }} />
+                            Tin nhắn nhập
+                          </span>
+                          <span style={{ color: "#fbbf24", fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+                            ~{tokenBreakdown.inputTokens.toLocaleString()}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Context Remaining Row & Progress */}
+                    <div
+                      style={{
+                        marginTop: "10px",
+                        paddingTop: "8px",
+                        borderTop: "1px solid rgba(255,255,255,0.08)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "5px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: "10px" }}>
+                        <span style={{ color: "var(--text-muted)" }}>Context còn lại:</span>
                         <span
                           style={{
-                            color: "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "5px",
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: "6px",
-                              height: "6px",
-                              borderRadius: "50%",
-                              background: "#a78bfa",
-                              display: "inline-block",
-                            }}
-                          />
-                          System & Tools
-                        </span>
-                        <span
-                          style={{
-                            color: "#a78bfa",
-                            fontWeight: 600,
+                            color:
+                              tokenBreakdown.usagePercent >= 90
+                                ? "#f87171"
+                                : tokenBreakdown.usagePercent >= 75
+                                ? "#fbbf24"
+                                : "#34d399",
+                            fontWeight: 700,
                             fontFamily: "var(--font-mono)",
                           }}
                         >
-                          ~{tokenBreakdown.systemTokens.toLocaleString()}
+                          ~{tokenBreakdown.remainingContext.toLocaleString()} ({tokenBreakdown.remainingPercent}%)
                         </span>
                       </div>
+                      <div
+                        style={{
+                          height: "4px",
+                          borderRadius: "999px",
+                          background: "rgba(255,255,255,0.08)",
+                          overflow: "hidden",
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: `${tokenBreakdown.usagePercent}%`,
+                            height: "100%",
+                            background:
+                              tokenBreakdown.usagePercent >= 90
+                                ? "#ef4444"
+                                : tokenBreakdown.usagePercent >= 75
+                                ? "#f59e0b"
+                                : "#34d399",
+                            transition: "width 0.2s",
+                          }}
+                        />
+                      </div>
+                      {tokenBreakdown.usagePercent >= 75 && (
+                        <div style={{ fontSize: "9.5px", color: tokenBreakdown.usagePercent >= 90 ? "#f87171" : "#fbbf24" }}>
+                          {tokenBreakdown.usagePercent >= 90
+                            ? "Context gần đầy! Nên mở New Chat để tránh mất ngữ cảnh."
+                            : "Context đã qua 75%, cân nhắc tạo New Chat sớm."}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Daily Usage & Rate Limit Tracking */}
+                    <div
+                      style={{
+                        marginTop: "10px",
+                        paddingTop: "8px",
+                        borderTop: "1px solid rgba(255,255,255,0.08)",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "5px",
+                        fontSize: "10px",
+                      }}
+                    >
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ color: "var(--text-secondary)", fontWeight: 600 }}>
+                          Thống kê hôm nay ({activeModelObj?.name || selectedModel})
+                        </span>
+                        {lastServerUsage && lastServerUsage.cost > 0 && (
+                          <span style={{ color: "#fbbf24", fontFamily: "var(--font-mono)", fontSize: "9.5px" }}>
+                            ${todayUsage.cost.toFixed(4)}
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)" }}>
+                        <span>Số lượt đã gọi:</span>
+                        <span style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)", fontWeight: 600 }}>
+                          {todayUsage.requests} req
+                          {dailyCap > 0 && (
+                            <span style={{ color: remainingDailyRequests === 0 ? "#f87171" : "#34d399" }}>
+                              {" "}· còn {remainingDailyRequests}/{dailyCap}
+                            </span>
+                          )}
+                        </span>
+                      </div>
+
+                      <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)" }}>
+                        <span>Tokens thực tế hôm nay:</span>
+                        <span style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+                          {todayTotalTokens.toLocaleString()} (in {formatCompactTokens(todayUsage.inputTokens)} / out {formatCompactTokens(todayUsage.outputTokens)})
+                        </span>
+                      </div>
+
+                      {lastServerUsage && (
+                        <div style={{ display: "flex", justifyContent: "space-between", color: "var(--text-muted)" }}>
+                          <span>Turn gần nhất (server):</span>
+                          <span style={{ color: "#a78bfa", fontFamily: "var(--font-mono)" }}>
+                            in {lastServerUsage.inputTokens.toLocaleString()} · out {lastServerUsage.outputTokens.toLocaleString()}
+                            {lastServerUsage.cacheRead > 0 ? ` · cache ${formatCompactTokens(lastServerUsage.cacheRead)}` : ""}
+                          </span>
+                        </div>
+                      )}
+
+                      {dailyCap > 0 && (
+                        <div
+                          style={{
+                            height: "4px",
+                            borderRadius: "999px",
+                            background: "rgba(255,255,255,0.08)",
+                            overflow: "hidden",
+                            marginTop: "1px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: `${Math.round(capRatio * 100)}%`,
+                              height: "100%",
+                              background:
+                                capRatio >= 0.9
+                                  ? "#ef4444"
+                                  : capRatio >= 0.75
+                                  ? "#f59e0b"
+                                  : "#38bdf8",
+                            }}
+                          />
+                        </div>
+                      )}
 
                       <div
                         style={{
                           display: "flex",
                           justifyContent: "space-between",
-                          gap: "12px",
-                          fontSize: "10px",
+                          alignItems: "center",
+                          gap: "8px",
+                          marginTop: "2px",
                         }}
                       >
-                        <span
-                          style={{
-                            color: "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "5px",
-                          }}
+                        <label
+                          htmlFor="alouette-daily-limit-input"
+                          style={{ color: "var(--text-muted)", fontSize: "9.5px" }}
                         >
-                          <span
-                            style={{
-                              width: "6px",
-                              height: "6px",
-                              borderRadius: "50%",
-                              background: "#38bdf8",
-                              display: "inline-block",
-                            }}
-                          />
-                          Hội thoại (Chat)
-                        </span>
-                        <span
+                          Cảnh báo hạn mức ngày (req):
+                        </label>
+                        <input
+                          id="alouette-daily-limit-input"
+                          type="number"
+                          min={0}
+                          placeholder="Auto"
+                          value={dailyCap || ""}
+                          onChange={(e) =>
+                            updateModelDailyCap(
+                              selectedModel,
+                              Number(e.target.value || 0),
+                            )
+                          }
                           style={{
-                            color: "#38bdf8",
-                            fontWeight: 600,
+                            width: "66px",
+                            padding: "2px 6px",
+                            borderRadius: "5px",
+                            border: "1px solid rgba(255,255,255,0.16)",
+                            background: "rgba(255,255,255,0.06)",
+                            color: "var(--text-primary)",
+                            fontSize: "10px",
                             fontFamily: "var(--font-mono)",
+                            textAlign: "right",
                           }}
-                        >
-                          ~{tokenBreakdown.chatTokens.toLocaleString()}
-                        </span>
+                        />
                       </div>
 
                       <div
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          fontSize: "10px",
+                          fontSize: "9px",
+                          color: "var(--text-muted)",
+                          lineHeight: 1.35,
+                          marginTop: "2px",
                         }}
                       >
-                        <span
-                          style={{
-                            color: "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "5px",
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: "6px",
-                              height: "6px",
-                              borderRadius: "50%",
-                              background: "#34d399",
-                              display: "inline-block",
-                            }}
-                          />
-                          Kết quả Tool
-                        </span>
-                        <span
-                          style={{
-                            color: "#34d399",
-                            fontWeight: 600,
-                            fontFamily: "var(--font-mono)",
-                          }}
-                        >
-                          ~{tokenBreakdown.toolTokens.toLocaleString()}
-                        </span>
-                      </div>
-
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: "12px",
-                          fontSize: "10px",
-                        }}
-                      >
-                        <span
-                          style={{
-                            color: "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "5px",
-                          }}
-                        >
-                          <span
-                            style={{
-                              width: "6px",
-                              height: "6px",
-                              borderRadius: "50%",
-                              background: "#fbbf24",
-                              display: "inline-block",
-                            }}
-                          />
-                          Tin nhắn nhập
-                        </span>
-                        <span
-                          style={{
-                            color: "#fbbf24",
-                            fontWeight: 600,
-                            fontFamily: "var(--font-mono)",
-                          }}
-                        >
-                          ~{tokenBreakdown.inputTokens.toLocaleString()}
-                        </span>
+                        {activeModelObj?.sourceType === "free"
+                          ? "OpenCode Free không trả quota server còn lại trước; app theo dõi context, token thực tế & cảnh báo ngay khi gặp 429."
+                          : "Theo dõi context còn lại, lượng token server trả về & tự cảnh báo khi provider trả lỗi 429 / hết quota."}
                       </div>
                     </div>
                   </div>
-
-                  {/* Summary Footer */}
-                  <div
-                    style={{
-                      marginTop: "10px",
-                      paddingTop: "6px",
-                      borderTop: "1px solid rgba(255,255,255,0.06)",
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      fontSize: "9.5px",
-                    }}
-                  >
-                    <span style={{ color: "var(--text-muted)" }}>
-                      Tổng payload context:
-                    </span>
-                    <span
-                      style={{
-                        color: "#ffffff",
-                        fontWeight: 700,
-                        fontFamily: "var(--font-mono)",
-                      }}
-                    >
-                      ~{tokenBreakdown.total.toLocaleString()} /{" "}
-                      {tokenBreakdown.maxContext >= 1000000
-                        ? `${(tokenBreakdown.maxContext / 1000000).toFixed(1)}M`
-                        : `${Math.round(tokenBreakdown.maxContext / 1000)}k`}{" "}
-                      tokens
-                    </span>
-                  </div>
-                </div>
-              )}
-            </span>
+                )}
+              </div>
+                );
+              })()}
 
             {/* Blue Send / Cancel Button */}
             {isTyping ? (
