@@ -118,6 +118,155 @@ impl OpenCodeManager {
         }
     }
 
+    pub(crate) fn http_client(&self) -> &reqwest::Client {
+        &self.http
+    }
+
+    pub(crate) async fn ensure_ready(
+        &self,
+        ai_cfg: &CustomAiConfig,
+        window: Option<&WebviewWindow>,
+    ) -> Result<(String, String), String> {
+        self.ensure_server(ai_cfg, window).await
+    }
+
+    pub(crate) fn resolve_model_for_swarm(
+        &self,
+        ai_cfg: &CustomAiConfig,
+        model_hint: &str,
+    ) -> ResolvedOpenCodeModel {
+        resolve_opencode_model(ai_cfg, model_hint)
+    }
+
+    pub(crate) fn is_local_model_url(url: &str) -> bool {
+        is_local_url(url)
+    }
+
+    pub(crate) fn encode_dir(directory: &str) -> String {
+        urlencoding_encode(directory)
+    }
+
+    pub(crate) async fn create_isolated_session(
+        &self,
+        base_url: &str,
+        auth: &str,
+        directory: &str,
+    ) -> Result<String, String> {
+        let create_url = format!("{}/session?directory={}", base_url, urlencoding_encode(directory));
+        let resp = self
+            .http
+            .post(&create_url)
+            .header("Authorization", auth)
+            .json(&json!({}))
+            .send()
+            .await
+            .map_err(|e| format!("Tạo session OpenCode thất bại: {}", e))?;
+
+        if !resp.status().is_success() {
+            let txt = resp.text().await.unwrap_or_default();
+            return Err(format!("Lỗi tạo session OpenCode: {}", txt));
+        }
+
+        let val: Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("Parse session OpenCode thất bại: {}", e))?;
+        val["id"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| "OpenCode không trả về session id".to_string())
+    }
+
+    pub(crate) async fn send_prompt_async_raw(
+        &self,
+        base_url: &str,
+        auth: &str,
+        directory: &str,
+        session_id: &str,
+        model: &ResolvedOpenCodeModel,
+        opencode_agent: &str,
+        system_prompt: Option<&str>,
+        user_text: &str,
+    ) -> Result<(), String> {
+        let prompt_url = format!(
+            "{}/session/{}/prompt_async?directory={}",
+            base_url,
+            session_id,
+            urlencoding_encode(directory)
+        );
+        let mut body = json!({
+            "model": {
+                "providerID": model.provider_id,
+                "modelID": model.model_id,
+            },
+            "agent": opencode_agent,
+            "parts": [{ "type": "text", "text": user_text }]
+        });
+        if let Some(sys) = system_prompt {
+            if !sys.trim().is_empty() {
+                body["system"] = json!(sys);
+            }
+        }
+        let resp = self
+            .http
+            .post(&prompt_url)
+            .header("Authorization", auth)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| format!("Gửi prompt_async tới OpenCode thất bại: {}", e))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_body = resp.text().await.unwrap_or_default();
+            return Err(format!("OpenCode prompt_async error ({}): {}", status, err_body));
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn abort_isolated_session(
+        &self,
+        base_url: &str,
+        auth: &str,
+        directory: &str,
+        session_id: &str,
+    ) {
+        let abort_url = format!(
+            "{}/session/{}/abort?directory={}",
+            base_url,
+            session_id,
+            urlencoding_encode(directory)
+        );
+        let _ = self
+            .http
+            .post(&abort_url)
+            .header("Authorization", auth)
+            .send()
+            .await;
+    }
+
+    pub(crate) async fn reply_permission(
+        &self,
+        base_url: &str,
+        auth: &str,
+        directory: &str,
+        req_id: &str,
+        reply: &str,
+    ) {
+        let reply_url = format!(
+            "{}/permission/{}/reply?directory={}",
+            base_url,
+            req_id,
+            urlencoding_encode(directory)
+        );
+        let _ = self
+            .http
+            .post(&reply_url)
+            .header("Authorization", auth)
+            .json(&json!({ "reply": reply }))
+            .send()
+            .await;
+    }
+
     /// Invalidate running OpenCode instance so next call reloads updated AI config/keys.
     pub async fn invalidate_config(&self) {
         let mut guard = self.process.lock().await;
@@ -1436,6 +1585,18 @@ fn build_opencode_config_and_env(
                     "edit": "ask",
                     "bash": "ask",
                     "external_directory": "ask",
+                    "question": "deny"
+                }
+            },
+            "alouette_readonly": {
+                "mode": "primary",
+                "description": "Alouette Read-Only Research & Supervisor Agent (edits & bash denied)",
+                "permission": {
+                    "*": "allow",
+                    "edit": "deny",
+                    "bash": "deny",
+                    "external_directory": "deny",
+                    "webfetch": "ask",
                     "question": "deny"
                 }
             }

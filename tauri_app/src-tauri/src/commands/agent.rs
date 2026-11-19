@@ -62,6 +62,19 @@ pub struct AgentResponse {
 #[tauri::command]
 pub async fn agent_cancel(app_state: State<'_, AppState>) -> Result<String, String> {
     app_state.agent_cancel_flag.store(true, Ordering::SeqCst);
+    let pending_keys: Vec<String> = app_state
+        .super_agent_approvals
+        .iter()
+        .map(|entry| entry.key().clone())
+        .collect();
+    for k in pending_keys {
+        if let Some((_, tx)) = app_state.super_agent_approvals.remove(&k) {
+            let _ = tx.send(crate::state::SuperApprovalDecision {
+                approved: false,
+                approve_all_session: false,
+            });
+        }
+    }
     app_state.opencode_manager.cancel_active_turn().await;
     Ok("✓ Đã gửi tín hiệu ngắt. Agent sẽ dừng ngay lập tức.".to_string())
 }
@@ -249,6 +262,7 @@ pub async fn agent_send_message(
     active_cwd: Option<String>,
     thinking_mode: Option<String>,
     referenced_sessions: Option<Vec<String>>,
+    super_config: Option<super::super_multi_agent::SuperMultiAgentConfig>,
     window: WebviewWindow,
     app_state: State<'_, AppState>,
 ) -> Result<AgentResponse, String> {
@@ -265,6 +279,29 @@ pub async fn agent_send_message(
     } else {
         None
     };
+
+    if mode == "super_multi_agent" {
+        let session_id = format!("super_{}", Local::now().timestamp());
+        let enriched_msg = if let Some(ref ctx) = referenced_ctx {
+            format!("{}\n\n{}", ctx, message)
+        } else {
+            message
+        };
+        return super::super_multi_agent::run_super_multi_agent_workflow(
+            enriched_msg,
+            model,
+            active_cwd,
+            thinking_mode,
+            super_config,
+            app_state.opencode_manager.clone(),
+            app_state.code_rag.clone(),
+            app_state.agent_cancel_flag.clone(),
+            app_state.super_agent_approvals.clone(),
+            window,
+            session_id,
+        )
+        .await;
+    }
 
     if mode == "multi_agent" {
         let session_id = format!("sess_{}", Local::now().timestamp());

@@ -99,6 +99,7 @@ fn main() {
             vm_manager,
             opencode_manager,
             code_rag: code_rag_state.clone(),
+            super_agent_approvals: Arc::new(DashMap::new()),
         })
         .manage(code_rag_state)
         .setup(move |app| {
@@ -287,6 +288,7 @@ fn main() {
             commands::language::install_proto_tool,
             commands::agent::agent_send_message,
             commands::agent::agent_approve_tool,
+            commands::super_multi_agent::super_agent_respond_approval,
             commands::agent::agent_reset_session,
             commands::agent::get_custom_ai_config,
             commands::agent::save_custom_ai_config,

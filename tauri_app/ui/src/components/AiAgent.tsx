@@ -54,6 +54,11 @@ import {
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import {
+  SuperSwarmBoard,
+  SuperSwarmSnapshot,
+  SuperAgentApprovalRequest,
+} from "./SuperSwarmBoard";
 
 interface ToolItem {
   name: string;
@@ -83,7 +88,8 @@ interface ChatItem {
     | "tool_batch_request"
     | "agent_activity"
     | "alouette_error"
-    | "skill_call";
+    | "skill_call"
+    | "super_swarm";
   sender: "user" | "agent";
   text?: string;
   images?: ImageAttachment[];
@@ -105,6 +111,7 @@ interface ChatItem {
   agentRole?: string;
   agentName?: string;
   avatar?: string;
+  superSessionId?: string;
 }
 
 interface AiAgentProps {
@@ -1001,6 +1008,20 @@ const readDailyUsageMap = (): Record<string, DailyModelUsage> => {
   }
 };
 
+const SELECTED_MODEL_STORAGE_KEY = "alouette_selected_model";
+const CACHED_MODELS_STORAGE_KEY = "alouette_cached_models_v1";
+
+const readCachedModels = (): AgentModelOption[] => {
+  try {
+    const raw = localStorage.getItem(CACHED_MODELS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
 const readModelDailyCaps = (): Record<string, number> => {
   try {
     const raw = localStorage.getItem("alouette_model_daily_caps");
@@ -1128,15 +1149,35 @@ export default function AiAgent({
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [selectedModel, setSelectedModel] = useState("gemini-3.5-flash");
+  const [selectedModel, setSelectedModel] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem(SELECTED_MODEL_STORAGE_KEY);
+      if (saved) return saved;
+      const cached = readCachedModels();
+      if (cached.length > 0) return cached[0].id;
+    } catch {
+      // Ignore storage errors
+    }
+    return "";
+  });
   const [selectedMode, setSelectedMode] = useState("interactive");
   const [opencodeStatus, setOpencodeStatus] = useState<{
     installed: boolean;
     running: boolean;
     version?: string | null;
   } | null>(null);
-  const [isMultiAgentActive, setIsMultiAgentActive] = useState<boolean>(false);
+  const [multiAgentTier, setMultiAgentTier] = useState<"off" | "standard" | "super">("off");
+  const isMultiAgentActive = multiAgentTier !== "off";
+  const [multiAgentMenuOpen, setMultiAgentMenuOpen] = useState<boolean>(false);
+  const [pendingTierSelection, setPendingTierSelection] = useState<"standard" | "super">("super");
   const [showTokenWarningModal, setShowTokenWarningModal] = useState<boolean>(false);
+  const [superUseSharedModel, setSuperUseSharedModel] = useState<boolean>(true);
+  const [superCommanderModel, setSuperCommanderModel] = useState<string>("");
+  const [superWorkerModel, setSuperWorkerModel] = useState<string>("");
+  const [superMaxAgents, setSuperMaxAgents] = useState<number>(30);
+  const [superMaxConcurrency, setSuperMaxConcurrency] = useState<number>(6);
+  const [superSwarmSnapshots, setSuperSwarmSnapshots] = useState<Record<string, SuperSwarmSnapshot>>({});
+  const [superPendingApprovals, setSuperPendingApprovals] = useState<SuperAgentApprovalRequest[]>([]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [modeDropdownOpen, setModeDropdownOpen] = useState(false);
@@ -1145,7 +1186,9 @@ export default function AiAgent({
   const [thinkingMode, setThinkingMode] = useState<"high" | "low">("low");
   const [showTokenTooltip, setShowTokenTooltip] = useState(false);
   const [limitPopoverOpen, setLimitPopoverOpen] = useState(false);
-  const [availableModels, setAvailableModels] = useState<AgentModelOption[]>([]);
+  const [availableModels, setAvailableModels] = useState<AgentModelOption[]>(() =>
+    readCachedModels(),
+  );
   const [dailyUsageMap, setDailyUsageMap] = useState<Record<string, DailyModelUsage>>(
     () => readDailyUsageMap(),
   );
@@ -1159,7 +1202,7 @@ export default function AiAgent({
     Record<string, RateLimitAlertState>
   >({});
   const selectedModelRef = useRef(selectedModel);
-  const availableModelsRef = useRef<AgentModelOption[]>([]);
+  const availableModelsRef = useRef<AgentModelOption[]>(availableModels);
   const limitContainerRef = useRef<HTMLDivElement>(null);
   const seenUsageMessagesRef = useRef<
     Record<
@@ -1176,6 +1219,13 @@ export default function AiAgent({
 
   useEffect(() => {
     selectedModelRef.current = selectedModel;
+    if (selectedModel) {
+      try {
+        localStorage.setItem(SELECTED_MODEL_STORAGE_KEY, selectedModel);
+      } catch {
+        // Ignore storage errors
+      }
+    }
   }, [selectedModel]);
 
   useEffect(() => {
@@ -1274,6 +1324,88 @@ export default function AiAgent({
       if (maRafRef.current) cancelAnimationFrame(maRafRef.current);
     };
   }, []);
+
+  // Super Multi-Agent Event & Approval Listeners
+  useEffect(() => {
+    let unlistenSwarm: (() => void) | null = null;
+    let unlistenApproval: (() => void) | null = null;
+
+    listen<SuperSwarmSnapshot>("super-agent-event", (event) => {
+      const snap = event.payload;
+      if (!snap || !snap.session_id) return;
+
+      setSuperSwarmSnapshots((prev) => ({
+        ...prev,
+        [snap.session_id]: snap,
+      }));
+
+      setChatHistory((prev) => {
+        const boardId = `super_board_${snap.session_id}`;
+        if (prev.some((item) => item.id === boardId)) {
+          return prev;
+        }
+        return [
+          ...prev,
+          {
+            id: boardId,
+            type: "super_swarm",
+            sender: "agent",
+            superSessionId: snap.session_id,
+            timestamp: new Date().toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            }),
+          },
+        ];
+      });
+
+      if (snap.phase === "finished" || snap.phase === "aborted") {
+        setSuperPendingApprovals((prev) =>
+          prev.filter((a) => a.session_id !== snap.session_id),
+        );
+      }
+    }).then((fn) => {
+      unlistenSwarm = fn;
+    });
+
+    listen<SuperAgentApprovalRequest>("super-agent-approval-request", (event) => {
+      const req = event.payload;
+      if (!req || !req.approval_id) return;
+      setSuperPendingApprovals((prev) =>
+        prev.some((a) => a.approval_id === req.approval_id) ? prev : [...prev, req],
+      );
+    }).then((fn) => {
+      unlistenApproval = fn;
+    });
+
+    return () => {
+      if (unlistenSwarm) unlistenSwarm();
+      if (unlistenApproval) unlistenApproval();
+    };
+  }, []);
+
+  const handleRespondSuperApproval = async (
+    approvalId: string,
+    approved: boolean,
+    approveAllSession: boolean,
+  ) => {
+    const target = superPendingApprovals.find((a) => a.approval_id === approvalId);
+    setSuperPendingApprovals((prev) => {
+      if (approveAllSession && target) {
+        return prev.filter((a) => a.session_id !== target.session_id);
+      }
+      return prev.filter((a) => a.approval_id !== approvalId);
+    });
+    try {
+      await invoke("super_agent_respond_approval", {
+        approvalId,
+        approved,
+        approveAllSession,
+      });
+    } catch (err) {
+      console.error("Failed to respond super agent approval:", err);
+    }
+  };
 
   // ─── Token Estimation ────────────────────────────────────────────────
   const estimateTokens = (text: string | null | undefined): number => {
@@ -1796,6 +1928,7 @@ export default function AiAgent({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const modeDropdownRef = useRef<HTMLDivElement>(null);
+  const multiAgentMenuRef = useRef<HTMLDivElement>(null);
   const processedIters = useRef<Set<string>>(new Set());
   const panelRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -2029,7 +2162,44 @@ export default function AiAgent({
   }, []);
 
   useEffect(() => {
+    let isCancelled = false;
+
+    const resolveSelectedModel = (
+      candidates: AgentModelOption[],
+      preferredBackend: string,
+      prev: string,
+    ) => {
+      if (prev && candidates.some((m) => m.id === prev)) return prev;
+      try {
+        const stored = localStorage.getItem(SELECTED_MODEL_STORAGE_KEY);
+        if (stored && candidates.some((m) => m.id === stored)) return stored;
+      } catch {
+        // Ignore storage errors
+      }
+      if (
+        preferredBackend &&
+        candidates.some((m) => m.id === preferredBackend)
+      ) {
+        return preferredBackend;
+      }
+      return candidates[0]?.id || prev;
+    };
+
     const loadActiveModels = async () => {
+      const ocFreePromise = invoke<
+        {
+          id: string;
+          name: string;
+          context_limit?: number;
+          output_limit?: number;
+          supports_vision?: boolean;
+          supports_reasoning?: boolean;
+        }[]
+      >("opencode_list_free_models").catch((e) => {
+        console.warn("Failed to list OpenCode free models:", e);
+        return null;
+      });
+
       let activeIds: string[] = [];
       let activeModelBackend = "";
       let config: any = null;
@@ -2041,6 +2211,8 @@ export default function AiAgent({
       } catch (e) {
         console.error("Failed to fetch custom AI config:", e);
       }
+
+      if (isCancelled) return;
 
       const savedActive = localStorage.getItem("alouette_active_models");
       if (savedActive) {
@@ -2063,7 +2235,7 @@ export default function AiAgent({
       const savedCustom = localStorage.getItem("alouette_custom_models");
       const customs: any[] = savedCustom ? JSON.parse(savedCustom) : [];
 
-      const list: AgentModelOption[] = [];
+      const configuredList: AgentModelOption[] = [];
 
       // Dynamically load models from backend config
       if (config && config.providers) {
@@ -2106,7 +2278,7 @@ export default function AiAgent({
                   Number(modelCfg?.context_limit) > 0
                     ? Number(modelCfg.context_limit)
                     : inferDefaultContextLimit(modelId);
-                list.push({
+                configuredList.push({
                   id: modelId,
                   name: modelName,
                   sourceType,
@@ -2122,7 +2294,7 @@ export default function AiAgent({
       customs.forEach((c) => {
         if (activeIds.includes(c.id)) {
           const isLocal = isLocalProviderEndpoint(c.provider, c.apiUrl);
-          list.push({
+          configuredList.push({
             id: c.id,
             name: `${c.provider} - ${c.name}`,
             sourceType: isLocal ? "local" : "apikey",
@@ -2135,69 +2307,89 @@ export default function AiAgent({
         }
       });
 
-      list.sort((a, b) => a.id.localeCompare(b.id));
+      configuredList.sort((a, b) => a.id.localeCompare(b.id));
 
-      // Append OpenCode built-in free models (`opencode/*`) so users can use them out of the box
-      try {
-        const ocFree = await invoke<
-          {
-            id: string;
-            name: string;
-            context_limit?: number;
-            output_limit?: number;
-            supports_vision?: boolean;
-            supports_reasoning?: boolean;
-          }[]
-        >("opencode_list_free_models");
-        if (Array.isArray(ocFree)) {
-          for (const fm of ocFree) {
-            if (!list.some((m) => m.id === fm.id)) {
-              list.push({
-                id: fm.id,
-                name: fm.name,
-                sourceType: "free",
-                providerLabel: "OpenCode Free",
-                contextLimit:
-                  Number(fm.context_limit) > 0
-                    ? Number(fm.context_limit)
-                    : inferDefaultContextLimit(fm.id),
-                outputLimit: Number(fm.output_limit) || 0,
-                supportsVision: Boolean(fm.supports_vision),
-                supportsReasoning: Boolean(fm.supports_reasoning),
-              });
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Failed to list OpenCode free models:", e);
+      // Apply configured models immediately (keeping cached free models until CLI returns)
+      if (configuredList.length > 0) {
+        const cachedFree = availableModelsRef.current.filter(
+          (m) =>
+            m.sourceType === "free" &&
+            !configuredList.some((c) => c.id === m.id),
+        );
+        const immediateList = [...configuredList, ...cachedFree];
+        setAvailableModels(immediateList);
+        setSelectedModel((prev) =>
+          prev
+            ? prev
+            : resolveSelectedModel(immediateList, activeModelBackend, prev),
+        );
       }
 
-      if (list.length > 0) {
-        setAvailableModels(list);
-        setSelectedModel((prev) => {
-          if (list.some((m) => m.id === prev)) return prev;
-          if (
-            activeModelBackend &&
-            list.some((m) => m.id === activeModelBackend)
-          ) {
-            return activeModelBackend;
+      // Merge fresh OpenCode built-in free models once CLI resolves
+      const ocFree = await ocFreePromise;
+      if (isCancelled) return;
+
+      const finalList = [...configuredList];
+      if (Array.isArray(ocFree)) {
+        for (const fm of ocFree) {
+          if (!finalList.some((m) => m.id === fm.id)) {
+            finalList.push({
+              id: fm.id,
+              name: fm.name,
+              sourceType: "free",
+              providerLabel: "OpenCode Free",
+              contextLimit:
+                Number(fm.context_limit) > 0
+                  ? Number(fm.context_limit)
+                  : inferDefaultContextLimit(fm.id),
+              outputLimit: Number(fm.output_limit) || 0,
+              supportsVision: Boolean(fm.supports_vision),
+              supportsReasoning: Boolean(fm.supports_reasoning),
+            });
           }
-          return list[0].id;
-        });
+        }
+      } else {
+        // Keep previously cached free models if CLI failed temporarily
+        for (const cached of availableModelsRef.current) {
+          if (
+            cached.sourceType === "free" &&
+            !finalList.some((m) => m.id === cached.id)
+          ) {
+            finalList.push(cached);
+          }
+        }
+      }
+
+      if (finalList.length > 0) {
+        setAvailableModels(finalList);
+        try {
+          localStorage.setItem(
+            CACHED_MODELS_STORAGE_KEY,
+            JSON.stringify(finalList),
+          );
+        } catch {
+          // Ignore storage errors
+        }
+        setSelectedModel((prev) =>
+          resolveSelectedModel(finalList, activeModelBackend, prev),
+        );
       }
     };
 
     loadActiveModels();
 
     invoke<any>("opencode_health")
-      .then((res) => setOpencodeStatus(res))
+      .then((res) => {
+        if (!isCancelled) setOpencodeStatus(res);
+      })
       .catch(() => {});
 
-      window.addEventListener("storage", loadActiveModels);
+    window.addEventListener("storage", loadActiveModels);
 
-      return () => {
-        window.removeEventListener("storage", loadActiveModels);
-      };
+    return () => {
+      isCancelled = true;
+      window.removeEventListener("storage", loadActiveModels);
+    };
     }, []);
 
   useEffect(() => {
@@ -2345,6 +2537,12 @@ export default function AiAgent({
         !modeDropdownRef.current.contains(e.target as Node)
       ) {
         setModeDropdownOpen(false);
+      }
+      if (
+        multiAgentMenuRef.current &&
+        !multiAgentMenuRef.current.contains(e.target as Node)
+      ) {
+        setMultiAgentMenuOpen(false);
       }
       if (
         limitContainerRef.current &&
@@ -2588,15 +2786,18 @@ export default function AiAgent({
     processedIters.current = new Set();
     setLoopIterations(0);
 
-    let backendModelName = selectedModel;
-    if (selectedModel.startsWith("custom-")) {
-      const savedCustom = localStorage.getItem("alouette_custom_models");
-      const customs: any[] = savedCustom ? JSON.parse(savedCustom) : [];
-      const found = customs.find((c) => c.id === selectedModel);
-      if (found) {
-        backendModelName = found.name;
+    const resolveBackendModelName = (modelId: string) => {
+      if (!modelId) return "";
+      if (modelId.startsWith("custom-")) {
+        const savedCustom = localStorage.getItem("alouette_custom_models");
+        const customs: any[] = savedCustom ? JSON.parse(savedCustom) : [];
+        const found = customs.find((c) => c.id === modelId);
+        if (found) return found.name;
       }
-    }
+      return modelId;
+    };
+
+    const backendModelName = resolveBackendModelName(selectedModel);
 
     try {
       const response: {
@@ -2634,10 +2835,29 @@ export default function AiAgent({
           data_url: img.dataUrl,
         })),
         model: backendModelName,
-        mode: isMultiAgentActive ? "multi_agent" : selectedMode,
+        mode:
+          multiAgentTier === "super"
+            ? "super_multi_agent"
+            : multiAgentTier === "standard"
+              ? "multi_agent"
+              : selectedMode,
         activeCwd: activeProjectCwd,
         thinkingMode: thinkingMode,
         referencedSessions: referencedSessions.length > 0 ? referencedSessions : null,
+        superConfig:
+          multiAgentTier === "super"
+            ? {
+                execution_mode: selectedMode,
+                commander_model: superUseSharedModel
+                  ? backendModelName
+                  : resolveBackendModelName(superCommanderModel || selectedModel),
+                worker_model: superUseSharedModel
+                  ? backendModelName
+                  : resolveBackendModelName(superWorkerModel || selectedModel),
+                max_agents: superMaxAgents,
+                max_concurrency: superMaxConcurrency,
+              }
+            : null,
       });
 
       if (myEpoch !== sendEpochRef.current) return;
@@ -3983,6 +4203,19 @@ export default function AiAgent({
             );
           }
 
+          if (item.type === "super_swarm" && item.superSessionId) {
+            const snap = superSwarmSnapshots[item.superSessionId];
+            if (!snap) return null;
+            return (
+              <SuperSwarmBoard
+                key={item.id}
+                snapshot={snap}
+                pendingApprovals={superPendingApprovals}
+                onRespondApproval={handleRespondSuperApproval}
+              />
+            );
+          }
+
           // Text messages
           if (item.sender === "agent" && item.text === "" && item.id.startsWith("stream_")) {
             return null;
@@ -4018,17 +4251,7 @@ export default function AiAgent({
                     style={{
                       fontWeight: 600,
                       color: item.agentRole
-                        ? item.agentRole === "leader"
-                          ? "#c084fc"
-                          : item.agentRole === "secretary" || item.agentRole === "planner"
-                          ? "#60a5fa"
-                          : item.agentRole === "reviewer" || item.agentRole === "verifier"
-                          ? "#fbbf24"
-                          : item.agentRole === "coder1"
-                          ? "#34d399"
-                          : item.agentRole === "coder2"
-                          ? "#22d3ee"
-                          : "var(--text-secondary)"
+                        ? "var(--text-primary)"
                         : "var(--text-secondary)",
                     }}
                   >
@@ -4057,17 +4280,7 @@ export default function AiAgent({
                   padding: isUser ? "8px 14px" : item.agentRole ? "8px 12px" : "0 2px",
                   borderRadius: "6px",
                   borderLeft: item.agentRole
-                    ? item.agentRole === "leader"
-                      ? "3px solid #c084fc"
-                      : item.agentRole === "planner"
-                      ? "3px solid #60a5fa"
-                      : item.agentRole === "reviewer"
-                      ? "3px solid #fbbf24"
-                      : item.agentRole === "coder1"
-                      ? "3px solid #34d399"
-                      : item.agentRole === "coder2"
-                      ? "3px solid #22d3ee"
-                      : "none"
+                    ? "2px solid var(--border-primary)"
                     : "none",
                   border: isUser ? "1px solid var(--border-primary)" : "none",
                   fontSize: "12.5px",
@@ -5029,32 +5242,27 @@ export default function AiAgent({
                 minWidth: 0,
               }}
             >
-              {/* Multi Agent Button */}
+              {/* Multi Agent & Super Multi-Agent Pill Dropdown */}
               {isMultiAgentPage && (
-                <div style={{ position: "relative", flexShrink: 0 }}>
+                <div ref={multiAgentMenuRef} style={{ position: "relative", flexShrink: 0 }}>
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!isMultiAgentActive) {
-                        setShowTokenWarningModal(true);
-                      } else {
-                        setIsMultiAgentActive(false);
-                        setSelectedMode("interactive");
-                      }
-                    }}
+                    onClick={() => setMultiAgentMenuOpen(!multiAgentMenuOpen)}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: "4px",
                       padding: isNarrow ? "4px 8px" : "5px 12px",
                       background: isMultiAgentActive
-                        ? "rgba(99, 102, 241, 0.15)"
+                        ? "var(--bg-tertiary)"
                         : "var(--bg-secondary)",
                       border: isMultiAgentActive
-                        ? "1px solid #6366f1"
+                        ? "1px solid var(--text-primary)"
                         : "1px solid var(--border-primary)",
                       borderRadius: "20px",
-                      color: isMultiAgentActive ? "#a5b4fc" : "var(--text-secondary)",
+                      color: isMultiAgentActive
+                        ? "var(--text-primary)"
+                        : "var(--text-secondary)",
                       fontSize: isNarrow ? "11.5px" : "12px",
                       fontWeight: isMultiAgentActive ? 600 : 400,
                       cursor: "pointer",
@@ -5062,9 +5270,122 @@ export default function AiAgent({
                       transition: "all 0.2s",
                     }}
                   >
-                    <ChartBarStacked size={12} style={{ opacity: 0.8, flexShrink: 0 }} />
-                    <span>{isMultiAgentActive ? "Multi Agent (ON)" : "Multi Agent"}</span>
+                    <ChartBarStacked size={12} style={{ opacity: 0.85, flexShrink: 0 }} />
+                    <span>
+                      {multiAgentTier === "super"
+                        ? `Super Multi-Agent (≤${superMaxAgents})`
+                        : multiAgentTier === "standard"
+                          ? "Multi-Agent (ON)"
+                          : "Multi-Agent"}
+                    </span>
+                    <ChevronDown size={11} style={{ opacity: 0.65 }} />
                   </button>
+
+                  {multiAgentMenuOpen && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        bottom: "calc(100% + 6px)",
+                        left: 0,
+                        background: "var(--bg-primary)",
+                        border: "1px solid var(--border-primary)",
+                        borderRadius: "8px",
+                        boxShadow: "0 6px 20px rgba(0,0,0,0.55)",
+                        zIndex: 1000,
+                        padding: "5px",
+                        minWidth: "235px",
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: "3px",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMultiAgentTier("off");
+                          setMultiAgentMenuOpen(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "7px 9px",
+                          background: multiAgentTier === "off" ? "var(--bg-secondary)" : "transparent",
+                          border: "none",
+                          borderRadius: "5px",
+                          color: "var(--text-primary)",
+                          fontSize: "11.5px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600 }}>Single Agent</div>
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                          Thực thi đơn tác tử theo chế độ hiện tại
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingTierSelection("standard");
+                          setShowTokenWarningModal(true);
+                          setMultiAgentMenuOpen(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "7px 9px",
+                          background:
+                            multiAgentTier === "standard" ? "var(--bg-secondary)" : "transparent",
+                          border: "none",
+                          borderRadius: "5px",
+                          color: "var(--text-primary)",
+                          fontSize: "11.5px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontWeight: 600, color: "var(--text-primary)" }}>
+                          Multi-Agent Pipeline (Standard)
+                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                          Luồng tuần tự: Leader → Planner → Coder → Verifier
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPendingTierSelection("super");
+                          if (!superCommanderModel && selectedModel) {
+                            setSuperCommanderModel(selectedModel);
+                          }
+                          if (!superWorkerModel && selectedModel) {
+                            setSuperWorkerModel(selectedModel);
+                          }
+                          setShowTokenWarningModal(true);
+                          setMultiAgentMenuOpen(false);
+                        }}
+                        style={{
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "7px 9px",
+                          background:
+                            multiAgentTier === "super" ? "var(--bg-secondary)" : "transparent",
+                          border: "none",
+                          borderRadius: "5px",
+                          color: "var(--text-primary)",
+                          fontSize: "11.5px",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <div style={{ fontWeight: 700, color: "var(--text-primary)" }}>
+                          Super Multi-Agent (Swarm ≤ 30)
+                        </div>
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                          Điều phối song song · Giám sát tiến trình · Ngắt vòng lặp
+                        </div>
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -5174,7 +5495,7 @@ export default function AiAgent({
                 ref={modelDropdownRef}
                 style={{
                   position: "relative",
-                  flex: "1 1 auto",
+                  flex: "0 1 auto",
                   minWidth: 0,
                   maxWidth: isNarrow ? "155px" : "265px",
                   display: isCompact ? "none" : "flex",
@@ -5214,7 +5535,7 @@ export default function AiAgent({
                       display: "block",
                     }}
                   >
-                    {activeModelObj?.name || selectedModel}
+                    {activeModelObj?.name || selectedModel || "Đang tải model..."}
                   </span>
                   <ChevronDown size={11} style={{ opacity: 0.6, flexShrink: 0 }} />
                 </button>
@@ -5342,6 +5663,9 @@ export default function AiAgent({
                 );
               })()}
 
+            </div>
+
+            <div style={{ display: "flex", alignItems: "center", gap: isNarrow ? "4px" : "8px", flexShrink: 0 }}>
               {/* Mentions button: @ */}
               <button
                 type="button"
@@ -5352,7 +5676,7 @@ export default function AiAgent({
                 style={{
                   background: "none",
                   border: "none",
-                  padding: isNarrow ? "4px 4px" : "4px 8px",
+                  padding: isNarrow ? "4px 4px" : "4px 6px",
                   color: "var(--text-secondary)",
                   fontSize: "13px",
                   cursor: "pointer",
@@ -5416,9 +5740,7 @@ export default function AiAgent({
               >
                 <ImagePlus size={14} />
               </button>
-            </div>
 
-            <div style={{ display: "flex", alignItems: "center", gap: isNarrow ? "6px" : "10px", flexShrink: 0 }}>
               {/* Limit & Context counter (click to pin / hover to inspect) */}
               {(() => {
                 const activeModelObj = availableModels.find(
@@ -6416,7 +6738,7 @@ export default function AiAgent({
               borderRadius: "10px",
               boxShadow: "0 16px 48px rgba(0, 0, 0, 0.6)",
               width: "100%",
-              maxWidth: "420px",
+              maxWidth: pendingTierSelection === "super" ? "500px" : "420px",
               padding: "20px",
               display: "flex",
               flexDirection: "column",
@@ -6424,16 +6746,190 @@ export default function AiAgent({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "#f59e0b" }}>
-              <AlertCircle size={22} />
-              <span style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" }}>
-                High Token Usage Warning
-              </span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px", color: "var(--text-primary)" }}>
+                <AlertCircle size={20} />
+                <span style={{ fontSize: "15px", fontWeight: 600, color: "var(--text-primary)" }}>
+                  {pendingTierSelection === "super"
+                    ? "Thiết lập Super Multi-Agent (Swarm ≤ 30)"
+                    : "Xác nhận chế độ Multi-Agent (Standard)"}
+                </span>
+              </div>
+
+              <div style={{ display: "flex", gap: "4px", background: "var(--bg-primary)", padding: "3px", borderRadius: "6px" }}>
+                <button
+                  type="button"
+                  onClick={() => setPendingTierSelection("standard")}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    borderRadius: "4px",
+                    border: "none",
+                    cursor: "pointer",
+                    background: pendingTierSelection === "standard" ? "var(--text-primary)" : "transparent",
+                    color: pendingTierSelection === "standard" ? "var(--bg-primary)" : "var(--text-secondary)",
+                    fontWeight: 600,
+                  }}
+                >
+                  Standard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingTierSelection("super")}
+                  style={{
+                    padding: "4px 8px",
+                    fontSize: "11px",
+                    borderRadius: "4px",
+                    border: "none",
+                    cursor: "pointer",
+                    background: pendingTierSelection === "super" ? "var(--text-primary)" : "transparent",
+                    color: pendingTierSelection === "super" ? "var(--bg-primary)" : "var(--text-secondary)",
+                    fontWeight: 600,
+                  }}
+                >
+                  Super (≤30)
+                </button>
+              </div>
             </div>
 
-            <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.5", margin: 0 }}>
-              Enabling <strong>Multi-Agent Mode</strong> will automatically coordinate a team of 5 specialized Agents (Leader, Planner, Reviewer, Coder 1, Coder 2) to collaborate on your task. This process will <strong>consume significantly more tokens</strong> than standard single-agent chat.
-            </p>
+            {pendingTierSelection === "standard" ? (
+              <p style={{ fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.5", margin: 0 }}>
+                Chế độ <strong>Multi-Agent (Standard)</strong> vận hành theo quy trình tuần tự nhiều pha (Leader, Planner, Coder, Verifier) và sẽ <strong>tiêu thụ lượng token lớn hơn</strong> đáng kể so với tác tử đơn.
+              </p>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: "12px", fontSize: "12.5px", color: "var(--text-secondary)" }}>
+                <p style={{ margin: 0, lineHeight: "1.45" }}>
+                  <strong>Super Multi-Agent</strong> phân rã tác vụ theo cấu trúc dự án và điều phối tối đa <strong>30 worker</strong> chạy song song, tích hợp cơ chế <strong>Anti-Loop Circuit Breaker</strong>, phân vùng phạm vi ghi tệp và bộ giám sát <strong>Supervisor</strong>.
+                </p>
+
+                {/* Model strategy */}
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px", padding: "10px", borderRadius: "8px", background: "var(--bg-primary)", border: "1px solid var(--border-primary)" }}>
+                  <div style={{ fontWeight: 600, color: "var(--text-primary)", fontSize: "12px" }}>
+                    Phân bổ mô hình (Điều phối &amp; Thực thi)
+                  </div>
+                  <div style={{ display: "flex", gap: "12px" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px" }}>
+                      <input
+                        type="radio"
+                        checked={superUseSharedModel}
+                        onChange={() => setSuperUseSharedModel(true)}
+                      />
+                      <span>Dùng chung mô hình ({selectedModel || "mặc định"})</span>
+                    </label>
+                    <label style={{ display: "flex", alignItems: "center", gap: "6px", cursor: "pointer", fontSize: "12px" }}>
+                      <input
+                        type="radio"
+                        checked={!superUseSharedModel}
+                        onChange={() => setSuperUseSharedModel(false)}
+                      />
+                      <span>Tách riêng Commander &amp; Worker</span>
+                    </label>
+                  </div>
+
+                  {!superUseSharedModel && (
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginTop: "4px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <span style={{ fontSize: "11px", color: "var(--text-primary)", fontWeight: 600 }}>
+                          Mô hình Commander &amp; Supervisor
+                        </span>
+                        <select
+                          value={superCommanderModel || selectedModel}
+                          onChange={(e) => setSuperCommanderModel(e.target.value)}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: "6px",
+                            background: "var(--bg-secondary)",
+                            border: "1px solid var(--border-primary)",
+                            color: "var(--text-primary)",
+                            fontSize: "11.5px",
+                          }}
+                        >
+                          {availableModels.map((m) => (
+                            <option key={`cmd_${m.id}`} value={m.id}>
+                              {m.name} ({m.providerLabel})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <span style={{ fontSize: "11px", color: "var(--text-primary)", fontWeight: 600 }}>
+                          Mô hình Worker (Thực thi)
+                        </span>
+                        <select
+                          value={superWorkerModel || selectedModel}
+                          onChange={(e) => setSuperWorkerModel(e.target.value)}
+                          style={{
+                            padding: "6px 8px",
+                            borderRadius: "6px",
+                            background: "var(--bg-secondary)",
+                            border: "1px solid var(--border-primary)",
+                            color: "var(--text-primary)",
+                            fontSize: "11.5px",
+                          }}
+                        >
+                          {availableModels.map((m) => (
+                            <option key={`wrk_${m.id}`} value={m.id}>
+                              {m.name} ({m.providerLabel})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Limits */}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", padding: "8px 10px", borderRadius: "8px", background: "var(--bg-primary)", border: "1px solid var(--border-primary)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11.5px" }}>
+                      <span>Số Worker tối đa:</span>
+                      <strong style={{ color: "var(--text-primary)" }}>{superMaxAgents} / 30</strong>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={30}
+                      value={superMaxAgents}
+                      onChange={(e) => setSuperMaxAgents(Math.min(30, Math.max(1, Number(e.target.value))))}
+                    />
+                  </div>
+
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px", padding: "8px 10px", borderRadius: "8px", background: "var(--bg-primary)", border: "1px solid var(--border-primary)" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: "11.5px" }}>
+                      <span>Ngưỡng xử lý song song:</span>
+                      <strong style={{ color: "var(--text-primary)" }}>{superMaxConcurrency} luồng</strong>
+                    </div>
+                    <input
+                      type="range"
+                      min={1}
+                      max={12}
+                      value={superMaxConcurrency}
+                      onChange={(e) => setSuperMaxConcurrency(Math.min(12, Math.max(1, Number(e.target.value))))}
+                    />
+                  </div>
+                </div>
+
+                {/* Execution Mode Approval Notice */}
+                <div
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: "6px",
+                    background: "var(--bg-primary)",
+                    border: "1px solid var(--border-primary)",
+                    color: "var(--text-secondary)",
+                    fontSize: "11.5px",
+                  }}
+                >
+                  Chế độ thực thi: <strong>{selectedMode}</strong> —{" "}
+                  {selectedMode === "autonomous"
+                    ? "Tự động phê duyệt toàn bộ thao tác đọc, ghi tệp và thực thi lệnh."
+                    : selectedMode === "plan"
+                      ? "Chỉ đọc (Read-only): giới hạn worker ở mức phân tích, vô hiệu hóa mọi thao tác ghi tệp."
+                      : "Yêu cầu xác nhận thủ công trước khi ghi tệp hoặc thực thi lệnh hệ thống."}
+                </div>
+              </div>
+            )}
 
             <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", marginTop: "6px" }}>
               <button
@@ -6449,27 +6945,28 @@ export default function AiAgent({
                   cursor: "pointer",
                 }}
               >
-                Cancel
+                Hủy
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  setIsMultiAgentActive(true);
-                  setSelectedMode("multi_agent");
+                  setMultiAgentTier(pendingTierSelection);
                   setShowTokenWarningModal(false);
                 }}
                 style={{
                   padding: "6px 14px",
-                  background: "#6366f1",
+                  background: "var(--text-primary)",
                   border: "none",
                   borderRadius: "6px",
-                  color: "#fff",
+                  color: "var(--bg-primary)",
                   fontSize: "12px",
                   fontWeight: 600,
                   cursor: "pointer",
                 }}
               >
-                Enable Multi-Agent
+                {pendingTierSelection === "super"
+                  ? "Kích hoạt Super Multi-Agent"
+                  : "Kích hoạt Multi-Agent"}
               </button>
             </div>
           </div>

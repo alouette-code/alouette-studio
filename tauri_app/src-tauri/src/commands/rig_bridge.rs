@@ -627,6 +627,37 @@ pub async fn call_rig(
     thinking_mode: Option<&str>,
     window: Option<&tauri::WebviewWindow>,
 ) -> Result<LlmResponse, String> {
+    call_rig_with_tools(
+        api_standard,
+        api_key,
+        model,
+        api_url,
+        temperature,
+        top_p,
+        system_prompt,
+        history,
+        thinking_mode,
+        window,
+        None,
+    )
+    .await
+}
+
+/// Like `call_rig`, but allows overriding the tool schemas sent to the model
+/// (pass `Some(vec![])` for pure JSON/text responses, or a scoped tool subset).
+pub async fn call_rig_with_tools(
+    api_standard: &str,
+    api_key: &str,
+    model: &str,
+    api_url: &str,
+    temperature: f32,
+    top_p: f32,
+    system_prompt: &str,
+    history: &[ChatMessage],
+    thinking_mode: Option<&str>,
+    window: Option<&tauri::WebviewWindow>,
+    tools_override: Option<Vec<Value>>,
+) -> Result<LlmResponse, String> {
     let model_name = if model.is_empty() {
         match api_standard {
             "claude" => "claude-sonnet-5",
@@ -671,8 +702,13 @@ pub async fn call_rig(
     }
 
     let messages = build_messages_json(&final_system_prompt, history);
-    let tools_json = tool_definitions::tools_json_for_api();
-    let tools_array = tools_json.as_array().cloned().unwrap_or_default();
+    let tools_array = match tools_override {
+        Some(custom) => custom,
+        None => tool_definitions::tools_json_for_api()
+            .as_array()
+            .cloned()
+            .unwrap_or_default(),
+    };
 
     match api_standard {
         "openai" => {

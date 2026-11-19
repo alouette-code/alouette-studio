@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod multi_agent;
+pub mod super_multi_agent;
 pub mod browser;
 pub mod cloudflare;
 pub mod code_rag;

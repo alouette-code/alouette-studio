@@ -8,6 +8,12 @@ use core_engine::agent_harness::AgentSession;
 use std::sync::atomic::AtomicBool;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SuperApprovalDecision {
+    pub approved: bool,
+    pub approve_all_session: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LoopState {
     pub max_iterations: u32,
     pub auto_approve_reads: bool,
@@ -44,6 +50,7 @@ pub struct AppState {
     pub vm_manager: Arc<core_engine::vm_engine::VmManager>,
     pub opencode_manager: Arc<crate::commands::opencode_bridge::OpenCodeManager>,
     pub code_rag: Arc<crate::commands::code_rag::CodeRagState>,
+    pub super_agent_approvals: Arc<DashMap<String, tokio::sync::oneshot::Sender<SuperApprovalDecision>>>,
 }
 
 /// Resolve the project root (parent of src-tauri) so that
