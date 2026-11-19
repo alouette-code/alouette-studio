@@ -7,14 +7,16 @@ use axum::{
     routing::post,
     Json, Router,
 };
+use core_engine::agent_tools::browser_control::BrowserControl;
 use core_engine::vm_engine::{AdvancedConfig, VmConfig, VmInputAction, VmManager};
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, Mutex};
 
 #[derive(Clone)]
 struct McpState {
     vm_manager: Arc<VmManager>,
+    browser_control: Arc<Mutex<BrowserControl>>,
     app_handle: Option<tauri::AppHandle>,
     auth_token: String,
     session_id: String,
@@ -51,6 +53,7 @@ pub async fn start_vm_mcp_server(
     let session_id = uuid::Uuid::new_v4().to_string();
     let state = McpState {
         vm_manager,
+        browser_control: Arc::new(Mutex::new(BrowserControl::new())),
         app_handle,
         auth_token: auth_token.clone(),
         session_id,
@@ -758,7 +761,184 @@ async fn execute_mcp_tool(state: &McpState, name: &str, args: Value) -> Value {
                 text_result("AppHandle not available to open VM window.".to_string(), true)
             }
         }
-        other => text_result(format!("Unknown Alouette VM tool '{}'", other), true),
+        "browser_open" => {
+            let url = args
+                .get("url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("https://google.com");
+
+            // Reuse active Chrome CDP session if already running
+            {
+                let mut bc = state.browser_control.lock().await;
+                if bc.ensure_connected(9222).await.is_ok() {
+                    if let Ok(nav_msg) = bc.navigate(url).await {
+                        return text_result(format!("Reused active Chrome session. {}", nav_msg), false);
+                    }
+                }
+            }
+
+            let chrome_bin = match resolve_chrome_for_mcp(state.app_handle.as_ref()) {
+                Ok(p) => p,
+                Err(e) => return text_result(e, true),
+            };
+            let profile_dir = std::env::temp_dir().join("alouette_chrome_mcp_profile");
+            let _ = std::fs::create_dir_all(&profile_dir);
+
+            let spawn_res = tokio::process::Command::new(&chrome_bin)
+                .arg("--remote-debugging-port=9222")
+                .arg(format!("--user-data-dir={}", profile_dir.display()))
+                .arg("--no-first-run")
+                .arg("--no-default-browser-check")
+                .arg("--no-sandbox")
+                .arg("--disable-gpu-sandbox")
+                .arg("--disable-dev-shm-usage")
+                .arg(url)
+                .env_remove("GDK_BACKEND")
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+
+            match spawn_res {
+                Ok(_) => {
+                    let mut bc = state.browser_control.lock().await;
+                    let mut connected = false;
+                    for _ in 0..25 {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                        if bc.ensure_connected(9222).await.is_ok() {
+                            connected = true;
+                            break;
+                        }
+                    }
+                    if connected {
+                        text_result(format!("Opened Chrome ({}) at {} (CDP ready on 9222)", chrome_bin, url), false)
+                    } else {
+                        text_result(format!("Launched Chrome ({}) at {}, CDP still initializing.", chrome_bin, url), false)
+                    }
+                }
+                Err(e) => text_result(format!("Failed to launch Chrome ({}): {}", chrome_bin, e), true),
+            }
+        }
+        "browser_navigate" => {
+            let url = match require_str(&args, "url") {
+                Ok(u) => u,
+                Err(e) => return text_result(e, true),
+            };
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.navigate(url).await {
+                Ok(msg) => text_result(msg, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_elements" => {
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.snapshot_elements().await {
+                Ok(snap) => text_result(serde_json::to_string_pretty(&snap).unwrap_or_else(|_| "{}".to_string()), false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_get_content" => {
+            let max_chars = args.get("max_chars").and_then(|v| v.as_u64()).unwrap_or(8000) as usize;
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.get_page_content(max_chars).await {
+                Ok(content) => text_result(content, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_click" => {
+            let ref_id = args.get("ref_id").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let x = args.get("x").and_then(|v| v.as_f64());
+            let y = args.get("y").and_then(|v| v.as_f64());
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.click(ref_id, x, y).await {
+                Ok(msg) => text_result(msg, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_type" => {
+            let text = args.get("text").and_then(|v| v.as_str()).unwrap_or("");
+            let ref_id = args.get("ref_id").and_then(|v| v.as_u64()).map(|v| v as usize);
+            let clear = args.get("clear").and_then(|v| v.as_bool()).unwrap_or(false);
+            let press_enter = args.get("press_enter").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.type_text(text, ref_id, clear, press_enter).await {
+                Ok(msg) => text_result(msg, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_scroll" => {
+            let direction = args.get("direction").and_then(|v| v.as_str()).unwrap_or("down");
+            let amount = args.get("amount").and_then(|v| v.as_i64());
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.scroll(direction, amount).await {
+                Ok(msg) => text_result(msg, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_press_key" => {
+            let key = match require_str(&args, "key") {
+                Ok(k) => k,
+                Err(e) => return text_result(e, true),
+            };
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.press_key(key).await {
+                Ok(msg) => text_result(msg, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_wait" => {
+            let ms = args.get("ms").and_then(|v| v.as_u64());
+            let selector = args.get("selector").and_then(|v| v.as_str());
+            let mut bc = state.browser_control.lock().await;
+            if selector.is_some() {
+                if let Err(e) = bc.ensure_connected(9222).await {
+                    return text_result(e, true);
+                }
+            }
+            match bc.wait(ms, selector).await {
+                Ok(msg) => text_result(msg, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        "browser_screenshot" => {
+            let save_path = match args.get("path").and_then(|v| v.as_str()) {
+                Some(p) => std::path::PathBuf::from(p),
+                None => std::env::temp_dir().join(format!(
+                    "alouette_browser_{}.png",
+                    chrono::Utc::now().timestamp_millis()
+                )),
+            };
+            let mut bc = state.browser_control.lock().await;
+            if let Err(e) = bc.ensure_connected(9222).await {
+                return text_result(e, true);
+            }
+            match bc.screenshot(&save_path).await {
+                Ok(msg) => text_result(msg, false),
+                Err(e) => text_result(e, true),
+            }
+        }
+        other => text_result(format!("Unknown Alouette tool '{}'", other), true),
     }
 }
 
@@ -976,7 +1156,163 @@ fn mcp_tool_definitions() -> Vec<Value> {
             "description": "Open or focus the built-in Alouette VM Manager window (showing VM list and live VNC display).",
             "inputSchema": { "type": "object", "properties": {} }
         }),
+        json!({
+            "name": "browser_open",
+            "description": "Open Google Chrome with CDP enabled and navigate to a URL (reuses existing Chrome session if already open).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "Target URL to open." }
+                },
+                "required": ["url"]
+            }
+        }),
+        json!({
+            "name": "browser_navigate",
+            "description": "Navigate the active browser tab to a URL, or 'back', 'forward', 'reload'.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "url": { "type": "string", "description": "Target URL, or 'back', 'forward', 'reload'." }
+                },
+                "required": ["url"]
+            }
+        }),
+        json!({
+            "name": "browser_elements",
+            "description": "Get structured snapshot of the current page (URL, title, scroll info, and indexed interactive elements with ref_id, role, label, coordinates).",
+            "inputSchema": { "type": "object", "properties": {} }
+        }),
+        json!({
+            "name": "browser_get_content",
+            "description": "Read visible text content, URL, and title of the active browser tab.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "max_chars": { "type": "integer", "description": "Maximum characters to return (default 8000)." }
+                }
+            }
+        }),
+        json!({
+            "name": "browser_click",
+            "description": "Click an element by ref_id from browser_elements (preferred, auto-scrolls) or fallback (x, y) viewport coordinates.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ref_id": { "type": "integer", "description": "Element ref_id from browser_elements." },
+                    "x": { "type": "number", "description": "Optional fallback X coordinate." },
+                    "y": { "type": "number", "description": "Optional fallback Y coordinate." }
+                }
+            }
+        }),
+        json!({
+            "name": "browser_type",
+            "description": "Type text into an element by ref_id (or currently focused element), optionally clearing first and pressing Enter.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string", "description": "Text to type." },
+                    "ref_id": { "type": "integer", "description": "Optional target ref_id from browser_elements." },
+                    "clear": { "type": "boolean", "description": "Clear input before typing (default false)." },
+                    "press_enter": { "type": "boolean", "description": "Press Enter after typing (default false)." }
+                },
+                "required": ["text"]
+            }
+        }),
+        json!({
+            "name": "browser_scroll",
+            "description": "Scroll the active browser page ('down', 'up', 'top', or 'bottom').",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "direction": { "type": "string", "description": "'down', 'up', 'top', or 'bottom'." },
+                    "amount": { "type": "integer", "description": "Pixels to scroll (default 600)." }
+                },
+                "required": ["direction"]
+            }
+        }),
+        json!({
+            "name": "browser_press_key",
+            "description": "Send a keyboard key press (Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp, Space).",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "key": { "type": "string", "description": "Key name." }
+                },
+                "required": ["key"]
+            }
+        }),
+        json!({
+            "name": "browser_wait",
+            "description": "Wait for milliseconds or until a CSS selector appears in the DOM.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "ms": { "type": "integer", "description": "Milliseconds to wait (default 1000, max 15000)." },
+                    "selector": { "type": "string", "description": "Optional CSS selector to wait for (up to 10s)." }
+                }
+            }
+        }),
+        json!({
+            "name": "browser_screenshot",
+            "description": "Capture a PNG screenshot of the active browser tab.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Optional output PNG path." }
+                }
+            }
+        }),
     ]
+}
+
+fn resolve_chrome_for_mcp(app_handle: Option<&tauri::AppHandle>) -> Result<String, String> {
+    use tauri::Manager;
+    if let Ok(env_path) = std::env::var("ALOUETTE_CHROME_PATH") {
+        if std::path::Path::new(&env_path).exists() {
+            return Ok(env_path);
+        }
+    }
+    let bin_name = if cfg!(target_os = "windows") { "chrome.exe" } else { "chrome" };
+    if let Some(handle) = app_handle {
+        if let Ok(res_dir) = handle.path().resource_dir() {
+            let p = res_dir.join("chrome").join(bin_name);
+            if p.exists() {
+                return Ok(p.to_string_lossy().to_string());
+            }
+        }
+    }
+    let dev_local = std::path::PathBuf::from("chrome").join(bin_name);
+    if dev_local.exists() {
+        return Ok(dev_local.to_string_lossy().to_string());
+    }
+    #[cfg(target_os = "linux")]
+    let candidates = ["google-chrome", "chromium", "chromium-browser"];
+    #[cfg(target_os = "macos")]
+    let candidates = [
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ];
+    #[cfg(target_os = "windows")]
+    let candidates = [
+        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+    ];
+    for c in candidates {
+        if std::path::Path::new(c).exists() {
+            return Ok(c.to_string());
+        }
+        #[cfg(not(target_os = "windows"))]
+        if let Ok(out) = std::process::Command::new("which").arg(c).output() {
+            if out.status.success() {
+                let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !s.is_empty() {
+                    return Ok(s);
+                }
+            }
+        }
+    }
+    Err("Chrome/Chromium not found. Install Chrome or set ALOUETTE_CHROME_PATH.".to_string())
 }
 
 #[cfg(test)]
@@ -1019,7 +1355,7 @@ mod tests {
         let init_json: Value = init_resp.json().await.expect("parse initialize");
         assert_eq!(init_json["result"]["serverInfo"]["name"], "alouette-vm-mcp");
 
-        // 3. tools/list returns all 15 VM tools including deep-level controls
+        // 3. tools/list returns all 15 VM tools + 10 Browser tools (25 total)
         let list_resp: Value = client
             .post(&srv.url)
             .header("Authorization", &auth)
@@ -1031,11 +1367,15 @@ mod tests {
             .await
             .expect("parse tools/list");
         let tools = list_resp["result"]["tools"].as_array().expect("tools array");
-        assert_eq!(tools.len(), 15);
+        assert_eq!(tools.len(), 25);
         assert!(tools.iter().any(|t| t["name"] == "vm_start"));
         assert!(tools.iter().any(|t| t["name"] == "vm_observe"));
         assert!(tools.iter().any(|t| t["name"] == "vm_act"));
         assert!(tools.iter().any(|t| t["name"] == "vm_qmp"));
+        assert!(tools.iter().any(|t| t["name"] == "browser_open"));
+        assert!(tools.iter().any(|t| t["name"] == "browser_elements"));
+        assert!(tools.iter().any(|t| t["name"] == "browser_click"));
+        assert!(tools.iter().any(|t| t["name"] == "browser_get_content"));
 
         // 4. tools/call vm_list succeeds
         let call_resp: Value = client

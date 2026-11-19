@@ -437,14 +437,20 @@ impl super::ExecutionProvider for DockerDriver {
 
     async fn destroy_sandbox(&self, name: &str) -> Result<(), String> {
         let apm_name = format!("{}-apm", name);
-        
-        // --- DEBUG CODE: Save logs before destroying ---
-        let log_file = format!("/home/nhatanh/projet/alouette_studio/tauri_app/logs/{}_crash.log", name);
-        let _ = Command::new("sh")
-            .args(["-c", &format!("docker logs {} > {} 2>&1", name, log_file)])
-            .status()
-            .await;
-        // -----------------------------------------------
+
+        // Save container logs before destroying into portable temp log directory
+        let log_dir = std::env::temp_dir().join("alouette_logs");
+        let _ = std::fs::create_dir_all(&log_dir);
+        let safe_name: String = name
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect();
+        let log_file = log_dir.join(format!("{}_crash.log", safe_name));
+        if let Ok(out) = Command::new("docker").args(["logs", name]).output().await {
+            let mut combined = out.stdout;
+            combined.extend_from_slice(&out.stderr);
+            let _ = std::fs::write(&log_file, combined);
+        }
 
         let _ = Command::new("docker").args(["rm", "-f", name, &apm_name]).status().await;
         Ok(())

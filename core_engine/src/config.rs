@@ -56,32 +56,6 @@ pub struct SandboxConfig {
     pub timeout: String,
     pub cpu_limit: String,
     pub max_file_size: String,
-
-    // ── Environment simulation settings (Simulated Sandbox Environment) ──
-    #[serde(default)]
-    pub env_firewall_enabled: bool,
-    #[serde(default)]
-    pub env_firewall_rules: String, // Stringified list of hosts (e.g., "*.google.com, github.com")
-    #[serde(default)]
-    pub env_weak_network_enabled: bool,
-    #[serde(default)]
-    pub env_weak_network_latency_ms: u32,
-    #[serde(default)]
-    pub env_weak_network_jitter_ms: u32,
-    #[serde(default)]
-    pub env_weak_network_loss_rate: f32, // Percent 0.0 - 100.0
-    #[serde(default)]
-    pub env_weak_network_bandwidth_kbps: u32,
-    #[serde(default)]
-    pub env_unstable_server_enabled: bool,
-    #[serde(default)]
-    pub env_unstable_server_drop_rate: f32,
-    #[serde(default)]
-    pub env_unstable_server_periodic_crash_secs: u32,
-    #[serde(default)]
-    pub env_unstable_server_error_rate: f32,
-    #[serde(default)]
-    pub env_unstable_server_error_codes: String,
 }
 
 /// A language runtime managed by Proto (installable via `proto`).
@@ -128,19 +102,6 @@ impl SandboxConfig {
             timeout: "30s".to_string(),
             cpu_limit: "1.0 Core".to_string(),
             max_file_size: "50MB".to_string(),
-            // Environment simulation defaults
-            env_firewall_enabled: false,
-            env_firewall_rules: String::new(),
-            env_weak_network_enabled: false,
-            env_weak_network_latency_ms: 0,
-            env_weak_network_jitter_ms: 0,
-            env_weak_network_loss_rate: 0.0,
-            env_weak_network_bandwidth_kbps: 0,
-            env_unstable_server_enabled: false,
-            env_unstable_server_drop_rate: 0.0,
-            env_unstable_server_periodic_crash_secs: 0,
-            env_unstable_server_error_rate: 0.0,
-            env_unstable_server_error_codes: "500,502,503".to_string(),
         }
     }
 }
@@ -281,12 +242,16 @@ impl EnvSimulationConfig {
 
         // Sanitize custom environment variables
         for env in &mut self.custom_envs {
-            env.key = env.key.trim().to_uppercase();
-            env.value = env.value.trim().to_string();
             env.visibility = match env.visibility.to_lowercase().as_str() {
                 "hidden" => "hidden".to_string(),
                 _ => "exposed".to_string(),
             };
+            env.key = if env.visibility == "exposed" {
+                env.key.trim().to_uppercase()
+            } else {
+                env.key.trim().to_string()
+            };
+            env.value = env.value.trim().to_string();
             env.scope = match env.scope.to_lowercase().as_str() {
                 "inbound" => "inbound".to_string(),
                 "outbound" => "outbound".to_string(),
@@ -453,5 +418,57 @@ mod tests {
         assert_eq!(proj.setup_command, None);
         assert_eq!(proj.setup_args, None);
         assert_eq!(proj.auto_restart, None);
+    }
+
+    #[test]
+    fn test_env_simulation_config_sanitize_and_yaml_roundtrip() {
+        let mut cfg = EnvSimulationConfig::default_for("proj-1");
+        cfg.firewall_enabled = true;
+        cfg.firewall_rules = " *, !LOCALHOST , *.Google.com ".to_string();
+        cfg.loss_rate = 150.0;
+        cfg.unstable_server_drop_rate = -5.0;
+        cfg.cpu_limit_percent = 0;
+        cfg.latency_ms = 999_999;
+        cfg.unstable_server_error_codes = "bad, ,".to_string();
+        cfg.custom_envs = vec![
+            SimulatedEnvVar {
+                id: "1".to_string(),
+                key: " node_env ".to_string(),
+                value: " staging ".to_string(),
+                visibility: "EXPOSED".to_string(),
+                scope: "BOTH".to_string(),
+                enabled: true,
+            },
+            SimulatedEnvVar {
+                id: "2".to_string(),
+                key: " X-Gateway-Trace-Id ".to_string(),
+                value: " abc123 ".to_string(),
+                visibility: "hidden".to_string(),
+                scope: "inbound".to_string(),
+                enabled: true,
+            },
+        ];
+
+        cfg.sanitize();
+
+        assert_eq!(cfg.firewall_rules, "*, !localhost, *.google.com");
+        assert_eq!(cfg.loss_rate, 100.0);
+        assert_eq!(cfg.unstable_server_drop_rate, 0.0);
+        assert_eq!(cfg.cpu_limit_percent, 1);
+        assert_eq!(cfg.latency_ms, 60000);
+        assert_eq!(cfg.unstable_server_error_codes, "500, 502, 503");
+        // Exposed env var uppercased; hidden header preserves case
+        assert_eq!(cfg.custom_envs[0].key, "NODE_ENV");
+        assert_eq!(cfg.custom_envs[0].value, "staging");
+        assert_eq!(cfg.custom_envs[1].key, "X-Gateway-Trace-Id");
+        assert_eq!(cfg.custom_envs[1].scope, "inbound");
+
+        let temp_path = std::env::temp_dir().join("alouette_test_env_sim.yml");
+        let mut map = std::collections::HashMap::new();
+        map.insert("proj-1".to_string(), cfg.clone());
+        EnvSimulationConfig::save_all_to_file(&map, &temp_path).unwrap();
+        let loaded = EnvSimulationConfig::load_all_from_file(&temp_path).unwrap();
+        assert_eq!(loaded.get("proj-1"), Some(&cfg));
+        let _ = fs::remove_file(&temp_path);
     }
 }

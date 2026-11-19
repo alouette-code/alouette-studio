@@ -141,23 +141,44 @@ pub fn spawn_resource_stats_router(
         let mut exceeded_since: std::collections::HashMap<String, std::time::Instant> =
             std::collections::HashMap::new();
 
+        let settings_path = app_data_dir().join("settings.json");
+        let sim_path = app_data_dir().join("env_simulation.yml");
+        let mut cached_settings: (Option<std::time::SystemTime>, core_engine::AppSettings) =
+            (None, core_engine::AppSettings::default());
+        let mut cached_sim_configs: (
+            Option<std::time::SystemTime>,
+            std::collections::HashMap<String, core_engine::EnvSimulationConfig>,
+        ) = (None, std::collections::HashMap::new());
+
         while let Ok(stats) = stats_rx.recv().await {
             // Always broadcast stats to frontend
             let _ = window.emit("resource-update", stats.clone());
 
-            // Read thresholds from project config and global settings
-            let settings =
-                core_engine::AppSettings::load_from_file(app_data_dir().join("settings.json"))
+            // Reload settings only when file mtime changes
+            let settings_mtime = std::fs::metadata(&settings_path).and_then(|m| m.modified()).ok();
+            if settings_mtime != cached_settings.0 {
+                cached_settings.1 = core_engine::AppSettings::load_from_file(&settings_path)
                     .unwrap_or_default();
+                cached_settings.0 = settings_mtime;
+            }
+            let settings = &cached_settings.1;
 
             let limits = {
                 let pm = pm_clone.lock().await;
                 pm.get_config(&stats.project_id)
             };
 
-            let sim_config = core_engine::EnvSimulationConfig::load_all_from_file(app_data_dir().join("env_simulation.yml"))
-                .ok()
-                .and_then(|map| map.get(&stats.project_id).cloned())
+            // Reload env_simulation.yml only when file mtime changes
+            let sim_mtime = std::fs::metadata(&sim_path).and_then(|m| m.modified()).ok();
+            if sim_mtime != cached_sim_configs.0 {
+                cached_sim_configs.1 = core_engine::EnvSimulationConfig::load_all_from_file(&sim_path)
+                    .unwrap_or_default();
+                cached_sim_configs.0 = sim_mtime;
+            }
+            let sim_config = cached_sim_configs
+                .1
+                .get(&stats.project_id)
+                .cloned()
                 .unwrap_or_else(|| core_engine::EnvSimulationConfig::default_for(&stats.project_id));
 
             let mut cpu_limit = if sim_config.cpu_limit_enabled {

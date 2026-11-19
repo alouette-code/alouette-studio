@@ -30,28 +30,44 @@ pub struct RigLLMWrapper {
 #[async_trait]
 impl LLM for RigLLMWrapper {
     async fn invoke(&self, prompt: &str) -> Result<String, LLMError> {
-        // Unwrap temporary to avoid guessing LLMError variants. 
-        // Can refine error mapping once compilation succeeds.
+        let map_err = |e: String| LLMError::OtherError(e);
         let result = match self.provider.as_str() {
             "openai" => {
-                let client = providers::openai::Client::new(&self.api_key).expect("Failed to create OpenAI client");
+                let client = providers::openai::Client::new(&self.api_key)
+                    .map_err(|e| map_err(format!("Failed to create OpenAI client: {}", e)))?;
                 let model = client.completion_model(&self.model_name);
                 let agent = AgentBuilder::new(model).build();
-                agent.prompt(prompt).await.expect("Failed LLM prompt")
+                agent
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| map_err(format!("OpenAI prompt failed: {}", e)))?
             }
             "gemini" => {
-                let client = providers::gemini::Client::new(&self.api_key).expect("Failed to create Gemini client");
+                let client = providers::gemini::Client::new(&self.api_key)
+                    .map_err(|e| map_err(format!("Failed to create Gemini client: {}", e)))?;
                 let model = client.completion_model(&self.model_name);
                 let agent = AgentBuilder::new(model).build();
-                agent.prompt(prompt).await.expect("Failed LLM prompt")
+                agent
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| map_err(format!("Gemini prompt failed: {}", e)))?
             }
             "claude" => {
-                let client = providers::anthropic::Client::new(&self.api_key).expect("Failed to create Claude client");
+                let client = providers::anthropic::Client::new(&self.api_key)
+                    .map_err(|e| map_err(format!("Failed to create Claude client: {}", e)))?;
                 let model = client.completion_model(&self.model_name);
                 let agent = AgentBuilder::new(model).build();
-                agent.prompt(prompt).await.expect("Failed LLM prompt")
+                agent
+                    .prompt(prompt)
+                    .await
+                    .map_err(|e| map_err(format!("Claude prompt failed: {}", e)))?
             }
-            _ => panic!("Unsupported provider")
+            other => {
+                return Err(LLMError::OtherError(format!(
+                    "Unsupported LLM provider: {}",
+                    other
+                )));
+            }
         };
         Ok(result)
     }
@@ -68,7 +84,7 @@ impl LLM for RigLLMWrapper {
             conversation.push_str(&format!("{}: {}\n", role_name, msg.content));
         }
         let result = self.invoke(&conversation).await?;
-        
+
         let mut res = GenerateResult::default();
         res.generation = result;
         Ok(res)
@@ -78,7 +94,9 @@ impl LLM for RigLLMWrapper {
         &self,
         _messages: &[LcMessage],
     ) -> Result<Pin<Box<dyn Stream<Item = Result<StreamData, LLMError>> + Send>>, LLMError> {
-        unimplemented!("Stream is not implemented yet for RigLLMWrapper")
+        Err(LLMError::OtherError(
+            "Streaming is not supported for RigLLMWrapper".to_string(),
+        ))
     }
 }
 

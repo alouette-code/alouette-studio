@@ -1,20 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Project } from "../types";
-import {
-  Eye,
-  Lock,
-  TrendingUpDown,
-  ArrowDown,
-  ArrowUp,
-  Plus,
-  Trash2,
-  Shield,
-  ChartNetwork,
-  Server,
-  Cpu,
-  Dna,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 
 export interface SimulatedEnvVar {
   id: string;
@@ -51,6 +38,130 @@ interface EnvironmentSetupProps {
   activeProject: Project | null;
 }
 
+interface NumberStepperProps {
+  value: number;
+  onChange: (val: number) => void;
+  disabled?: boolean;
+  min?: number;
+  max?: number;
+  step?: number;
+  isFloat?: boolean;
+}
+
+function NumberStepper({
+  value,
+  onChange,
+  disabled = false,
+  min = 0,
+  max,
+  step = 1,
+  isFloat = false,
+}: NumberStepperProps) {
+  const [draft, setDraft] = useState<string>(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const clamp = (n: number) => {
+    let res = isNaN(n) ? min : n;
+    if (min !== undefined) res = Math.max(min, res);
+    if (max !== undefined) res = Math.min(max, res);
+    return isFloat ? Math.round(res * 100) / 100 : Math.round(res);
+  };
+
+  const commit = (raw: string) => {
+    const parsed = isFloat ? parseFloat(raw) : parseInt(raw, 10);
+    const next = clamp(parsed);
+    setDraft(String(next));
+    onChange(next);
+  };
+
+  const adjust = (delta: number) => {
+    if (disabled) return;
+    const next = clamp(value + delta);
+    setDraft(String(next));
+    onChange(next);
+  };
+
+  const btnStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "24px",
+    height: "26px",
+    backgroundColor: "rgba(255, 255, 255, 0.03)",
+    border: "none",
+    color: disabled ? "var(--text-muted, #555)" : "var(--text-secondary, #999)",
+    cursor: disabled ? "not-allowed" : "pointer",
+    padding: 0,
+    flexShrink: 0,
+  };
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        backgroundColor: "var(--bg-secondary, #181818)",
+        border: "1px solid var(--border-primary, #2a2a2a)",
+        borderRadius: "3px",
+        overflow: "hidden",
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      <button
+        type="button"
+        disabled={disabled || (min !== undefined && value <= min)}
+        onClick={() => adjust(-step)}
+        style={{ ...btnStyle, borderRight: "1px solid var(--border-primary, #2a2a2a)" }}
+        title="Decrease"
+      >
+        <ChevronLeft size={12} />
+      </button>
+      <input
+        type="number"
+        className="env-sim-num-input"
+        disabled={disabled}
+        value={draft}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => {
+          const valStr = e.target.value;
+          setDraft(valStr);
+          const parsed = isFloat ? parseFloat(valStr) : parseInt(valStr, 10);
+          if (!isNaN(parsed)) {
+            onChange(clamp(parsed));
+          }
+        }}
+        onBlur={() => commit(draft)}
+        style={{
+          backgroundColor: "transparent",
+          border: "none",
+          color: "var(--text-primary, #e0e0e0)",
+          padding: "4px 6px",
+          fontSize: "11px",
+          fontFamily: "var(--font-mono)",
+          outline: "none",
+          width: "100%",
+          textAlign: "center",
+          minWidth: 0,
+        }}
+      />
+      <button
+        type="button"
+        disabled={disabled || (max !== undefined && value >= max)}
+        onClick={() => adjust(step)}
+        style={{ ...btnStyle, borderLeft: "1px solid var(--border-primary, #2a2a2a)" }}
+        title="Increase"
+      >
+        <ChevronRight size={12} />
+      </button>
+    </div>
+  );
+}
+
 export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProps) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjId, setSelectedProjId] = useState<string>("");
@@ -81,13 +192,18 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
   useEffect(() => {
     if (!selectedProjId) return;
 
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+
     (async () => {
       setIsLoading(true);
       setSaveStatus("idle");
       try {
         const configsMap = await invoke<{ [id: string]: EnvSimulationConfig }>("load_env_simulation_configs");
         const rawCfg = configsMap[selectedProjId];
-        
+
         const formatted: EnvSimulationConfig = {
           project_id: selectedProjId,
           firewall_enabled: rawCfg?.firewall_enabled ?? false,
@@ -101,7 +217,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
           unstable_server_drop_rate: rawCfg?.unstable_server_drop_rate ?? 0.0,
           unstable_server_periodic_crash_secs: rawCfg?.unstable_server_periodic_crash_secs ?? 0,
           unstable_server_error_rate: rawCfg?.unstable_server_error_rate ?? 0.0,
-          unstable_server_error_codes: rawCfg?.unstable_server_error_codes ?? "500,502,503",
+          unstable_server_error_codes: rawCfg?.unstable_server_error_codes ?? "500, 502, 503",
           cpu_limit_enabled: rawCfg?.cpu_limit_enabled ?? false,
           cpu_limit_percent: rawCfg?.cpu_limit_percent ?? 80,
           ram_limit_enabled: rawCfg?.ram_limit_enabled ?? false,
@@ -117,6 +233,12 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
       }
     })();
   }, [selectedProjId]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   // Debounced auto-save
   const triggerSave = (updated: EnvSimulationConfig) => {
@@ -135,7 +257,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
       } finally {
         setIsSaving(false);
       }
-    }, 800);
+    }, 600);
   };
 
   const updateField = <K extends keyof EnvSimulationConfig>(key: K, value: EnvSimulationConfig[K]) => {
@@ -143,13 +265,13 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
     let sanitizedVal = value;
     if (typeof value === "number") {
       if (isNaN(value)) {
-        sanitizedVal = 0 as any;
+        sanitizedVal = 0 as EnvSimulationConfig[K];
       } else if (key === "loss_rate" || key === "unstable_server_drop_rate" || key === "unstable_server_error_rate") {
-        sanitizedVal = Math.min(100, Math.max(0, value)) as any;
+        sanitizedVal = Math.min(100, Math.max(0, value)) as EnvSimulationConfig[K];
       } else if (key === "cpu_limit_percent") {
-        sanitizedVal = Math.min(100, Math.max(1, value)) as any;
+        sanitizedVal = Math.min(100, Math.max(1, value)) as EnvSimulationConfig[K];
       } else {
-        sanitizedVal = Math.max(0, value) as any;
+        sanitizedVal = Math.max(0, value) as EnvSimulationConfig[K];
       }
     }
     const updated = { ...config, [key]: sanitizedVal };
@@ -157,11 +279,16 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
     triggerSave(updated);
   };
 
-  const addCustomEnv = (presetKey?: string, presetVal?: string, presetVis?: "exposed" | "hidden", presetScope?: "inbound" | "outbound" | "both") => {
+  const addCustomEnv = (
+    presetKey?: string,
+    presetVal?: string,
+    presetVis?: "exposed" | "hidden",
+    presetScope?: "inbound" | "outbound" | "both"
+  ) => {
     if (!config) return;
     const newEnv: SimulatedEnvVar = {
       id: "env_" + Date.now() + "_" + Math.floor(Math.random() * 1000),
-      key: presetKey ?? "SIM_GATEWAY_MARKER",
+      key: presetKey ?? "X-Gateway-Marker",
       value: presetVal ?? "trace_id_" + Math.floor(Math.random() * 10000),
       visibility: presetVis ?? "hidden",
       scope: presetScope ?? "both",
@@ -176,7 +303,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
     triggerSave(updated);
   };
 
-  const updateCustomEnv = (id: string, field: keyof SimulatedEnvVar, val: any) => {
+  const updateCustomEnv = (id: string, field: keyof SimulatedEnvVar, val: string | boolean) => {
     if (!config) return;
     const updatedEnvs = (config.custom_envs || []).map((e) => {
       if (e.id === id) {
@@ -204,16 +331,22 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
   const applyFirewallPreset = (preset: string) => {
     if (!config) return;
     let rules = config.firewall_rules;
+    let enabled = config.firewall_enabled;
     if (preset === "local_only") {
-      rules = "*.com, *.org, *.net, *.edu, *.gov, *.io, *.co, *.info, *.me, *.dev, *.ai, github.com, google.com";
+      rules = "*, !localhost, !127.0.0.1, !::1, !*.local, !192.168.*, !10.*";
+      enabled = true;
     } else if (preset === "block_social") {
       rules = "facebook.com, *.facebook.com, twitter.com, *.twitter.com, x.com, *.x.com, instagram.com, *.instagram.com, tiktok.com, *.tiktok.com, youtube.com, *.youtube.com";
+      enabled = true;
     } else if (preset === "block_google") {
       rules = "google.com, *.google.com, googleapis.com, *.googleapis.com, gstatic.com, *.gstatic.com";
+      enabled = true;
     } else if (preset === "clear") {
       rules = "";
     }
-    updateField("firewall_rules", rules);
+    const updated = { ...config, firewall_enabled: enabled, firewall_rules: rules };
+    setConfig(updated);
+    triggerSave(updated);
   };
 
   if (isLoading) {
@@ -224,7 +357,6 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
     );
   }
 
-  // Monochrome styling tokens
   const inputStyle: React.CSSProperties = {
     backgroundColor: "var(--bg-secondary, #181818)",
     border: "1px solid var(--border-primary, #2a2a2a)",
@@ -267,20 +399,28 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
   };
 
   const buttonPresetStyle: React.CSSProperties = {
-    fontSize: "9px",
-    padding: "3px 7px",
+    fontSize: "10px",
+    padding: "3px 8px",
     borderRadius: "3px",
     border: "1px solid var(--border-primary, #2a2a2a)",
     backgroundColor: "rgba(255, 255, 255, 0.04)",
     color: "var(--text-primary, #e0e0e0)",
     cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: "4px",
   };
 
   return (
     <div style={panelStyle}>
+      <style>{`
+        .env-sim-num-input::-webkit-inner-spin-button,
+        .env-sim-num-input::-webkit-outer-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        .env-sim-num-input {
+          -moz-appearance: textfield;
+        }
+      `}</style>
+
       {/* Header controls */}
       <div style={headerStyle}>
         <div>
@@ -293,7 +433,6 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-          {/* Project Switcher */}
           <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
             <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>Project:</span>
             <select
@@ -319,7 +458,6 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
             </select>
           </div>
 
-          {/* Save Status */}
           <div style={{ fontSize: "10px", color: "var(--text-secondary)" }}>
             {isSaving ? "Saving..." : saveStatus === "success" ? "Saved" : saveStatus === "error" ? "Error saving" : "Auto-save"}
           </div>
@@ -328,15 +466,11 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
 
       {config ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-          
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
             {/* FIREWALL BLOCK */}
             <div style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-primary)", paddingBottom: "6px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <Shield size={14} style={{ color: "var(--text-primary)" }} />
-                  <span style={{ fontWeight: 600 }}>Firewall Rules</span>
-                </div>
+                <span style={{ fontWeight: 600 }}>Firewall Rules</span>
                 <input
                   type="checkbox"
                   checked={config.firewall_enabled}
@@ -346,25 +480,13 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
               </div>
 
               <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  onClick={() => applyFirewallPreset("local_only")}
-                  style={buttonPresetStyle}
-                >
+                <button type="button" onClick={() => applyFirewallPreset("local_only")} style={buttonPresetStyle}>
                   Local Only
                 </button>
-                <button
-                  type="button"
-                  onClick={() => applyFirewallPreset("block_social")}
-                  style={buttonPresetStyle}
-                >
+                <button type="button" onClick={() => applyFirewallPreset("block_social")} style={buttonPresetStyle}>
                   Block Socials
                 </button>
-                <button
-                  type="button"
-                  onClick={() => applyFirewallPreset("block_google")}
-                  style={buttonPresetStyle}
-                >
+                <button type="button" onClick={() => applyFirewallPreset("block_google")} style={buttonPresetStyle}>
                   Block Google
                 </button>
                 <button
@@ -378,7 +500,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
 
               <div>
                 <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>
-                  Blocked domains/IPs (comma separated):
+                  Blocked domains/IPs (comma separated, prefix ! to allow):
                 </label>
                 <textarea
                   rows={3}
@@ -394,10 +516,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
             {/* NETWORK SIMULATION BLOCK */}
             <div style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-primary)", paddingBottom: "6px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <ChartNetwork size={14} style={{ color: "var(--text-primary)" }} />
-                  <span style={{ fontWeight: 600 }}>Network Simulation</span>
-                </div>
+                <span style={{ fontWeight: 600 }}>Network Simulation</span>
                 <input
                   type="checkbox"
                   checked={config.weak_network_enabled}
@@ -409,50 +528,49 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <div>
                   <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Latency (ms):</label>
-                  <input
-                    type="number"
+                  <NumberStepper
                     disabled={!config.weak_network_enabled}
                     value={config.latency_ms}
-                    onChange={(e) => updateField("latency_ms", parseInt(e.target.value) || 0)}
-                    style={inputStyle}
-                    min="0"
+                    onChange={(v) => updateField("latency_ms", v)}
+                    min={0}
+                    max={60000}
+                    step={25}
                   />
                 </div>
 
                 <div>
                   <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Jitter (ms):</label>
-                  <input
-                    type="number"
+                  <NumberStepper
                     disabled={!config.weak_network_enabled}
                     value={config.jitter_ms}
-                    onChange={(e) => updateField("jitter_ms", parseInt(e.target.value) || 0)}
-                    style={inputStyle}
-                    min="0"
+                    onChange={(v) => updateField("jitter_ms", v)}
+                    min={0}
+                    max={30000}
+                    step={10}
                   />
                 </div>
 
                 <div>
                   <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Packet Loss (%):</label>
-                  <input
-                    type="number"
+                  <NumberStepper
                     disabled={!config.weak_network_enabled}
                     value={config.loss_rate}
-                    onChange={(e) => updateField("loss_rate", parseFloat(e.target.value) || 0)}
-                    style={inputStyle}
-                    min="0"
-                    max="100"
+                    onChange={(v) => updateField("loss_rate", v)}
+                    min={0}
+                    max={100}
+                    step={1}
+                    isFloat
                   />
                 </div>
 
                 <div>
                   <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Bandwidth (Kbps, 0=unlimited):</label>
-                  <input
-                    type="number"
+                  <NumberStepper
                     disabled={!config.weak_network_enabled}
                     value={config.bandwidth_kbps}
-                    onChange={(e) => updateField("bandwidth_kbps", parseInt(e.target.value) || 0)}
-                    style={inputStyle}
-                    min="0"
+                    onChange={(v) => updateField("bandwidth_kbps", v)}
+                    min={0}
+                    step={128}
                   />
                 </div>
               </div>
@@ -461,10 +579,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
             {/* UNSTABLE SERVER SIMULATION BLOCK */}
             <div style={cardStyle}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-primary)", paddingBottom: "6px" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                  <Server size={14} style={{ color: "var(--text-primary)" }} />
-                  <span style={{ fontWeight: 600 }}>Unstable Server Simulation</span>
-                </div>
+                <span style={{ fontWeight: 600 }}>Unstable Server Simulation</span>
                 <input
                   type="checkbox"
                   checked={config.unstable_server_enabled}
@@ -476,39 +591,38 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px" }}>
                 <div>
                   <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Drop Rate (%):</label>
-                  <input
-                    type="number"
+                  <NumberStepper
                     disabled={!config.unstable_server_enabled}
                     value={config.unstable_server_drop_rate}
-                    onChange={(e) => updateField("unstable_server_drop_rate", parseFloat(e.target.value) || 0)}
-                    style={inputStyle}
-                    min="0"
-                    max="100"
+                    onChange={(v) => updateField("unstable_server_drop_rate", v)}
+                    min={0}
+                    max={100}
+                    step={5}
+                    isFloat
                   />
                 </div>
 
                 <div>
                   <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Error Rate (%):</label>
-                  <input
-                    type="number"
+                  <NumberStepper
                     disabled={!config.unstable_server_enabled}
                     value={config.unstable_server_error_rate}
-                    onChange={(e) => updateField("unstable_server_error_rate", parseFloat(e.target.value) || 0)}
-                    style={inputStyle}
-                    min="0"
-                    max="100"
+                    onChange={(v) => updateField("unstable_server_error_rate", v)}
+                    min={0}
+                    max={100}
+                    step={5}
+                    isFloat
                   />
                 </div>
 
                 <div>
                   <label style={{ fontSize: "10px", color: "var(--text-secondary)", display: "block", marginBottom: "4px" }}>Periodic Crash (s, 0=disable):</label>
-                  <input
-                    type="number"
+                  <NumberStepper
                     disabled={!config.unstable_server_enabled}
                     value={config.unstable_server_periodic_crash_secs}
-                    onChange={(e) => updateField("unstable_server_periodic_crash_secs", parseInt(e.target.value) || 0)}
-                    style={inputStyle}
-                    min="0"
+                    onChange={(v) => updateField("unstable_server_periodic_crash_secs", v)}
+                    min={0}
+                    step={5}
                   />
                 </div>
 
@@ -519,7 +633,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
                     disabled={!config.unstable_server_enabled}
                     value={config.unstable_server_error_codes}
                     onChange={(e) => updateField("unstable_server_error_codes", e.target.value)}
-                    placeholder="500,502,503"
+                    placeholder="500, 502, 503"
                     style={inputStyle}
                   />
                 </div>
@@ -528,17 +642,15 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
 
             {/* RESOURCE LIMITS BLOCK */}
             <div style={cardStyle}>
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", borderBottom: "1px solid var(--border-primary)", paddingBottom: "6px" }}>
-                <Cpu size={14} style={{ color: "var(--text-primary)" }} />
+              <div style={{ borderBottom: "1px solid var(--border-primary)", paddingBottom: "6px" }}>
                 <span style={{ fontWeight: 600 }}>Simulated Resource Limits</span>
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 <p style={{ fontSize: "10px", color: "var(--text-secondary)", margin: 0 }}>
-                  These limits are for sandbox simulation only and are independent of system project configurations.
+                  Watchdog kills the process if CPU or RAM exceeds these limits continuously for 30s.
                 </p>
 
-                {/* CPU Limit */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <input
@@ -549,20 +661,18 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
                     />
                     <span>CPU Limit (%):</span>
                   </div>
-                  <div style={{ width: "100px" }}>
-                    <input
-                      type="number"
+                  <div style={{ width: "120px" }}>
+                    <NumberStepper
                       disabled={!config.cpu_limit_enabled}
                       value={config.cpu_limit_percent}
-                      onChange={(e) => updateField("cpu_limit_percent", Math.max(1, parseInt(e.target.value) || 1))}
-                      style={inputStyle}
-                      min="1"
-                      max="100"
+                      onChange={(v) => updateField("cpu_limit_percent", v)}
+                      min={1}
+                      max={100}
+                      step={5}
                     />
                   </div>
                 </div>
 
-                {/* RAM Limit */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "10px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                     <input
@@ -573,14 +683,13 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
                     />
                     <span>RAM Limit (MB):</span>
                   </div>
-                  <div style={{ width: "100px" }}>
-                    <input
-                      type="number"
+                  <div style={{ width: "120px" }}>
+                    <NumberStepper
                       disabled={!config.ram_limit_enabled}
                       value={config.ram_limit_mb}
-                      onChange={(e) => updateField("ram_limit_mb", Math.max(1, parseInt(e.target.value) || 1))}
-                      style={inputStyle}
-                      min="1"
+                      onChange={(v) => updateField("ram_limit_mb", v)}
+                      min={1}
+                      step={128}
                     />
                   </div>
                 </div>
@@ -588,35 +697,33 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
             </div>
           </div>
 
-          {/* CUSTOM ENV VARS & GATEWAY MARKERS BLOCK (MONOCHROME & ENGLISH) */}
+          {/* CUSTOM ENV VARS & GATEWAY MARKERS BLOCK */}
           <div style={cardStyle}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-primary)", paddingBottom: "8px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid var(--border-primary)", paddingBottom: "8px", flexWrap: "wrap", gap: "8px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <Dna size={14} style={{ color: "var(--text-primary)" }} />
                 <span style={{ fontWeight: 600 }}>Env Variables & Gateway Markers Injection</span>
                 <span style={{ fontSize: "9px", padding: "2px 6px", borderRadius: "10px", backgroundColor: "rgba(255, 255, 255, 0.06)", color: "var(--text-secondary)", border: "1px solid var(--border-primary)", fontWeight: 500 }}>
                   Exposed / Hidden Cloaked
                 </span>
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                {/* Presets buttons (Monochrome & English) */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "wrap" }}>
                 <div style={{ display: "flex", gap: "4px" }}>
                   <button
                     type="button"
-                    onClick={() => addCustomEnv("X_GATEWAY_TRACE_ID", "trace_id_9981", "hidden", "both")}
+                    onClick={() => addCustomEnv("X-Gateway-Trace-Id", "trace_id_9981", "hidden", "both")}
                     style={buttonPresetStyle}
-                    title="Inject Cloaked Trace ID for both Inbound & Outbound"
+                    title="Inject Cloaked Trace ID header for both Inbound & Outbound"
                   >
-                    <Plus size={10} /> Gateway Trace ID
+                    + Gateway Trace ID
                   </button>
                   <button
                     type="button"
-                    onClick={() => addCustomEnv("X_SIM_AUTH_MARKER", "secret_auth_token", "hidden", "inbound")}
+                    onClick={() => addCustomEnv("X-Sim-Auth-Marker", "secret_auth_token", "hidden", "inbound")}
                     style={buttonPresetStyle}
-                    title="Inject Cloaked Auth Token for Inbound"
+                    title="Inject Cloaked Auth Token header for Inbound"
                   >
-                    <Plus size={10} /> Auth Token Marker
+                    + Auth Token Marker
                   </button>
                   <button
                     type="button"
@@ -624,7 +731,7 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
                     style={buttonPresetStyle}
                     title="Inject Exposed Environment Variable"
                   >
-                    <Plus size={10} /> Stage Env
+                    + Stage Env
                   </button>
                 </div>
 
@@ -640,12 +747,9 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
                     color: "var(--bg-primary)",
                     fontWeight: 600,
                     cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "4px",
                   }}
                 >
-                  <Plus size={12} /> Add Custom
+                  + Add Custom
                 </button>
 
                 <input
@@ -658,181 +762,130 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
             </div>
 
             <p style={{ fontSize: "10px", color: "var(--text-secondary)", margin: 0 }}>
-              Simulate exposed environment variables injected into the process or hidden cloaked markers auto-injected as HTTP headers via Gateway Proxies.
+              Exposed variables are injected into process env; Hidden markers are injected as HTTP headers via Gateway Proxies according to scope.
             </p>
 
             {config.custom_envs && config.custom_envs.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginTop: "4px" }}>
-                {config.custom_envs.map((env) => {
-                  return (
-                    <div
-                      key={env.id}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        backgroundColor: "var(--bg-secondary, #181818)",
-                        padding: "8px 12px",
-                        borderRadius: "4px",
-                        border: "1px solid var(--border-primary, #2a2a2a)",
-                        opacity: env.enabled ? 1 : 0.4,
-                        transition: "all 0.2s ease",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={env.enabled}
-                        onChange={(e) => updateCustomEnv(env.id, "enabled", e.target.checked)}
-                        style={{ cursor: "pointer" }}
-                      />
+                {config.custom_envs.map((env) => (
+                  <div
+                    key={env.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                      backgroundColor: "var(--bg-secondary, #181818)",
+                      padding: "8px 12px",
+                      borderRadius: "4px",
+                      border: "1px solid var(--border-primary, #2a2a2a)",
+                      opacity: env.enabled ? 1 : 0.4,
+                      transition: "all 0.2s ease",
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={env.enabled}
+                      onChange={(e) => updateCustomEnv(env.id, "enabled", e.target.checked)}
+                      style={{ cursor: "pointer" }}
+                    />
 
-                      {/* Key Input */}
-                      <input
-                        type="text"
-                        value={env.key}
-                        onChange={(e) => updateCustomEnv(env.id, "key", e.target.value)}
-                        placeholder="KEY (e.g. SIM_GATEWAY_TOKEN)"
-                        style={{ ...inputStyle, width: "190px", fontWeight: 600, color: "var(--text-primary)" }}
-                      />
+                    <input
+                      type="text"
+                      value={env.key}
+                      onChange={(e) => updateCustomEnv(env.id, "key", e.target.value)}
+                      placeholder="KEY or X-Header-Name"
+                      style={{ ...inputStyle, width: "190px", fontWeight: 600, color: "var(--text-primary)" }}
+                    />
 
-                      <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>=</span>
+                    <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>=</span>
 
-                      {/* Value Input */}
-                      <input
-                        type="text"
-                        value={env.value}
-                        onChange={(e) => updateCustomEnv(env.id, "value", e.target.value)}
-                        placeholder="VALUE"
-                        style={{ ...inputStyle, flex: 1 }}
-                      />
+                    <input
+                      type="text"
+                      value={env.value}
+                      onChange={(e) => updateCustomEnv(env.id, "value", e.target.value)}
+                      placeholder="VALUE"
+                      style={{ ...inputStyle, flex: 1 }}
+                    />
 
-                      {/* English & Monochrome Icon Pill Toggle for Visibility */}
-                      <div style={{ display: "flex", gap: "2px", backgroundColor: "rgba(0,0,0,0.4)", padding: "2px", borderRadius: "4px", border: "1px solid var(--border-primary)" }}>
-                        <button
-                          type="button"
-                          onClick={() => updateCustomEnv(env.id, "visibility", "exposed")}
-                          style={{
-                            fontSize: "10px",
-                            padding: "3px 8px",
-                            borderRadius: "3px",
-                            border: "none",
-                            cursor: "pointer",
-                            fontWeight: env.visibility === "exposed" ? 600 : 400,
-                            backgroundColor: env.visibility === "exposed" ? "rgba(255, 255, 255, 0.12)" : "transparent",
-                            color: env.visibility === "exposed" ? "var(--text-primary)" : "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <Eye size={12} /> Exposed
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateCustomEnv(env.id, "visibility", "hidden")}
-                          style={{
-                            fontSize: "10px",
-                            padding: "3px 8px",
-                            borderRadius: "3px",
-                            border: "none",
-                            cursor: "pointer",
-                            fontWeight: env.visibility === "hidden" ? 600 : 400,
-                            backgroundColor: env.visibility === "hidden" ? "rgba(255, 255, 255, 0.12)" : "transparent",
-                            color: env.visibility === "hidden" ? "var(--text-primary)" : "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <Lock size={12} /> Hidden
-                        </button>
-                      </div>
-
-                      {/* English & Monochrome Icon Segment Buttons for Scope */}
-                      <div style={{ display: "flex", gap: "2px", backgroundColor: "rgba(0,0,0,0.4)", padding: "2px", borderRadius: "4px", border: "1px solid var(--border-primary)" }}>
-                        <button
-                          type="button"
-                          onClick={() => updateCustomEnv(env.id, "scope", "both")}
-                          title="Both Inbound & Outbound streams"
-                          style={{
-                            fontSize: "10px",
-                            padding: "3px 7px",
-                            borderRadius: "3px",
-                            border: "none",
-                            cursor: "pointer",
-                            fontWeight: env.scope === "both" ? 600 : 400,
-                            backgroundColor: env.scope === "both" ? "rgba(255, 255, 255, 0.12)" : "transparent",
-                            color: env.scope === "both" ? "var(--text-primary)" : "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <TrendingUpDown size={12} /> Both
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateCustomEnv(env.id, "scope", "inbound")}
-                          title="Inbound Gateway stream only"
-                          style={{
-                            fontSize: "10px",
-                            padding: "3px 7px",
-                            borderRadius: "3px",
-                            border: "none",
-                            cursor: "pointer",
-                            fontWeight: env.scope === "inbound" ? 600 : 400,
-                            backgroundColor: env.scope === "inbound" ? "rgba(255, 255, 255, 0.12)" : "transparent",
-                            color: env.scope === "inbound" ? "var(--text-primary)" : "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <ArrowDown size={12} /> Inbound
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => updateCustomEnv(env.id, "scope", "outbound")}
-                          title="Outbound Proxy stream only"
-                          style={{
-                            fontSize: "10px",
-                            padding: "3px 7px",
-                            borderRadius: "3px",
-                            border: "none",
-                            cursor: "pointer",
-                            fontWeight: env.scope === "outbound" ? 600 : 400,
-                            backgroundColor: env.scope === "outbound" ? "rgba(255, 255, 255, 0.12)" : "transparent",
-                            color: env.scope === "outbound" ? "var(--text-primary)" : "var(--text-secondary)",
-                            display: "flex",
-                            alignItems: "center",
-                            gap: "4px",
-                          }}
-                        >
-                          <ArrowUp size={12} /> Outbound
-                        </button>
-                      </div>
-
-                      {/* Delete Button */}
+                    {/* Visibility Toggle */}
+                    <div style={{ display: "flex", gap: "2px", backgroundColor: "rgba(0,0,0,0.4)", padding: "2px", borderRadius: "4px", border: "1px solid var(--border-primary)" }}>
                       <button
                         type="button"
-                        onClick={() => deleteCustomEnv(env.id)}
+                        onClick={() => updateCustomEnv(env.id, "visibility", "exposed")}
                         style={{
-                          backgroundColor: "transparent",
-                          border: "none",
-                          color: "var(--text-secondary)",
-                          cursor: "pointer",
-                          padding: "4px 6px",
+                          fontSize: "10px",
+                          padding: "3px 8px",
                           borderRadius: "3px",
-                          display: "flex",
-                          alignItems: "center",
+                          border: "none",
+                          cursor: "pointer",
+                          fontWeight: env.visibility === "exposed" ? 600 : 400,
+                          backgroundColor: env.visibility === "exposed" ? "rgba(255, 255, 255, 0.12)" : "transparent",
+                          color: env.visibility === "exposed" ? "var(--text-primary)" : "var(--text-secondary)",
                         }}
-                        title="Delete variable"
                       >
-                        <Trash2 size={13} />
+                        Exposed
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => updateCustomEnv(env.id, "visibility", "hidden")}
+                        style={{
+                          fontSize: "10px",
+                          padding: "3px 8px",
+                          borderRadius: "3px",
+                          border: "none",
+                          cursor: "pointer",
+                          fontWeight: env.visibility === "hidden" ? 600 : 400,
+                          backgroundColor: env.visibility === "hidden" ? "rgba(255, 255, 255, 0.12)" : "transparent",
+                          color: env.visibility === "hidden" ? "var(--text-primary)" : "var(--text-secondary)",
+                        }}
+                      >
+                        Hidden
                       </button>
                     </div>
-                  );
-                })}
+
+                    {/* Scope Toggle */}
+                    <div style={{ display: "flex", gap: "2px", backgroundColor: "rgba(0,0,0,0.4)", padding: "2px", borderRadius: "4px", border: "1px solid var(--border-primary)" }}>
+                      {(["both", "inbound", "outbound"] as const).map((sc) => (
+                        <button
+                          key={sc}
+                          type="button"
+                          onClick={() => updateCustomEnv(env.id, "scope", sc)}
+                          style={{
+                            fontSize: "10px",
+                            padding: "3px 7px",
+                            borderRadius: "3px",
+                            border: "none",
+                            cursor: "pointer",
+                            textTransform: "capitalize",
+                            fontWeight: env.scope === sc ? 600 : 400,
+                            backgroundColor: env.scope === sc ? "rgba(255, 255, 255, 0.12)" : "transparent",
+                            color: env.scope === sc ? "var(--text-primary)" : "var(--text-secondary)",
+                          }}
+                        >
+                          {sc}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => deleteCustomEnv(env.id)}
+                      style={{
+                        backgroundColor: "transparent",
+                        border: "none",
+                        color: "var(--text-secondary)",
+                        cursor: "pointer",
+                        padding: "2px 6px",
+                        borderRadius: "3px",
+                        fontSize: "13px",
+                        lineHeight: 1,
+                      }}
+                      title="Delete variable"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
               </div>
             ) : (
               <div style={{ fontSize: "10px", color: "var(--text-secondary)", fontStyle: "italic", textAlign: "center", padding: "12px 0", border: "1px dashed var(--border-primary)", borderRadius: "4px" }}>
@@ -840,7 +893,6 @@ export default function EnvironmentSetup({ activeProject }: EnvironmentSetupProp
               </div>
             )}
           </div>
-
         </div>
       ) : (
         <div style={{ display: "flex", height: "60%", alignItems: "center", justifyContent: "center", color: "var(--text-secondary)", fontSize: "11px" }}>

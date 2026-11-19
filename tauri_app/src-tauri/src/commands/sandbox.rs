@@ -15,8 +15,9 @@ pub async fn load_env_simulation_configs(
 #[tauri::command]
 pub async fn save_env_simulation_config(
     state: State<'_, AppState>,
-    config: EnvSimulationConfig,
+    mut config: EnvSimulationConfig,
 ) -> Result<(), String> {
+    config.sanitize();
     let pm = state.process_manager.lock().await;
     let path = pm.app_data_dir.join("env_simulation.yml");
     let mut configs = EnvSimulationConfig::load_all_from_file(&path)?;

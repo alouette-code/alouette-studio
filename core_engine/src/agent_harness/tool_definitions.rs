@@ -595,7 +595,7 @@ pub fn all_tools() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "open_browser",
-            description: "Open the integrated Google Chrome and navigate to a specific URL. This will start the browser instance so you can interact with it.",
+            description: "Open Google Chrome and navigate to a URL. If Chrome CDP is already running, reuses the active browser session and navigates to the URL.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -608,34 +608,64 @@ pub fn all_tools() -> Vec<ToolDef> {
             }),
         },
         ToolDef {
+            name: "browser_navigate",
+            description: "Navigate the active browser tab to a URL, or perform 'back', 'forward', or 'reload'.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "Target URL, or 'back', 'forward', 'reload'."
+                    }
+                },
+                "required": ["url"]
+            }),
+        },
+        ToolDef {
             name: "get_browser_elements",
-            description: "Get all interactive elements (buttons, inputs, links) from the currently open Google Chrome page with their coordinates.",
+            description: "Get a structured snapshot of the current page (URL, title, scroll position, and indexed interactive elements with ref_id, role, label, and coordinates). Use ref_id in browser_click / browser_type.",
             parameters: json!({
                 "type": "object",
                 "properties": {}
             }),
         },
         ToolDef {
-            name: "browser_click",
-            description: "Move the mouse to specific coordinates and click. Use this after getting coordinates from get_browser_elements.",
+            name: "browser_get_content",
+            description: "Read the visible text content, URL, and title of the active browser page.",
             parameters: json!({
                 "type": "object",
                 "properties": {
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "Maximum characters to return (default 8000)."
+                    }
+                }
+            }),
+        },
+        ToolDef {
+            name: "browser_click",
+            description: "Click an element on the current page. Prefer passing 'ref_id' from get_browser_elements (auto-scrolls into view), or fallback to 'x' and 'y' viewport coordinates.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "ref_id": {
+                        "type": "integer",
+                        "description": "The element ref_id from get_browser_elements (preferred)."
+                    },
                     "x": {
                         "type": "integer",
-                        "description": "The X coordinate."
+                        "description": "Optional fallback X coordinate."
                     },
                     "y": {
                         "type": "integer",
-                        "description": "The Y coordinate."
+                        "description": "Optional fallback Y coordinate."
                     }
-                },
-                "required": ["x", "y"]
+                }
             }),
         },
         ToolDef {
             name: "browser_type",
-            description: "Type text using the virtual keyboard. You may optionally press Enter by setting press_enter to true. Use this after clicking on an input element.",
+            description: "Type text into an element by 'ref_id' (or the currently focused element). Supports clearing existing text and pressing Enter.",
             parameters: json!({
                 "type": "object",
                 "properties": {
@@ -643,12 +673,82 @@ pub fn all_tools() -> Vec<ToolDef> {
                         "type": "string",
                         "description": "The text to type."
                     },
+                    "ref_id": {
+                        "type": "integer",
+                        "description": "Optional target element ref_id from get_browser_elements."
+                    },
+                    "clear": {
+                        "type": "boolean",
+                        "description": "If true, clears the input before typing (default false)."
+                    },
                     "press_enter": {
                         "type": "boolean",
-                        "description": "If true, presses the Enter key after typing."
+                        "description": "If true, presses Enter after typing."
                     }
                 },
                 "required": ["text"]
+            }),
+        },
+        ToolDef {
+            name: "browser_scroll",
+            description: "Scroll the active browser page ('down', 'up', 'top', or 'bottom').",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "direction": {
+                        "type": "string",
+                        "description": "Scroll direction: 'down', 'up', 'top', or 'bottom'."
+                    },
+                    "amount": {
+                        "type": "integer",
+                        "description": "Pixels to scroll for 'up'/'down' (default 600)."
+                    }
+                },
+                "required": ["direction"]
+            }),
+        },
+        ToolDef {
+            name: "browser_press_key",
+            description: "Send a keyboard key press to the active page (Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp, Space).",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "key": {
+                        "type": "string",
+                        "description": "Key name: Enter, Tab, Escape, Backspace, ArrowDown, ArrowUp, or Space."
+                    }
+                },
+                "required": ["key"]
+            }),
+        },
+        ToolDef {
+            name: "browser_wait",
+            description: "Wait for a duration in milliseconds or until a CSS selector appears in the DOM.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "ms": {
+                        "type": "integer",
+                        "description": "Milliseconds to wait (default 1000, max 15000)."
+                    },
+                    "selector": {
+                        "type": "string",
+                        "description": "Optional CSS selector to wait for (up to 10s)."
+                    }
+                }
+            }),
+        },
+        ToolDef {
+            name: "browser_screenshot",
+            description: "Capture a PNG screenshot of the active browser tab.",
+            parameters: json!({
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": "Optional output file path."
+                    }
+                }
             }),
         },
         ToolDef {

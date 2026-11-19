@@ -266,6 +266,7 @@ pub struct AgentHarness {
     running_commands: HashMap<String, RunningCommand>,
     sandbox_manager: sandbox::SandboxManager,
     pub vm_manager: Option<Arc<crate::vm_engine::VmManager>>,
+    browser_control: Arc<tokio::sync::Mutex<crate::agent_tools::browser_control::BrowserControl>>,
 }
 
 impl AgentHarness {
@@ -303,6 +304,9 @@ impl AgentHarness {
             running_commands: HashMap::new(),
             sandbox_manager: sandbox::SandboxManager::new(),
             vm_manager: None,
+            browser_control: Arc::new(tokio::sync::Mutex::new(
+                crate::agent_tools::browser_control::BrowserControl::new(),
+            )),
         }
     }
 
@@ -633,7 +637,18 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         arguments: &serde_json::Value,
     ) -> BlastRadius {
         match tool_name {
-            "open_browser" | "get_browser_elements" | "browser_click" | "browser_type" | "browser_click_hardware" | "browser_type_hardware" => BlastRadius::Local,
+            "open_browser"
+            | "browser_navigate"
+            | "get_browser_elements"
+            | "browser_get_content"
+            | "browser_click"
+            | "browser_type"
+            | "browser_scroll"
+            | "browser_press_key"
+            | "browser_wait"
+            | "browser_screenshot"
+            | "browser_click_hardware"
+            | "browser_type_hardware" => BlastRadius::Local,
             "write_file" | "replace_in_file" | "execute_command" | "vm_execute_command" | "vm_list" | "vm_start" | "vm_stop" | "vm_file_io" | "vm_checkpoint" | "vm_observe" | "vm_act" | "vm_fast_dispatch" | "check_port" => BlastRadius::Local,
             "get_project_files" | "read_file" => BlastRadius::Local,
             "delete_file" | "force_push" | "git_reset" => {
@@ -726,12 +741,18 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             "fetch_webpage" => self.execute_fetch_webpage(tool).await,
             "read_chunk" => self.execute_read_chunk(tool).await,
             "open_browser" => self.execute_open_browser(tool).await,
+            "browser_navigate" => self.execute_browser_navigate(tool).await,
             "get_browser_elements" => self.execute_get_browser_elements(tool).await,
+            "browser_get_content" => self.execute_browser_get_content(tool).await,
             "browser_click" => self.execute_browser_click(tool).await,
             "browser_type" => self.execute_browser_type(tool).await,
+            "browser_scroll" => self.execute_browser_scroll(tool).await,
+            "browser_press_key" => self.execute_browser_press_key(tool).await,
+            "browser_wait" => self.execute_browser_wait(tool).await,
+            "browser_screenshot" => self.execute_browser_screenshot(tool).await,
             "browser_click_hardware" => self.execute_browser_click_hardware(tool),
             "browser_type_hardware" => self.execute_browser_type_hardware(tool),
-            "read_screen_fallback" => self.execute_read_screen_fallback(tool),
+            "read_screen_fallback" => self.execute_read_screen_fallback(tool).await,
             _ => Err(format!("Unknown tool: {}", tool.name)),
         };
 
@@ -871,16 +892,25 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
 
     async fn execute_open_browser(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let url = tool.arguments.get("url").and_then(|v| v.as_str()).unwrap_or("https://google.com");
+
+        // Reuse already-running Chrome CDP session if available
+        {
+            let mut bc = self.browser_control.lock().await;
+            if bc.ensure_connected(9222).await.is_ok() {
+                if let Ok(nav_msg) = bc.navigate(url).await {
+                    return Ok(format!("Reused active Chrome session. {}", nav_msg));
+                }
+            }
+        }
+
         let chrome_exe = self.resolve_browser_executable().ok_or_else(|| {
             "No Chrome/Chromium/Edge binary found. Install Chrome or set ALOUETTE_CHROME_PATH.".to_string()
         })?;
         let profile_path = self.resolve_browser_profile_dir();
-
-        // Tạo profile nếu chưa có
         let _ = std::fs::create_dir_all(&profile_path);
 
         let child = tokio::process::Command::new(&chrome_exe)
-            .arg(format!("--remote-debugging-port={}", 9222))
+            .arg("--remote-debugging-port=9222")
             .arg(format!("--user-data-dir={}", profile_path.display()))
             .arg("--no-first-run")
             .arg("--no-default-browser-check")
@@ -891,48 +921,59 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
             .arg("--disable-software-rasterizer")
             .arg("--in-process-gpu")
             .arg(url)
-            .env_remove("GDK_BACKEND") // Cực kỳ quan trọng để không bị crash Wayland
+            .env_remove("GDK_BACKEND")
             .spawn();
 
         match child {
             Ok(_) => {
-                tokio::time::sleep(tokio::time::Duration::from_millis(2000)).await;
+                // Poll CDP readiness up to 5s instead of blind sleep
+                let mut bc = self.browser_control.lock().await;
+                for _ in 0..25 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+                    if bc.ensure_connected(9222).await.is_ok() {
+                        break;
+                    }
+                }
                 Ok(format!("Opened Chrome ({}) at {}", chrome_exe.display(), url))
-            },
-            Err(e) => Err(format!("Failed to open browser: {}", e))
+            }
+            Err(e) => Err(format!("Failed to open browser: {}", e)),
         }
     }
 
-    async fn execute_get_browser_elements(&self, _tool: &parser::ToolCall) -> Result<String, String> {
-        use crate::agent_tools::browser_control::BrowserControl;
-        
-        let client = reqwest::Client::new();
-        // Google Chrome thường trả về cấu hình WebSocket tại /json/version
-        let resp_res = client.get("http://127.0.0.1:9222/json/version").send().await;
-        
-        let resp = match resp_res {
-            Ok(r) => r,
-            Err(_) => return Ok("Error: Could not connect to browser CDP on port 9222. It might still be loading or unsupported. Please use 'read_screen_fallback' instead.".to_string()),
-        };
-        
-        let json_text = resp.text().await.unwrap_or_default();
-        let json_val: serde_json::Value = serde_json::from_str(&json_text).unwrap_or(serde_json::json!({}));
-        let ws_url = json_val.get("webSocketDebuggerUrl").and_then(|v| v.as_str());
-            
-        let ws_url = match ws_url {
-            Some(url) => url,
-            None => return Ok(format!("Error: No webSocketDebuggerUrl found in /json/version. Response was: {}. Please use 'read_screen_fallback' instead.", json_text)),
-        };
+    async fn execute_browser_navigate(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let url = tool
+            .arguments
+            .get("url")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing 'url' argument".to_string())?;
+        let mut bc = self.browser_control.lock().await;
+        bc.ensure_connected(9222).await?;
+        bc.navigate(url).await
+    }
 
-        let mut bc = BrowserControl::new();
-        if let Err(e) = bc.connect_cdp(ws_url).await {
-            return Ok(format!("Error connecting to CDP: {}. Please use 'read_screen_fallback' instead.", e));
+    async fn execute_get_browser_elements(&self, _tool: &parser::ToolCall) -> Result<String, String> {
+        let mut bc = self.browser_control.lock().await;
+        if let Err(e) = bc.ensure_connected(9222).await {
+            return Ok(format!(
+                "Error: {}. Please call open_browser first or use 'read_screen_fallback'.",
+                e
+            ));
         }
-        
-        match bc.get_interactive_elements().await {
-            Ok(elements) => Ok(serde_json::to_string_pretty(&elements).unwrap_or_else(|_| "[]".to_string())),
-            Err(e) => Ok(format!("Error getting elements via JS: {}. Please use 'read_screen_fallback' instead.", e))
+        match bc.snapshot_elements().await {
+            Ok(snapshot) => Ok(serde_json::to_string_pretty(&snapshot).unwrap_or_else(|_| "{}".to_string())),
+            Err(e) => Ok(format!("Error getting browser elements: {}", e)),
         }
+    }
+
+    async fn execute_browser_get_content(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let max_chars = tool
+            .arguments
+            .get("max_chars")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(8000) as usize;
+        let mut bc = self.browser_control.lock().await;
+        bc.ensure_connected(9222).await?;
+        bc.get_page_content(max_chars).await
     }
 
     fn execute_browser_click_hardware(&self, tool: &parser::ToolCall) -> Result<String, String> {
@@ -940,7 +981,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         let y = tool.arguments.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
 
         use crate::agent_tools::mouse_control::MouseControl;
-        let mut mc = MouseControl::new();
+        let mut mc = MouseControl::try_new()?;
         mc.click_at(x, y);
         Ok(format!("(Hardware Fallback) Moved OS mouse and clicked at ({}, {})", x, y))
     }
@@ -950,7 +991,7 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         let press_enter = tool.arguments.get("press_enter").and_then(|v| v.as_bool()).unwrap_or(false);
 
         use crate::agent_tools::mouse_control::MouseControl;
-        let mut mc = MouseControl::new();
+        let mut mc = MouseControl::try_new()?;
         mc.type_text(text);
         if press_enter {
             mc.press_enter();
@@ -960,133 +1001,89 @@ Do NOT save what the repo already records (code structure, past fixes, git histo
         Ok(format!("(Hardware Fallback) Typed text '{}'{} using OS keyboard", text, enter_str))
     }
 
-    fn execute_read_screen_fallback(&self, _tool: &parser::ToolCall) -> Result<String, String> {
+    async fn execute_read_screen_fallback(&self, _tool: &parser::ToolCall) -> Result<String, String> {
+        let mut bc = self.browser_control.lock().await;
+        if bc.ensure_connected(9222).await.is_ok() {
+            let out_path = std::env::temp_dir().join("alouette_browser_fallback.png");
+            if let Ok(msg) = bc.screenshot(&out_path).await {
+                return Ok(msg);
+            }
+        }
         use crate::agent_tools::screen_parser::ScreenParser;
-        // Tạm thời trả về lưới màn hình ảo 1920x1080 chia 10x10 để AI biết tọa độ án chừng
         let grid = ScreenParser::create_grid(1920, 1080, 10, 10);
-        let text = "Màn hình đã được chia lưới. Do tính năng chụp ảnh chưa được cấp quyền, hệ thống chỉ trả về lưới tọa độ tham khảo để bạn nhấp (click) theo ước lượng.";
+        let text = "CDP not connected. Returning 1920x1080 reference coordinate grid.";
         Ok(format!("{}\n\n{}", text, serde_json::to_string_pretty(&grid).unwrap_or_default()))
     }
 
     async fn execute_browser_click(&self, tool: &parser::ToolCall) -> Result<String, String> {
-        let x = tool.arguments.get("x").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
-        let y = tool.arguments.get("y").and_then(|v| v.as_i64()).unwrap_or(0) as i32;
+        let ref_id = tool.arguments.get("ref_id").and_then(|v| v.as_u64()).map(|v| v as usize);
+        let x = tool.arguments.get("x").and_then(|v| v.as_f64());
+        let y = tool.arguments.get("y").and_then(|v| v.as_f64());
 
-        let client = reqwest::Client::new();
-        let resp_res = client.get("http://127.0.0.1:9222/json/version").send().await;
-        let resp = match resp_res {
-            Ok(r) => r,
-            Err(_) => return Ok("Error: Could not connect to browser CDP".to_string()),
-        };
-        let json_text = resp.text().await.unwrap_or_default();
-        let json_val: serde_json::Value = serde_json::from_str(&json_text).unwrap_or(serde_json::json!({}));
-        let ws_url = json_val.get("webSocketDebuggerUrl").and_then(|v| v.as_str());
-
-        let ws_url_string = match ws_url {
-            Some(url) => url.to_string(),
-            None => return Ok("Error: No webSocketDebuggerUrl found".to_string()),
-        };
-
-        // Sử dụng thư viện headless_chrome chuẩn trong một thread đồng bộ để đảm bảo ổn định 100%
-        let res = tokio::task::spawn_blocking(move || {
-            use headless_chrome::Browser;
-            let browser = Browser::connect(ws_url_string).map_err(|e| format!("Connect error: {}", e))?;
-            let mut tab = None;
-            for _ in 0..15 {
-                let tabs_mutex = browser.get_tabs();
-                if let Ok(guard) = tabs_mutex.lock() {
-                    if let Some(t) = guard.first() {
-                        tab = Some(t.clone());
-                        break;
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
-            let tab = tab.ok_or("No pages found after retries")?;
-            
-            // Ẩn overlay nếu có để click không bị vướng
-            let _ = tab.evaluate(r#"
-                let o = document.getElementById('alouette-ai-overlay');
-                if (o) o.style.display = 'none';
-            "#, false);
-
-            // Gọi hàm click chuẩn của thư viện (tự động xử lý CDP cấp thấp)
-            use headless_chrome::browser::tab::point::Point;
-            let point = Point { x: x as f64, y: y as f64 };
-            tab.click_point(point).map_err(|e| format!("Native click error: {:?}", e))?;
-            
-            // Tạm dừng chờ trang xử lý sự kiện
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            
-            // Hiển thị lại overlay
-            let _ = tab.evaluate(r#"
-                let o = document.getElementById('alouette-ai-overlay');
-                if (o) o.style.display = 'flex';
-            "#, false);
-            
-            Ok::<String, String>(format!("Clicked at ({}, {}) natively via headless_chrome", x, y))
-        }).await.map_err(|e| e.to_string())??;
-
-        Ok(res)
+        let mut bc = self.browser_control.lock().await;
+        bc.ensure_connected(9222).await?;
+        bc.click(ref_id, x, y).await
     }
 
     async fn execute_browser_type(&self, tool: &parser::ToolCall) -> Result<String, String> {
         let text = tool.arguments.get("text").and_then(|v| v.as_str()).unwrap_or("");
+        let ref_id = tool.arguments.get("ref_id").and_then(|v| v.as_u64()).map(|v| v as usize);
+        let clear = tool.arguments.get("clear").and_then(|v| v.as_bool()).unwrap_or(false);
         let press_enter = tool.arguments.get("press_enter").and_then(|v| v.as_bool()).unwrap_or(false);
 
-        let client = reqwest::Client::new();
-        let resp_res = client.get("http://127.0.0.1:9222/json/version").send().await;
-        let resp = match resp_res {
-            Ok(r) => r,
-            Err(_) => return Ok("Error: Could not connect to browser CDP".to_string()),
+        let mut bc = self.browser_control.lock().await;
+        bc.ensure_connected(9222).await?;
+        bc.type_text(text, ref_id, clear, press_enter).await
+    }
+
+    async fn execute_browser_scroll(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let direction = tool
+            .arguments
+            .get("direction")
+            .and_then(|v| v.as_str())
+            .unwrap_or("down");
+        let amount = tool.arguments.get("amount").and_then(|v| v.as_i64());
+
+        let mut bc = self.browser_control.lock().await;
+        bc.ensure_connected(9222).await?;
+        bc.scroll(direction, amount).await
+    }
+
+    async fn execute_browser_press_key(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let key = tool
+            .arguments
+            .get("key")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| "Missing 'key' argument".to_string())?;
+
+        let mut bc = self.browser_control.lock().await;
+        bc.ensure_connected(9222).await?;
+        bc.press_key(key).await
+    }
+
+    async fn execute_browser_wait(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let ms = tool.arguments.get("ms").and_then(|v| v.as_u64());
+        let selector = tool.arguments.get("selector").and_then(|v| v.as_str());
+
+        let mut bc = self.browser_control.lock().await;
+        if selector.is_some() {
+            bc.ensure_connected(9222).await?;
+        }
+        bc.wait(ms, selector).await
+    }
+
+    async fn execute_browser_screenshot(&self, tool: &parser::ToolCall) -> Result<String, String> {
+        let path_buf = match tool.arguments.get("path").and_then(|v| v.as_str()) {
+            Some(p) => self.validate_path(Path::new(p))?,
+            None => std::env::temp_dir().join(format!(
+                "alouette_screenshot_{}.png",
+                chrono::Utc::now().timestamp_millis()
+            )),
         };
-        let json_text = resp.text().await.unwrap_or_default();
-        let json_val: serde_json::Value = serde_json::from_str(&json_text).unwrap_or(serde_json::json!({}));
-        let ws_url = json_val.get("webSocketDebuggerUrl").and_then(|v| v.as_str());
 
-        let ws_url_string = match ws_url {
-            Some(url) => url.to_string(),
-            None => return Ok("Error: No webSocketDebuggerUrl found".to_string()),
-        };
-
-        let text = text.to_string();
-
-        let res = tokio::task::spawn_blocking(move || {
-            use headless_chrome::Browser;
-            let browser = Browser::connect(ws_url_string).map_err(|e| format!("Connect error: {}", e))?;
-            let mut tab = None;
-            for _ in 0..15 {
-                let tabs_mutex = browser.get_tabs();
-                if let Ok(guard) = tabs_mutex.lock() {
-                    if let Some(t) = guard.first() {
-                        tab = Some(t.clone());
-                        break;
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(200));
-            }
-            let tab = tab.ok_or("No pages found after retries")?;
-
-            if !text.is_empty() {
-                // Sử dụng hàm type_str của thư viện headless_chrome (chuẩn công nghiệp)
-                tab.type_str(&text).map_err(|e| format!("Native typing error: {:?}", e))?;
-            }
-
-            if press_enter {
-                tab.press_key("Enter").map_err(|e| format!("Enter key error: {:?}", e))?;
-            }
-            
-            // Đảm bảo overlay đang hiện
-            let _ = tab.evaluate(r#"
-                let o = document.getElementById('alouette-ai-overlay');
-                if (o) o.style.display = 'flex';
-            "#, false);
-
-            Ok::<String, String>(format!("Typed '{}' natively via headless_chrome", text))
-        }).await.map_err(|e| e.to_string())??;
-
-        let enter_str = if press_enter { " and pressed Enter" } else { "" };
-        Ok(format!("{}{}", res, enter_str))
+        let mut bc = self.browser_control.lock().await;
+        bc.ensure_connected(9222).await?;
+        bc.screenshot(&path_buf).await
     }
 
     fn execute_check_port(&self, tool: &parser::ToolCall) -> Result<String, String> {
@@ -2823,12 +2820,28 @@ mod tests {
             },
         ];
 
-        AgentHarness::compact_history(&mut history, 4);
+        let mut h1 = history.clone();
+        AgentHarness::compact_history(&mut h1, 4);
 
-        assert_eq!(history.len(), 5);
-        assert_eq!(history[0].id, "1");
-        assert_eq!(history[2].id, "4");
-        assert_eq!(history[3].id, "5");
-        assert_eq!(history[4].id, "6");
+        assert_eq!(h1.len(), 4);
+        assert_eq!(h1[0].id, "1");
+        assert_eq!(h1[1].role, "system");
+        assert_eq!(h1[2].id, "5");
+        assert_eq!(h1[3].id, "6");
+
+        // When tail_start lands directly on a "tool" message (max_messages = 3 -> target_len = 1 -> tail_start = 5),
+        // compact_history must walk backward to keep the preceding "assistant" tool_call message (id "5").
+        let mut h2 = history.clone();
+        AgentHarness::compact_history(&mut h2, 3);
+        assert_eq!(h2.len(), 4);
+        assert_eq!(h2[0].id, "1");
+        assert_eq!(h2[1].role, "system");
+        assert_eq!(h2[2].id, "5");
+        assert_eq!(h2[3].id, "6");
+
+        // No-op when history length is within limit
+        let mut h3 = history;
+        AgentHarness::compact_history(&mut h3, 10);
+        assert_eq!(h3.len(), 6);
     }
 }

@@ -159,7 +159,7 @@ impl ProcessManager {
                 }
 
                 if let Some(port) = config.port {
-                    let internal_port = port + 10000;
+                    let internal_port = port.checked_add(10000).unwrap_or_else(|| port.saturating_sub(10000));
                     match super::network_simulate_proxy::start_reverse_proxy_gateway(
                         port,
                         internal_port,
@@ -326,7 +326,7 @@ impl ProcessManager {
 
                 if let Some(port) = config.port {
                     if is_sim_active {
-                        let internal_port = port + 10000;
+                        let internal_port = port.checked_add(10000).unwrap_or_else(|| port.saturating_sub(10000));
                         cmd.env("PORT", internal_port.to_string());
                     } else {
                         cmd.env("PORT", port.to_string());
@@ -345,20 +345,23 @@ impl ProcessManager {
                 }
 
                 if sim_config.env_injection_enabled {
-                    let mut injected_count = 0;
+                    let mut exposed_count = 0;
+                    let mut cloaked_count = 0;
                     for custom_env in &sim_config.custom_envs {
                         if custom_env.enabled && !custom_env.key.is_empty() {
                             if custom_env.visibility == "exposed" {
                                 cmd.env(&custom_env.key, &custom_env.value);
-                                injected_count += 1;
+                                exposed_count += 1;
                             } else if custom_env.visibility == "hidden" {
-                                cmd.env(format!("__CLOAKED_{}", custom_env.key), &custom_env.value);
-                                injected_count += 1;
+                                cloaked_count += 1;
                             }
                         }
                     }
-                    if injected_count > 0 {
-                        log_system!(format!("Watchdog: Đã tiêm {} biến môi trường giả lập (Exposed/Hidden)...", injected_count));
+                    if exposed_count > 0 || cloaked_count > 0 {
+                        log_system!(format!(
+                            "Watchdog: Đã nạp {} biến môi trường Exposed và {} Gateway Header Markers (Cloaked)...",
+                            exposed_count, cloaked_count
+                        ));
                     }
                 }
 
