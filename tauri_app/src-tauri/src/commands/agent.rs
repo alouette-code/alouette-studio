@@ -191,10 +191,15 @@ pub fn with_exposed_secrets<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
+    struct ResetGuard;
+    impl Drop for ResetGuard {
+        fn drop(&mut self) {
+            EXPOSE_SECRETS.with(|c| c.set(false));
+        }
+    }
     EXPOSE_SECRETS.with(|c| c.set(true));
-    let result = f();
-    EXPOSE_SECRETS.with(|c| c.set(false));
-    result
+    let _guard = ResetGuard;
+    f()
 }
 
 fn redact_serializer<S>(secret: &secrecy::SecretString, serializer: S) -> Result<S::Ok, S::Error>
@@ -202,8 +207,11 @@ where
     S: serde::Serializer,
 {
     let expose = EXPOSE_SECRETS.with(|c| c.get());
+    let raw = secret.expose_secret();
     if expose {
-        serializer.serialize_str(secret.expose_secret())
+        serializer.serialize_str(raw)
+    } else if raw.is_empty() || raw == "none" || raw == "[REDACTED]" || raw == "••••••••••••••••" {
+        serializer.serialize_str("")
     } else {
         serializer.serialize_str("[REDACTED]")
     }
@@ -316,6 +324,8 @@ pub async fn agent_send_message(
             active_cwd,
             thinking_mode,
             Some(app_state.vm_manager.clone()),
+            app_state.opencode_manager.clone(),
+            app_state.agent_cancel_flag.clone(),
             window,
             session_id,
         )
@@ -376,31 +386,92 @@ pub fn get_custom_ai_config() -> Result<CustomAiConfig, String> {
     Ok(load_custom_ai_config())
 }
 
-fn load_dot_env() {
+fn resolve_app_data_file(filename: &str) -> std::path::PathBuf {
     let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     for _ in 0..10 {
-        let check_path = current.join(".env");
-        if check_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&check_path) {
-                for line in content.lines() {
-                    let line = line.trim();
-                    if line.is_empty() || line.starts_with('#') {
-                        continue;
-                    }
-                    if let Some((key, val)) = line.split_once('=') {
-                        std::env::set_var(key.trim(), val.trim());
-                    }
-                }
-            }
-            break;
+        let app_data_dir = current.join("core_engine/app_data");
+        if app_data_dir.exists() {
+            return app_data_dir.join(filename);
         }
         if !current.pop() {
             break;
         }
     }
+    std::env::current_dir()
+        .unwrap_or_default()
+        .join("core_engine/app_data")
+        .join(filename)
 }
 
-fn get_encryption_key() -> Vec<u8> {
+fn set_owner_only_permissions(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+    }
+}
+
+fn load_dot_env() {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| {
+        let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        for _ in 0..10 {
+            let check_path = current.join(".env");
+            if check_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&check_path) {
+                    for line in content.lines() {
+                        let line = line.trim();
+                        if line.is_empty() || line.starts_with('#') {
+                            continue;
+                        }
+                        if let Some((key, val)) = line.split_once('=') {
+                            let k = key.trim();
+                            if std::env::var_os(k).is_none() {
+                                std::env::set_var(k, val.trim());
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+            if !current.pop() {
+                break;
+            }
+        }
+    });
+}
+
+fn get_master_key_32() -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    load_dot_env();
+    if let Ok(env_key) = std::env::var("ALOUETTE_ENCRYPTION_KEY") {
+        let mut hasher = Sha256::new();
+        hasher.update(env_key.as_bytes());
+        return hasher.finalize().into();
+    }
+
+    let key_path = resolve_app_data_file(".master_key");
+    if let Ok(bytes) = std::fs::read(&key_path) {
+        if bytes.len() == 32 {
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&bytes);
+            set_owner_only_permissions(&key_path);
+            return key;
+        }
+    }
+
+    let mut key = [0u8; 32];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut key);
+    if let Some(parent) = key_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if std::fs::write(&key_path, &key).is_ok() {
+        set_owner_only_permissions(&key_path);
+    }
+    key
+}
+
+fn get_legacy_encryption_key() -> Vec<u8> {
     load_dot_env();
     if let Ok(key) = std::env::var("ALOUETTE_ENCRYPTION_KEY") {
         key.into_bytes()
@@ -410,35 +481,84 @@ fn get_encryption_key() -> Vec<u8> {
 }
 
 fn encrypt_key(plain: &str) -> String {
-    if plain.is_empty() || plain == "none" {
-        return plain.to_string();
+    if plain.is_empty() || plain == "none" || plain == "[REDACTED]" || plain == "••••••••••••••••" {
+        return String::new();
     }
-    let encryption_key = get_encryption_key();
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Nonce,
+    };
     use base64::{engine::general_purpose::STANDARD, Engine as _};
-    let mut xored = Vec::with_capacity(plain.len());
-    for (i, byte) in plain.as_bytes().iter().enumerate() {
-        xored.push(byte ^ encryption_key[i % encryption_key.len()]);
+
+    let key_bytes = get_master_key_32();
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes).expect("32-byte key");
+    let mut nonce_bytes = [0u8; 12];
+    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+
+    match cipher.encrypt(nonce, plain.as_bytes()) {
+        Ok(ciphertext) => {
+            let mut combined = Vec::with_capacity(12 + ciphertext.len());
+            combined.extend_from_slice(&nonce_bytes);
+            combined.extend_from_slice(&ciphertext);
+            format!("enc2:{}", STANDARD.encode(&combined))
+        }
+        Err(_) => String::new(),
     }
-    format!("enc:{}", STANDARD.encode(&xored))
 }
 
 fn decrypt_key(encrypted: &str) -> String {
-    if !encrypted.starts_with("enc:") {
-        return encrypted.to_string();
-    }
-    let encryption_key = get_encryption_key();
     use base64::{engine::general_purpose::STANDARD, Engine as _};
-    let data_str = &encrypted[4..];
-    if let Ok(decoded) = STANDARD.decode(data_str) {
-        let mut plain = Vec::with_capacity(decoded.len());
-        for (i, byte) in decoded.iter().enumerate() {
-            plain.push(byte ^ encryption_key[i % encryption_key.len()]);
+
+    let plain = if let Some(data_str) = encrypted.strip_prefix("enc2:") {
+        use aes_gcm::{
+            aead::{Aead, KeyInit},
+            Aes256Gcm, Nonce,
+        };
+        if let Ok(decoded) = STANDARD.decode(data_str) {
+            if decoded.len() > 12 {
+                let (nonce_bytes, ciphertext) = decoded.split_at(12);
+                let key_bytes = get_master_key_32();
+                if let Ok(cipher) = Aes256Gcm::new_from_slice(&key_bytes) {
+                    if let Ok(pt) = cipher.decrypt(Nonce::from_slice(nonce_bytes), ciphertext) {
+                        if let Ok(s) = String::from_utf8(pt) {
+                            s
+                        } else {
+                            return String::new();
+                        }
+                    } else {
+                        return String::new();
+                    }
+                } else {
+                    return String::new();
+                }
+            } else {
+                return String::new();
+            }
+        } else {
+            return String::new();
         }
-        if let Ok(s) = String::from_utf8(plain) {
-            return s;
+    } else if let Some(data_str) = encrypted.strip_prefix("enc:") {
+        // Legacy XOR format — kept for backwards-compatible migration to enc2:
+        let encryption_key = get_legacy_encryption_key();
+        if let Ok(decoded) = STANDARD.decode(data_str) {
+            let mut pt = Vec::with_capacity(decoded.len());
+            for (i, byte) in decoded.iter().enumerate() {
+                pt.push(byte ^ encryption_key[i % encryption_key.len()]);
+            }
+            String::from_utf8(pt).unwrap_or_default()
+        } else {
+            String::new()
         }
+    } else {
+        encrypted.to_string()
+    };
+
+    if plain == "[REDACTED]" || plain == "••••••••••••••••" || plain == "none" {
+        String::new()
+    } else {
+        plain
     }
-    encrypted.to_string()
 }
 
 #[tauri::command]
@@ -493,6 +613,7 @@ pub async fn save_custom_ai_config(
 
     std::fs::write(&resolved_path, yaml_str)
         .map_err(|e| format!("Failed to write custom AI config to file: {}", e))?;
+    set_owner_only_permissions(&resolved_path);
 
     // Force OpenCode sidecar to reload providers & keys on next request
     app_state.opencode_manager.invalidate_config().await;
@@ -563,12 +684,12 @@ pub fn resolve_api_key(model_config: &ModelConfig) -> Result<String, String> {
         "qwen" => "DASHSCOPE_API_KEY",
         _ => "GEMINI_API_KEY",
     };
-    std::env::var(env_var)
-        .or_else(|_| std::env::var("GEMINI_API_KEY"))
-        .map_err(|_| format!(
-            "API Key chưa được thiết lập cho provider '{}'. Vui lòng vào phần Setting để cấu hình API Key.",
-            model_config.provider
-        ))
+    std::env::var(env_var).map_err(|_| {
+        format!(
+            "API Key chưa được thiết lập cho provider '{}' (env `{}`). Vui lòng vào phần Setting để cấu hình API Key.",
+            model_config.provider, env_var
+        )
+    })
 }
 
 pub fn load_custom_ai_config() -> CustomAiConfig {

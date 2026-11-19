@@ -267,6 +267,193 @@ impl OpenCodeManager {
             .await;
     }
 
+    /// Run a single-turn text completion in an isolated OpenCode session (used by Multi-Agent V2).
+    pub(crate) async fn run_oneshot_completion(
+        &self,
+        ai_cfg: &CustomAiConfig,
+        model_hint: &str,
+        directory: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+        cancel_flag: Option<&std::sync::atomic::AtomicBool>,
+        window: Option<&WebviewWindow>,
+    ) -> Result<String, String> {
+        let (base_url, auth) = self.ensure_ready(ai_cfg, window).await?;
+        let resolved_model = resolve_opencode_model(ai_cfg, model_hint);
+        let session_id = self.create_isolated_session(&base_url, &auth, directory).await?;
+
+        // Subscribe to SSE before sending prompt_async so we never miss events
+        let sse_url = format!("{}/event?directory={}", base_url, urlencoding_encode(directory));
+        let sse_resp = self
+            .http
+            .get(&sse_url)
+            .header("Authorization", &auth)
+            .send()
+            .await
+            .map_err(|e| format!("Kết nối SSE OpenCode thất bại: {}", e))?;
+
+        if !sse_resp.status().is_success() {
+            let txt = sse_resp.text().await.unwrap_or_default();
+            return Err(format!("OpenCode SSE lỗi: {}", txt));
+        }
+
+        self.send_prompt_async_raw(
+            &base_url,
+            &auth,
+            directory,
+            &session_id,
+            &resolved_model,
+            "alouette_readonly",
+            Some(system_prompt),
+            user_prompt,
+        )
+        .await?;
+
+        let mut stream = sse_resp.bytes_stream();
+        let mut buf = Vec::<u8>::new();
+        let mut assistant_msg_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut text_parts_order: Vec<String> = Vec::new();
+        let mut text_parts_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut delta_fallback = String::new();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(240);
+
+        loop {
+            if let Some(cf) = cancel_flag {
+                if cf.load(std::sync::atomic::Ordering::SeqCst) {
+                    self.abort_isolated_session(&base_url, &auth, directory, &session_id).await;
+                    return Err("Đã hủy theo yêu cầu người dùng.".to_string());
+                }
+            }
+
+            let chunk_opt = tokio::select! {
+                c = stream.next() => c,
+                _ = tokio::time::sleep_until(deadline) => {
+                    self.abort_isolated_session(&base_url, &auth, directory, &session_id).await;
+                    return Err("OpenCode multi-agent timeout (240s).".to_string());
+                }
+            };
+
+            let Some(chunk_res) = chunk_opt else {
+                break;
+            };
+            let bytes = chunk_res.map_err(|e| format!("OpenCode SSE stream lỗi: {}", e))?;
+            buf.extend_from_slice(&bytes);
+
+            while let Some(pos) = buf.windows(2).position(|w| w == b"\n\n" || w == b"\r\n") {
+                let is_crlf = buf[pos] == b'\r';
+                let raw = String::from_utf8_lossy(&buf[..pos]).to_string();
+                buf.drain(..pos + 2);
+                if is_crlf {
+                    // Single CRLF isn't necessarily an SSE frame boundary; check for \r\n\r\n
+                }
+                for line in raw.lines() {
+                    let Some(data) = line.strip_prefix("data:").map(|s| s.trim()) else {
+                        continue;
+                    };
+                    if data.is_empty() || data == "[DONE]" {
+                        continue;
+                    }
+                    let Ok(ev) = serde_json::from_str::<Value>(data) else {
+                        continue;
+                    };
+                    let ev_type = ev["type"].as_str().unwrap_or("");
+                    let props = &ev["properties"];
+
+                    match ev_type {
+                        "message.updated" => {
+                            let info = &props["info"];
+                            if info["sessionID"].as_str() == Some(session_id.as_str())
+                                && info["role"].as_str() == Some("assistant")
+                            {
+                                if let Some(mid) = info["id"].as_str() {
+                                    assistant_msg_ids.insert(mid.to_string());
+                                }
+                            }
+                        }
+                        "message.part.updated" => {
+                            let part = &props["part"];
+                            let p_sid = part["sessionID"].as_str().or_else(|| props["sessionID"].as_str());
+                            if p_sid != Some(session_id.as_str()) {
+                                continue;
+                            }
+                            let part_id = part["id"].as_str().unwrap_or("").to_string();
+                            let msg_id = part["messageID"].as_str().unwrap_or("");
+                            if part["type"].as_str() == Some("text") && assistant_msg_ids.contains(msg_id) {
+                                if let Some(txt) = part["text"].as_str() {
+                                    if !text_parts_map.contains_key(&part_id) {
+                                        text_parts_order.push(part_id.clone());
+                                    }
+                                    text_parts_map.insert(part_id, txt.to_string());
+                                }
+                            }
+                        }
+                        "message.part.delta" => {
+                            if props["sessionID"].as_str() == Some(session_id.as_str())
+                                && props["field"].as_str() == Some("text")
+                            {
+                                let msg_id = props["messageID"].as_str().unwrap_or("");
+                                if assistant_msg_ids.is_empty() || assistant_msg_ids.contains(msg_id) {
+                                    if let Some(d) = props["delta"].as_str() {
+                                        delta_fallback.push_str(d);
+                                    }
+                                }
+                            }
+                        }
+                        "permission.asked" => {
+                            if props["sessionID"].as_str() == Some(session_id.as_str()) {
+                                if let Some(req_id) = props["id"].as_str() {
+                                    let perm = props["permission"].as_str().unwrap_or("");
+                                    let reply = if perm == "edit" || perm == "bash" {
+                                        "reject"
+                                    } else {
+                                        "always"
+                                    };
+                                    self.reply_permission(&base_url, &auth, directory, req_id, reply).await;
+                                }
+                            }
+                        }
+                        "session.idle" => {
+                            if props["sessionID"].as_str() == Some(session_id.as_str()) {
+                                let ordered: String = text_parts_order
+                                    .iter()
+                                    .filter_map(|id| text_parts_map.get(id))
+                                    .cloned()
+                                    .collect::<Vec<_>>()
+                                    .join("\n\n");
+                                let full_text = if !ordered.trim().is_empty() {
+                                    ordered
+                                } else {
+                                    delta_fallback
+                                };
+                                return Ok(full_text);
+                            }
+                        }
+                        "session.error" => {
+                            if props["sessionID"].as_str() == Some(session_id.as_str()) {
+                                let err_msg = props["error"]["data"]["message"]
+                                    .as_str()
+                                    .or_else(|| props["error"]["message"].as_str())
+                                    .or_else(|| props["error"]["name"].as_str())
+                                    .map(|s| s.to_string())
+                                    .unwrap_or_else(|| props["error"].to_string());
+                                return Err(format!("OpenCode Error: {}", err_msg));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        let ordered: String = text_parts_order
+            .iter()
+            .filter_map(|id| text_parts_map.get(id))
+            .cloned()
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        Ok(if !ordered.trim().is_empty() { ordered } else { delta_fallback })
+    }
+
     /// Invalidate running OpenCode instance so next call reloads updated AI config/keys.
     pub async fn invalidate_config(&self) {
         let mut guard = self.process.lock().await;

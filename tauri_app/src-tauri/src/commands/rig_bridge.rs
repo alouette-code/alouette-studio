@@ -223,7 +223,6 @@ async fn call_openai_compatible(
         "messages": messages,
         "temperature": temperature,
         "top_p": top_p,
-        "max_tokens": 32000,
         "stream": true
     });
 
@@ -265,19 +264,15 @@ async fn call_openai_compatible(
     let status = response.status();
     if !status.is_success() {
         let response_text = response.text().await.unwrap_or_default();
+        let preview: String = response_text.chars().take(500).collect();
         agent_log(
             window,
             &format!(
                 "[ALOUETTE LLM ERROR] API trả về lỗi (status {}): {}",
-                status,
-                &response_text[..response_text.len().min(500)]
+                status, preview
             ),
         );
-        return Err(format!(
-            "API error ({}): {}",
-            status,
-            &response_text[..response_text.len().min(500)]
-        ));
+        return Err(format!("API error ({}): {}", status, preview));
     }
 
     agent_log(

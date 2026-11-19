@@ -1,12 +1,11 @@
 use crate::commands::agent::{
-    load_custom_ai_config, resolve_api_key, resolve_model_config, AgentResponse, run_tick, TickExecutionResult,
+    load_custom_ai_config, resolve_api_key, resolve_model_config, AgentResponse,
 };
-use crate::commands::rig_bridge;
-use core_engine::agent_harness::{AgentHarness, AgentSession, AgentState, ChatMessage, HarnessMode, MessageContent, TickResult};
+use crate::commands::opencode_bridge::OpenCodeManager;
+use core_engine::agent_harness::parser::ToolCall;
+use core_engine::agent_harness::{AgentHarness, ChatMessage, MessageContent};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tauri::{Emitter, WebviewWindow};
-use chrono::Local;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -20,137 +19,53 @@ pub struct MultiAgentStepEvent {
     pub content: String,
 }
 
-fn user_msg(text: &str) -> ChatMessage {
-    ChatMessage {
-        id: format!("usr_{}", chrono::Local::now().timestamp_millis()),
-        role: "user".to_string(),
-        content: MessageContent::Text(text.to_string()),
-        timestamp: chrono::Local::now().format("%H:%M").to_string(),
-    }
-}
-
-async fn run_subagent_loop(
-    role_id: &str,
-    role_name: &str,
-    avatar: &str,
-    system_prompt: &str,
-    task_prompt: &str,
-    model: &str,
-    api_key: &str,
-    api_url: &str,
-    api_standard: &str,
-    temperature: f32,
-    top_p: f32,
-    thinking_mode: Option<String>,
-    window: &WebviewWindow,
-    active_cwd: &std::path::Path,
-) -> Result<String, String> {
-    let mut harness = AgentHarness::new(active_cwd.to_path_buf());
-    
-    let session_id = format!("{}_{}", role_id, Local::now().timestamp_millis());
-    let mut session = AgentSession {
-        session_id: session_id.clone(),
-        history: vec![user_msg(task_prompt)],
-        state: AgentState::Idle,
-        iteration_count: 0,
-        max_iterations: 15,
-        mode: HarnessMode::Standard,
-        plan: None,
-        autonomous_state: None,
-        token_budget: 1_000_000,
-    };
-
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    let mut final_text = String::new();
-
-    loop {
-        if cancel_flag.load(Ordering::SeqCst) {
-            break;
-        }
-
-        let llm_closure = {
-            let key = api_key.to_string();
-            let mdl = model.to_string();
-            let url = api_url.to_string();
-            let std = api_standard.to_string();
-            let w = window.clone();
-            let tm = thinking_mode.clone();
-            move |sys: String, hist: Vec<ChatMessage>| {
-                let key = key.clone();
-                let mdl = mdl.clone();
-                let url = url.clone();
-                let std = std.clone();
-                let w = w.clone();
-                let tm = tm.clone();
-                async move {
-                    rig_bridge::call_rig(&std, &key, &mdl, &url, temperature, top_p, &sys, &hist, tm.as_deref(), Some(&w)).await
+fn format_history_prompt(history: &[ChatMessage]) -> String {
+    let mut out = String::new();
+    for msg in history {
+        let role = match msg.role.as_str() {
+            "user" => "User",
+            "assistant" => "Assistant",
+            "system" => "System",
+            other => other,
+        };
+        let text = match &msg.content {
+            MessageContent::Text(t) => t.clone(),
+            MessageContent::ToolCalls(tcs, text_opt) => {
+                let calls_str = tcs
+                    .iter()
+                    .map(|tc| format!("[ToolCall: {}({})]", tc.name, tc.raw_arguments))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                match text_opt {
+                    Some(t) if !t.trim().is_empty() => format!("{}\n{}", t, calls_str),
+                    _ => calls_str,
                 }
+            }
+            MessageContent::ToolResult {
+                tool_name,
+                result,
+                success,
+                ..
+            } => {
+                format!("[ToolResult: {} (success={})]\n{}", tool_name, success, result)
             }
         };
-
-        let tick_res = run_tick(&mut harness, &mut session, system_prompt, cancel_flag.clone(), llm_closure).await;
-        
-        match tick_res {
-            TickExecutionResult::Completed(TickResult::Continue { thought, tool_name, tool_result, iteration }) => {
-                // Emit multi-agent-step to show activity
-                if let Some(ref t) = thought {
-                    let ev = MultiAgentStepEvent {
-                        session_id: session_id.clone(),
-                        step: iteration,
-                        agent_role: role_id.to_string(),
-                        agent_name: role_name.to_string(),
-                        avatar: avatar.to_string(),
-                        content: format!("Suy nghĩ: {}", t),
-                    };
-                    let _ = window.emit("multi-agent-step", &ev);
-                }
-                if let Some(ref tn) = tool_name {
-                    let ev = MultiAgentStepEvent {
-                        session_id: session_id.clone(),
-                        step: iteration,
-                        agent_role: role_id.to_string(),
-                        agent_name: role_name.to_string(),
-                        avatar: avatar.to_string(),
-                        content: format!("Đang chạy tool: {}", tn),
-                    };
-                    let _ = window.emit("multi-agent-step", &ev);
-                }
-            }
-            TickExecutionResult::Completed(TickResult::Finished { text, .. }) => {
-                final_text = text;
-                break;
-            }
-            TickExecutionResult::Completed(TickResult::WaitForApproval { .. }) => {
-                // Auto-approve or reject in multi-agent? We should probably auto-approve for simplicity, or return error.
-                // For MVP, if it hits wait for approval, we just abort or tell it it's approved.
-                // But run_tick already handles auto_approve = true for some tools.
-                // If it needs user approval, we just break.
-                final_text = "Halted: Tool requires user approval in Multi-Agent mode.".to_string();
-                break;
-            }
-            TickExecutionResult::Completed(TickResult::Error { message, .. }) => {
-                return Err(message);
-            }
-            TickExecutionResult::Cancelled => {
-                return Err("Cancelled".to_string());
-            }
-            TickExecutionResult::Timeout => {
-                return Err("Timeout".to_string());
-            }
+        if !text.trim().is_empty() {
+            out.push_str(&format!("[{}]: {}\n\n", role, text));
         }
     }
-    
-    let ev = MultiAgentStepEvent {
-        session_id: session_id.clone(),
-        step: 999,
-        agent_role: role_id.to_string(),
-        agent_name: role_name.to_string(),
-        avatar: avatar.to_string(),
-        content: final_text.clone(),
-    };
-    let _ = window.emit("multi-agent-step", &ev);
+    out
+}
 
-    Ok(final_text)
+fn parse_tool_calls_from_text(text: &str) -> Vec<ToolCall> {
+    let parsed = core_engine::agent_harness::parser::parse_model_response(text);
+    if !parsed.tool_calls.is_empty() {
+        return parsed.tool_calls;
+    }
+    if let Some(tc) = parsed.tool_call {
+        return vec![tc];
+    }
+    vec![]
 }
 
 pub async fn run_multi_agent_workflow(
@@ -159,11 +74,14 @@ pub async fn run_multi_agent_workflow(
     active_cwd: Option<String>,
     thinking_mode: Option<String>,
     vm_manager: Option<Arc<core_engine::vm_engine::VmManager>>,
+    opencode_manager: Arc<OpenCodeManager>,
+    cancel_flag: Arc<AtomicBool>,
     window: WebviewWindow,
     session_id: String,
 ) -> Result<AgentResponse, String> {
+    cancel_flag.store(false, Ordering::SeqCst);
+
     let ai_cfg = load_custom_ai_config();
-    let model_config = resolve_model_config(&ai_cfg, &model);
     let model_to_use = if !model.is_empty() {
         model.clone()
     } else if !ai_cfg.active_model.is_empty() {
@@ -171,19 +89,40 @@ pub async fn run_multi_agent_workflow(
     } else {
         "gemini-1.5-flash".to_string()
     };
-    let api_key = resolve_api_key(&model_config)?;
-    let std_name = model_config.api_standard.clone().unwrap_or_else(|| "openai".to_string());
-    
-    let cwd = active_cwd.map(std::path::PathBuf::from).unwrap_or_else(|| std::env::current_dir().unwrap());
 
-    // 1. Leader (Just text, no tools needed)
-    let leader_system = "Bạn là Trưởng Team (Leader 👑) điều phối đội ngũ phát triển phần mềm.\nTiếp nhận yêu cầu và phát biểu ngắn gọn giao việc cho Planner.";
-    let leader_res = rig_bridge::call_rig(
-        &std_name, &api_key, &model_to_use, &model_config.api_url, model_config.temperature, model_config.top_p,
-        leader_system, &[user_msg(&message)], thinking_mode.as_deref(), Some(&window)
-    ).await?;
-    let leader_text = leader_res.text.unwrap_or_default();
-    
+    // Validate API key unless using OpenCode built-in/free model or local URL
+    let resolved_oc = opencode_manager.resolve_model_for_swarm(&ai_cfg, &model_to_use);
+    if resolved_oc.provider_id != "opencode" {
+        let model_config = resolve_model_config(&ai_cfg, &model_to_use);
+        if !OpenCodeManager::is_local_model_url(&model_config.api_url) {
+            let _ = resolve_api_key(&model_config)?;
+        }
+    }
+
+    let cwd = active_cwd
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+    let directory = cwd.to_string_lossy().to_string();
+
+    // 1. Leader (via OpenCode)
+    let mut leader_system = "Bạn là Trưởng Team (Leader 👑) điều phối đội ngũ phát triển phần mềm.\nTiếp nhận yêu cầu và phát biểu ngắn gọn giao việc cho Planner.".to_string();
+    if thinking_mode.as_deref() == Some("high") {
+        leader_system.push_str("\n\nThink step-by-step carefully before answering.");
+    }
+    let leader_text = opencode_manager
+        .run_oneshot_completion(
+            &ai_cfg,
+            &model_to_use,
+            &directory,
+            &leader_system,
+            &message,
+            Some(&cancel_flag),
+            Some(&window),
+        )
+        .await?;
+
     let _ = window.emit("multi-agent-step", &MultiAgentStepEvent {
         session_id: session_id.clone(),
         step: 1,
@@ -199,32 +138,49 @@ pub async fn run_multi_agent_workflow(
         harness.set_vm_manager(vm_mgr);
     }
     let mut coordinator = core_engine::multi_agent::orchestration::coordinator::Coordinator::new(&mut harness);
-    
+
     // Set auto-approvals options from defaults (reads approved, writes/executes require approval)
     coordinator.config.auto_approve_all = false;
     coordinator.config.auto_approve_reads = true;
     coordinator.config.auto_approve_writes = false;
 
-    // Define the LLM executor closure using Rig Bridge
-    let key = api_key.to_string();
-    let mdl = model_to_use.to_string();
-    let url = model_config.api_url.to_string();
-    let std = std_name.to_string();
+    // Define the LLM executor closure using OpenCode
+    let ocm = opencode_manager.clone();
+    let cfg_clone = ai_cfg.clone();
+    let mdl = model_to_use.clone();
+    let dir = directory.clone();
+    let cf = cancel_flag.clone();
     let w = window.clone();
     let tm = thinking_mode.clone();
-    let temp = model_config.temperature;
-    let top_p = model_config.top_p;
 
     let llm_executor = move |sys: String, hist: Vec<ChatMessage>| {
-        let key = key.clone();
+        let ocm = ocm.clone();
+        let cfg_clone = cfg_clone.clone();
         let mdl = mdl.clone();
-        let url = url.clone();
-        let std = std.clone();
+        let dir = dir.clone();
+        let cf = cf.clone();
         let w = w.clone();
         let tm = tm.clone();
         async move {
-            let res = rig_bridge::call_rig(&std, &key, &mdl, &url, temp, top_p, &sys, &hist, tm.as_deref(), Some(&w)).await?;
-            Ok((res.text, res.tool_calls))
+            let mut final_sys = sys;
+            if tm.as_deref() == Some("high") {
+                final_sys.push_str("\n\nThink step-by-step carefully before answering.");
+            }
+            let prompt = format_history_prompt(&hist);
+            let raw_text = ocm
+                .run_oneshot_completion(
+                    &cfg_clone,
+                    &mdl,
+                    &dir,
+                    &final_sys,
+                    &prompt,
+                    Some(&cf),
+                    Some(&w),
+                )
+                .await?;
+            let tool_calls = parse_tool_calls_from_text(&raw_text);
+            let plain_text = core_engine::agent_harness::parser::parse_model_response(&raw_text).plain_text;
+            Ok((plain_text, tool_calls))
         }
     };
 

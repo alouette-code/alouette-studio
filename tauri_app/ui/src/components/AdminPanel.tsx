@@ -414,11 +414,21 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
     gemini: "",
     qwen: "",
   });
+  const [configuredProviders, setConfiguredProviders] = useState<{
+    [id: string]: boolean;
+  }>({});
+  const backendConfigRef = useRef<any>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleApiKeyChange = (providerId: string, newKey: string) => {
     const updatedKeys = { ...providerApiKeys, [providerId]: newKey };
     setProviderApiKeys(updatedKeys);
-    autoSave(activeModels, updatedKeys);
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      autoSave(activeModels, updatedKeys);
+    }, 800);
   };
 
   const handleToggleAlouetteOpen = async () => {
@@ -519,21 +529,26 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
           providers: { [key: string]: RustProviderConfig };
         }
 
+        // Never keep plaintext API keys in localStorage
+        localStorage.removeItem("alouette_provider_api_keys");
+
         const config = await invoke<RustCustomAiConfig>("get_custom_ai_config");
         if (config && config.providers) {
-          // Extract provider keys
-          const keys: { [key: string]: string } = {};
+          backendConfigRef.current = config;
+          // Track which providers already have a saved key without exposing or storing the key in UI/localStorage
+          const configured: { [key: string]: boolean } = {};
+          const emptyInputs: { [key: string]: string } = {};
           Object.entries(config.providers).forEach(
             ([providerId, providerCfg]) => {
-              keys[providerId] = providerCfg.api_key || "";
+              const rawKey = (providerCfg.api_key || "").trim();
+              configured[providerId] =
+                rawKey === "[REDACTED]" || (rawKey !== "" && rawKey !== "none");
+              emptyInputs[providerId] = "";
             },
           );
 
-          setProviderApiKeys(keys);
-          localStorage.setItem(
-            "alouette_provider_api_keys",
-            JSON.stringify(keys),
-          );
+          setConfiguredProviders(configured);
+          setProviderApiKeys((prev) => ({ ...prev, ...emptyInputs }));
 
           // Dynamically construct predefined models list from YAML providers
           const loadedProviders: PredefinedModel[] = Object.entries(
@@ -611,72 +626,82 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
           if (config.active_model && !savedActive) {
             setActiveModels([config.active_model]);
           }
-        } else {
-          const savedKeys = localStorage.getItem("alouette_provider_api_keys");
-          if (savedKeys) setProviderApiKeys(JSON.parse(savedKeys));
         }
       } catch (err) {
         console.error("Failed to load YAML config:", err);
-        const savedKeys = localStorage.getItem("alouette_provider_api_keys");
-        if (savedKeys) setProviderApiKeys(JSON.parse(savedKeys));
       }
     })();
   }, []);
 
-  // Instant Auto-Save Helper
-  const autoSave = async (newActive: string[], apiKeys = providerApiKeys) => {
+  // Instant Auto-Save Helper (never stores API keys in localStorage)
+  const autoSave = async (
+    newActive: string[],
+    apiKeys = providerApiKeys,
+    configured = configuredProviders,
+  ) => {
     localStorage.setItem("alouette_active_models", JSON.stringify(newActive));
-    localStorage.setItem("alouette_provider_api_keys", JSON.stringify(apiKeys));
+    localStorage.removeItem("alouette_provider_api_keys");
 
     // Trigger dynamic storage event for current window
     window.dispatchEvent(new Event("storage"));
 
-    // Save to backend YAML
+    // Save to backend YAML while preserving existing custom api_url/temperature/top_p
     try {
       interface RustModelDetail {
         context_limit: number;
         supports_vision: boolean;
-        api_standard: string;
-        api_url: string;
-        temperature: number;
-        top_p: number;
+        api_standard?: string;
+        api_url?: string;
+        temperature?: number;
+        top_p?: number;
       }
       interface RustProviderConfig {
         api_key: string;
-        api_url: string;
+        api_url?: string;
         models: { [key: string]: RustModelDetail };
       }
 
+      const existingProviders = backendConfigRef.current?.providers || {};
       const providersMap: { [key: string]: RustProviderConfig } = {};
 
       // Map each predefined model
       predefinedModels.forEach((providerGroup) => {
-        const apiKey = apiKeys[providerGroup.id] || "";
+        const typedKey = (apiKeys[providerGroup.id] || "").trim();
+        const apiKey =
+          typedKey.length > 0
+            ? typedKey
+            : configured[providerGroup.id]
+              ? "[REDACTED]"
+              : "";
 
+        const existingProv = existingProviders[providerGroup.id];
         let apiStandard = "openai";
-        let apiUrl = "https://api.openai.com/v1";
+        let defaultApiUrl = "https://api.openai.com/v1";
 
         if (providerGroup.id === "deepseek") {
           apiStandard = "openai";
-          apiUrl = "https://api.deepseek.com/v1";
+          defaultApiUrl = "https://api.deepseek.com/v1";
         } else if (providerGroup.id === "claude") {
           apiStandard = "claude";
-          apiUrl = "https://api.anthropic.com/v1";
+          defaultApiUrl = "https://api.anthropic.com/v1";
         } else if (providerGroup.id === "gpt-chatgpt") {
           apiStandard = "openai";
-          apiUrl = "https://api.openai.com/v1";
+          defaultApiUrl = "https://api.openai.com/v1";
         } else if (providerGroup.id === "gemini") {
           apiStandard = "gemini";
-          apiUrl = "https://generativelanguage.googleapis.com/v1beta";
+          defaultApiUrl = "https://generativelanguage.googleapis.com/v1beta";
         } else if (providerGroup.id === "qwen") {
           apiStandard = "openai";
-          apiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+          defaultApiUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1";
         }
+
+        const apiUrl = existingProv?.api_url || defaultApiUrl;
 
         const modelsMap: { [key: string]: RustModelDetail } = {};
         providerGroup.models.forEach((subModel) => {
-          let limit = 128000;
-          if (subModel.context) {
+          const existingModel = existingProv?.models?.[subModel.id];
+          let limit = existingModel?.context_limit ?? 128000;
+          if (!existingModel?.context_limit && subModel.context) {
             const val = parseInt(subModel.context.replace(/[^0-9]/g, ""), 10);
             if (!isNaN(val)) {
               limit = val * 1000;
@@ -685,11 +710,11 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
 
           modelsMap[subModel.id] = {
             context_limit: limit,
-            supports_vision: !!subModel.vision,
-            temperature: 0.2,
-            top_p: 0.95,
-            api_standard: apiStandard,
-            api_url: apiUrl,
+            supports_vision: existingModel?.supports_vision ?? !!subModel.vision,
+            temperature: existingModel?.temperature ?? 0.2,
+            top_p: existingModel?.top_p ?? 0.95,
+            api_standard: existingModel?.api_standard ?? apiStandard,
+            api_url: existingModel?.api_url ?? apiUrl,
           };
         });
 
@@ -711,6 +736,21 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
           providers: providersMap,
         },
       });
+
+      const nextConfigured = { ...configured };
+      const clearedInputs = { ...apiKeys };
+      let changed = false;
+      Object.keys(providersMap).forEach((pid) => {
+        if ((apiKeys[pid] || "").trim().length > 0) {
+          nextConfigured[pid] = true;
+          clearedInputs[pid] = "";
+          changed = true;
+        }
+      });
+      if (changed) {
+        setConfiguredProviders(nextConfigured);
+        setProviderApiKeys(clearedInputs);
+      }
     } catch (err) {
       console.error("Failed to save AI config to backend:", err);
     }
@@ -1078,7 +1118,11 @@ function AISection({ setToast }: { setToast: (t: ToastState | null) => void }) {
                       <input
                         type="password"
                         className="admin-input"
-                        placeholder={`Enter API Key for ${model.provider}...`}
+                        placeholder={
+                          configuredProviders[model.id]
+                            ? `•••••••••••••••• (API Key đã lưu — nhập key mới để thay đổi)`
+                            : `Enter API Key for ${model.provider}...`
+                        }
                         value={providerApiKeys[model.id] || ""}
                         onChange={(e) =>
                           handleApiKeyChange(model.id, e.target.value)
